@@ -44,6 +44,9 @@ export function Accounts({
 }) {
   const [viewAccountId, setViewAccountId] = useState<string | null>(null);
   const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
+  const [sortBy, setSortBy] = useState<"banco" | "moneda">("banco");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const dirMul = sortDir === "asc" ? 1 : -1;
 
   return (
     <div className="pb-24">
@@ -55,89 +58,153 @@ export function Accounts({
         </div>
       )}
 
-      <div className="space-y-3 mb-4">
-        {banks.map((bank) => {
-          const bankAccounts = accountsByBank(accounts, bank.id);
-          const hasMovements =
-            transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
-            transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId));
-          return (
-            <div key={bank.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: C.surface3 }}>
-                    <Landmark size={16} color={C.uyu} />
+      {banks.length > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <Segment value={sortBy} onChange={setSortBy} options={[{ value: "banco", label: "Por banco" }, { value: "moneda", label: "Por moneda" }]} />
+          <Segment value={sortDir} onChange={setSortDir} options={[{ value: "asc", label: "A-Z" }, { value: "desc", label: "Z-A" }]} />
+        </div>
+      )}
+
+      {sortBy === "banco" ? (
+        <div className="space-y-3 mb-4">
+          {[...banks]
+            .sort((a, b) => dirMul * a.name.localeCompare(b.name))
+            .map((bank) => {
+              const bankAccounts = [...accountsByBank(accounts, bank.id)].sort((a, b) => dirMul * a.name.localeCompare(b.name));
+              const hasMovements =
+                transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
+                transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId));
+              return (
+                <div key={bank.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: C.surface3 }}>
+                        <Landmark size={16} color={C.uyu} />
+                      </div>
+                      <div className="text-sm font-semibold" style={{ color: C.text }}>{bank.name}</div>
+                    </div>
+                    <div className="flex gap-1">
+                      <IconBtn
+                        label="Exportar a Excel"
+                        onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers)}
+                      >
+                        <FileSpreadsheet size={15} />
+                      </IconBtn>
+                      {canEdit && (
+                        <>
+                          <IconBtn label="Editar banco" onClick={() => onEditBank(bank)}><Pencil size={15} /></IconBtn>
+                          <IconBtn label="Eliminar banco" danger onClick={() => onDeleteBank(bank.id)}><Trash2 size={15} /></IconBtn>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-sm font-semibold" style={{ color: C.text }}>{bank.name}</div>
-                </div>
-                <div className="flex gap-1">
-                  <IconBtn
-                    label="Exportar a Excel"
-                    onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers)}
-                  >
-                    <FileSpreadsheet size={15} />
-                  </IconBtn>
+
+                  {bankAccounts.length === 0 ? (
+                    <p className="text-xs mb-2" style={{ color: C.textFaint }}>Sin cajas todavía.</p>
+                  ) : (
+                    <div className="space-y-1.5 mb-2">
+                      {bankAccounts.map((acc) => {
+                        const balance = accountBalance(acc, transactions, transfers);
+                        return (
+                          <button
+                            key={acc.id}
+                            onClick={() => setViewAccountId(acc.id)}
+                            className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
+                            style={{ background: C.surface2 }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Wallet size={13} color={C.textFaint} />
+                              <span style={{ color: C.text }}>{acc.name}</span>
+                              <CurrencyPill currency={acc.currency} />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                              {canEdit && (
+                                <>
+                                  <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
+                                  <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
+                                </>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {!hasMovements && bankAccounts.length > 0 && (
+                    <p className="text-[11px] mb-2" style={{ color: C.textFaint }}>
+                      El export a Excel va a incluir solo el saldo inicial hasta que asignes movimientos a estas cajas.
+                    </p>
+                  )}
+
                   {canEdit && (
-                    <>
-                      <IconBtn label="Editar banco" onClick={() => onEditBank(bank)}><Pencil size={15} /></IconBtn>
-                      <IconBtn label="Eliminar banco" danger onClick={() => onDeleteBank(bank.id)}><Trash2 size={15} /></IconBtn>
-                    </>
+                    <button
+                      onClick={() => onAddAccount(bank.id)}
+                      className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+                      style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+                    >
+                      <Plus size={13} /> Agregar caja
+                    </button>
                   )}
                 </div>
-              </div>
-
-              {bankAccounts.length === 0 ? (
-                <p className="text-xs mb-2" style={{ color: C.textFaint }}>Sin cajas todavía.</p>
-              ) : (
-                <div className="space-y-1.5 mb-2">
-                  {bankAccounts.map((acc) => {
-                    const balance = accountBalance(acc, transactions, transfers);
-                    return (
-                      <button
-                        key={acc.id}
-                        onClick={() => setViewAccountId(acc.id)}
-                        className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
-                        style={{ background: C.surface2 }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Wallet size={13} color={C.textFaint} />
-                          <span style={{ color: C.text }}>{acc.name}</span>
-                          <CurrencyPill currency={acc.currency} />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
-                          {canEdit && (
-                            <>
-                              <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
-                              <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
-                            </>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
+              );
+            })}
+        </div>
+      ) : (
+        <div className="space-y-3 mb-4">
+          {(["UYU", "USD"] as Currency[])
+            .sort((a, b) => dirMul * a.localeCompare(b))
+            .map((currency) => {
+              const currencyAccounts = accounts
+                .filter((a) => a.currency === currency)
+                .sort((a, b) => dirMul * accountLabel(a, banks).localeCompare(accountLabel(b, banks)));
+              if (currencyAccounts.length === 0) return null;
+              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers), 0);
+              return (
+                <div key={currency} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <CurrencyPill currency={currency} />
+                      <div className="text-sm font-semibold" style={{ color: C.text }}>Total en {currency}</div>
+                    </div>
+                    <span className="font-mono text-sm" style={{ color: total >= 0 ? C.positive : C.negative }}>{formatMoney(total, currency)}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {currencyAccounts.map((acc) => {
+                      const balance = accountBalance(acc, transactions, transfers);
+                      return (
+                        <button
+                          key={acc.id}
+                          onClick={() => setViewAccountId(acc.id)}
+                          className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
+                          style={{ background: C.surface2 }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Wallet size={13} color={C.textFaint} />
+                            <span style={{ color: C.text }}>{accountLabel(acc, banks)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                            {canEdit && (
+                              <>
+                                <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
+                                <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
+                              </>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
-
-              {!hasMovements && bankAccounts.length > 0 && (
-                <p className="text-[11px] mb-2" style={{ color: C.textFaint }}>
-                  El export a Excel va a incluir solo el saldo inicial hasta que asignes movimientos a estas cajas.
-                </p>
-              )}
-
-              {canEdit && (
-                <button
-                  onClick={() => onAddAccount(bank.id)}
-                  className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                  style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-                >
-                  <Plus size={13} /> Agregar caja
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          {accounts.length === 0 && (
+            <p className="text-xs text-center py-4" style={{ color: C.textFaint }}>Todavía no agregaste cajas.</p>
+          )}
+        </div>
+      )}
 
       {canEdit && (
         <button
