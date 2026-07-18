@@ -3,7 +3,7 @@ import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, Repeat, C
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { monthKeyOf, currentMonthKey, todayISO } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
 
@@ -43,27 +43,30 @@ export function Transactions({
   onEditCardPayment: (p: CardPayment) => void;
   onDeleteCardPayment: (id: string) => void;
 }) {
-  const [filterMonth, setFilterMonth] = useState(currentMonthKey());
+  const [filterMonth, setFilterMonth] = useState<string>("all");
 
-  const items: LedgerItem[] = [
+  const allItems: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
     ...transfers.map((t): LedgerItem => ({ kind: "transfer", date: t.date, data: t })),
     ...cardPayments.map((p): LedgerItem => ({ kind: "cardPayment", date: p.date, data: p })),
-  ]
-    .filter((item) => monthKeyOf(item.date) === filterMonth)
-    .sort((a, b) => b.date.localeCompare(a.date));
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  const availableMonths = Array.from(new Set(allItems.map((item) => monthKeyOf(item.date)))).sort((a, b) => b.localeCompare(a));
+
+  const items = filterMonth === "all" ? allItems : allItems.filter((item) => monthKeyOf(item.date) === filterMonth);
 
   return (
     <div className="pb-24">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 gap-2">
         <h1 className="text-2xl font-display" style={{ color: C.text }}>Movimientos</h1>
-        <input
-          type="month"
-          value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)}
-          aria-label="Filtrar por mes"
-          style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 8, padding: "6px 8px", color: C.text }}
-        />
+        <div className="w-40">
+          <Select aria-label="Filtrar por período" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
+            <option value="all">Todos los períodos</option>
+            {availableMonths.map((mk) => (
+              <option key={mk} value={mk}>{monthLabel(mk).replace(/^./, (c) => c.toUpperCase())}</option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       {canEdit && accounts.length >= 2 && (
@@ -78,7 +81,7 @@ export function Transactions({
 
       {items.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          Sin movimientos este mes.
+          {filterMonth === "all" ? "Todavía no registraste movimientos." : "Sin movimientos en este período."}
         </div>
       )}
 
