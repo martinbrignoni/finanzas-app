@@ -1,0 +1,168 @@
+export type Currency = "UYU" | "USD";
+export type TransactionType = "ingreso" | "gasto";
+
+/**
+ * Todos los montos se guardan en "unidades mínimas" (equivalente a centésimos),
+ * como enteros. Nunca se opera con decimales de punto flotante para plata.
+ * Usar lib/money.ts (toMinor/fromMinor) para convertir desde/hacia el input del usuario.
+ */
+export interface Transaction {
+  id: string;
+  type: TransactionType;
+  amountMinor: number;
+  currency: Currency;
+  category: string;
+  date: string; // YYYY-MM-DD
+  note?: string;
+  /** Cuenta bancaria asociada (opcional: un movimiento puede no estar ligado a ninguna cuenta). */
+  accountId?: string;
+}
+
+export interface Bank {
+  id: string;
+  name: string;
+}
+
+export interface Account {
+  id: string;
+  bankId: string;
+  name: string; // ej. "Caja de ahorro", "Cuenta corriente"
+  currency: Currency;
+  initialBalanceMinor: number;
+}
+
+export interface Card {
+  id: string;
+  name: string;
+  closingDay: number; // 1-31
+  dueDay: number; // 1-31
+}
+
+export interface Installment {
+  id: string;
+  cardId: string;
+  description: string;
+  currency: Currency;
+  totalAmountMinor: number;
+  numInstallments: number;
+  startMonth: string; // YYYY-MM
+  installmentAmountMinor: number;
+}
+
+export interface Budget {
+  id: string;
+  category: string;
+  currency: Currency;
+  limitMinor: number;
+}
+
+/** Categoría administrable por el usuario (antes eran constantes fijas en el código). */
+export interface Category {
+  id: string;
+  name: string;
+  type: TransactionType;
+}
+
+/**
+ * Cada módulo/pestaña de la app es una "clave de permiso". Se usa tanto para
+ * decidir qué pestañas ve un usuario como qué puede modificar en cada una.
+ */
+export type PermissionKey =
+  | "inicio"
+  | "movimientos"
+  | "cuentas"
+  | "tarjetas"
+  | "presupuestos"
+  | "proyeccion"
+  | "configuracion";
+
+export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
+  { key: "inicio", label: "Inicio" },
+  { key: "movimientos", label: "Movimientos" },
+  { key: "cuentas", label: "Cuentas" },
+  { key: "tarjetas", label: "Tarjetas" },
+  { key: "presupuestos", label: "Presupuestos" },
+  { key: "proyeccion", label: "Proyección" },
+  { key: "configuracion", label: "Configuración" },
+];
+
+export interface ModulePermission {
+  view: boolean;
+  edit: boolean; // agregar/editar/eliminar dentro del módulo (implica view)
+}
+
+export type PermissionSet = Record<PermissionKey, ModulePermission>;
+
+/**
+ * IMPORTANTE: esto es una organización de la interfaz, no seguridad real.
+ * No hay contraseña ni backend detrás: cualquiera con acceso al navegador
+ * puede ver todos los datos igual. Sirve para evitar errores por descuido
+ * entre personas de confianza que comparten la app, no para proteger
+ * información de gente que no debería verla.
+ */
+export interface AppUser {
+  id: string;
+  name: string;
+  permissions: PermissionSet;
+}
+
+export interface FinanceData {
+  schemaVersion: number;
+  transactions: Transaction[];
+  cards: Card[];
+  installments: Installment[];
+  budgets: Budget[];
+  banks: Bank[];
+  accounts: Account[];
+  categories: Category[];
+  users: AppUser[];
+  /** Perfil actualmente activo en este navegador. */
+  activeUserId: string | null;
+}
+
+export const CURRENT_SCHEMA_VERSION = 3;
+
+/** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
+export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
+  "Alimentación",
+  "Vivienda",
+  "Transporte",
+  "Salud",
+  "Ocio",
+  "Servicios",
+  "Educación",
+  "Otros",
+];
+
+export const DEFAULT_INCOME_CATEGORY_NAMES = ["Sueldo", "Freelance", "Otros ingresos"];
+
+export function fullPermissions(value: boolean): PermissionSet {
+  const set = {} as PermissionSet;
+  PERMISSION_MODULES.forEach((m) => {
+    set[m.key] = { view: value, edit: value };
+  });
+  return set;
+}
+
+export function defaultCategories(): Category[] {
+  return [
+    ...DEFAULT_EXPENSE_CATEGORY_NAMES.map((name) => ({ id: crypto.randomUUID(), name, type: "gasto" as const })),
+    ...DEFAULT_INCOME_CATEGORY_NAMES.map((name) => ({ id: crypto.randomUUID(), name, type: "ingreso" as const })),
+  ];
+}
+
+export function emptyFinanceData(): FinanceData {
+  const adminId = crypto.randomUUID();
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    transactions: [],
+    cards: [],
+    installments: [],
+    budgets: [],
+    banks: [],
+    accounts: [],
+    categories: defaultCategories(),
+    users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
+    activeUserId: adminId,
+  };
+}
