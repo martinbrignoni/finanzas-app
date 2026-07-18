@@ -1,13 +1,20 @@
 import { useState } from "react";
-import { Delete } from "lucide-react";
+import { Delete, Copy, Check } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import { Modal } from "./ui";
 
 type Op = "+" | "−" | "×" | "÷";
 
+const IVA_RATE = 0.22;
+
 /** Redondea a 10 decimales y saca ceros/artefactos de punto flotante (ej. 0.1 + 0.2). */
 function clean(n: number): number {
   return Math.round(n * 1e10) / 1e10;
+}
+
+/** Redondeo a 2 decimales, para los resultados de IVA. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 function applyOp(a: number, b: number, op: Op): number {
@@ -43,6 +50,7 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
   const [previous, setPrevious] = useState<number | null>(null);
   const [operator, setOperator] = useState<Op | null>(null);
   const [overwrite, setOverwrite] = useState(true);
+  const [copied, setCopied] = useState(false);
 
   const inputDigit = (d: string) => {
     if (display === "Error" || overwrite) {
@@ -102,6 +110,38 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
     setOverwrite(true);
   };
 
+  /** Toma el valor actual como neto (sin IVA) y calcula el total con IVA incluido: neto × 1.22. */
+  const addIva = () => {
+    if (display === "Error") return;
+    setDisplay(String(round2(parseFloat(display) * (1 + IVA_RATE))));
+    setOverwrite(true);
+  };
+
+  /** Toma el valor actual como total (con IVA incluido) y calcula el neto: total ÷ 1.22. */
+  const removeIva = () => {
+    if (display === "Error") return;
+    setDisplay(String(round2(parseFloat(display) / (1 + IVA_RATE))));
+    setOverwrite(true);
+  };
+
+  /** Toma el valor actual como total (con IVA incluido) y muestra solo el IVA contenido: (total ÷ 1.22) × 0.22. */
+  const ivaOf = () => {
+    if (display === "Error") return;
+    setDisplay(String(round2((parseFloat(display) / (1 + IVA_RATE)) * IVA_RATE)));
+    setOverwrite(true);
+  };
+
+  const copyResult = async () => {
+    if (display === "Error") return;
+    try {
+      await navigator.clipboard.writeText(display);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // si el navegador bloquea el portapapeles, no rompemos nada: el usuario puede copiar a mano
+    }
+  };
+
   const btnStyle: React.CSSProperties = {
     background: C.surface2,
     color: C.text,
@@ -134,9 +174,18 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Calculadora" onClose={onClose}>
       <div
-        className="rounded-xl px-4 py-5 mb-3 text-right"
+        className="relative rounded-xl px-4 py-5 mb-3 text-right"
         style={{ background: C.surface2, border: `1px solid ${C.border}` }}
       >
+        <button
+          onClick={copyResult}
+          aria-label="Copiar resultado"
+          className="absolute top-2.5 left-2.5 p-1.5 rounded-md flex items-center gap-1 text-[11px] font-semibold"
+          style={{ color: copied ? C.positive : C.textFaint }}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? "Copiado" : "Copiar"}
+        </button>
         {operator && (
           <div className="text-xs font-mono mb-1" style={{ color: C.textFaint }}>
             {formatDisplay(String(previous))} {operator}
@@ -148,6 +197,18 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
         >
           {formatDisplay(display)}
         </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-2">
+        <button onClick={addIva} className="py-2.5 rounded-lg text-xs font-semibold" style={{ background: C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}>
+          +IVA (22%)
+        </button>
+        <button onClick={removeIva} className="py-2.5 rounded-lg text-xs font-semibold" style={{ background: C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}>
+          −IVA (22%)
+        </button>
+        <button onClick={ivaOf} className="py-2.5 rounded-lg text-xs font-semibold" style={{ background: C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}>
+          IVA del valor
+        </button>
       </div>
 
       <div className="grid grid-cols-4 gap-2">
