@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown } from "lucide-react";
 import { theme as C } from "./styles/theme";
+import { ConfirmDialog } from "./components/ui";
 import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
@@ -31,7 +32,7 @@ const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
 type ModalState =
   | { type: "transaction"; payload?: Transaction }
   | { type: "card"; payload?: Card }
-  | { type: "installment"; payload: { cardId: string } }
+  | { type: "installment"; payload: { cardId: string; installment?: Installment } }
   | { type: "budget" }
   | { type: "bank"; payload?: Bank }
   | { type: "account"; payload: { bankId: string; account?: Account } }
@@ -61,6 +62,9 @@ export default function App() {
 
   const closeModal = () => setModal(null);
 
+  const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
+  const requestConfirm = useCallback((message: string, onConfirm: () => void) => setConfirm({ message, onConfirm }), []);
+
   const activeUser = useMemo(() => {
     if (!data) return null;
     return data.users.find((u) => u.id === data.activeUserId) ?? null;
@@ -80,6 +84,10 @@ export default function App() {
   const deleteTransaction = useCallback((id: string) => {
     setData((d) => (d ? { ...d, transactions: d.transactions.filter((x) => x.id !== id) } : d));
   }, []);
+  const confirmDeleteTransaction = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este movimiento? No se puede deshacer.", () => deleteTransaction(id)),
+    [requestConfirm, deleteTransaction]
+  );
 
   // --- cards & installments ---
   const upsertCard = useCallback((c: Card) => {
@@ -103,13 +111,26 @@ export default function App() {
         : d
     );
   }, []);
-  const addInstallment = useCallback((inst: Installment) => {
-    setData((d) => (d ? { ...d, installments: [...d.installments, inst] } : d));
+  const confirmDeleteCard = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta tarjeta? También se eliminan sus cuotas y pagos registrados.", () => deleteCard(id)),
+    [requestConfirm, deleteCard]
+  );
+  const upsertInstallment = useCallback((inst: Installment) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.installments.findIndex((x) => x.id === inst.id);
+      const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? inst : x)) : [...d.installments, inst];
+      return { ...d, installments };
+    });
     closeModal();
   }, []);
   const deleteInstallment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, installments: d.installments.filter((x) => x.id !== id) } : d));
   }, []);
+  const confirmDeleteInstallment = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta compra en cuotas? No se puede deshacer.", () => deleteInstallment(id)),
+    [requestConfirm, deleteInstallment]
+  );
   const upsertCardPayment = useCallback((p: CardPayment) => {
     setData((d) => {
       if (!d) return d;
@@ -122,6 +143,10 @@ export default function App() {
   const deleteCardPayment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, cardPayments: d.cardPayments.filter((x) => x.id !== id) } : d));
   }, []);
+  const confirmDeleteCardPayment = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este pago de tarjeta? El saldo de la cuenta se va a recalcular.", () => deleteCardPayment(id)),
+    [requestConfirm, deleteCardPayment]
+  );
 
   // --- budgets ---
   const addBudget = useCallback((b: Budget) => {
@@ -131,6 +156,10 @@ export default function App() {
   const deleteBudget = useCallback((id: string) => {
     setData((d) => (d ? { ...d, budgets: d.budgets.filter((x) => x.id !== id) } : d));
   }, []);
+  const confirmDeleteBudget = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este presupuesto?", () => deleteBudget(id)),
+    [requestConfirm, deleteBudget]
+  );
 
   // --- banks & accounts ---
   const upsertBank = useCallback((b: Bank) => {
@@ -154,6 +183,10 @@ export default function App() {
       };
     });
   }, []);
+  const confirmDeleteBank = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este banco? También se eliminan sus cajas.", () => deleteBank(id)),
+    [requestConfirm, deleteBank]
+  );
   const upsertAccount = useCallback((a: Account) => {
     setData((d) => {
       if (!d) return d;
@@ -176,6 +209,10 @@ export default function App() {
         : d
     );
   }, []);
+  const confirmDeleteAccount = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta caja? Los movimientos asociados van a quedar sin cuenta.", () => deleteAccount(id)),
+    [requestConfirm, deleteAccount]
+  );
   const upsertTransfer = useCallback((tr: Transfer) => {
     setData((d) => {
       if (!d) return d;
@@ -188,6 +225,10 @@ export default function App() {
   const deleteTransfer = useCallback((id: string) => {
     setData((d) => (d ? { ...d, transfers: d.transfers.filter((x) => x.id !== id) } : d));
   }, []);
+  const confirmDeleteTransfer = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta transferencia? No se puede deshacer.", () => deleteTransfer(id)),
+    [requestConfirm, deleteTransfer]
+  );
 
   // --- categories ---
   const addCategory = useCallback((c: Category) => {
@@ -197,6 +238,10 @@ export default function App() {
   const deleteCategory = useCallback((id: string) => {
     setData((d) => (d ? { ...d, categories: d.categories.filter((x) => x.id !== id) } : d));
   }, []);
+  const confirmDeleteCategory = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta categoría?", () => deleteCategory(id)),
+    [requestConfirm, deleteCategory]
+  );
 
   // --- users ---
   const upsertUser = useCallback((u: AppUser) => {
@@ -216,6 +261,10 @@ export default function App() {
       return { ...d, users, activeUserId };
     });
   }, []);
+  const confirmDeleteUser = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este usuario?", () => deleteUser(id)),
+    [requestConfirm, deleteUser]
+  );
   const setActiveUser = useCallback((id: string) => {
     setData((d) => (d ? { ...d, activeUserId: id } : d));
     setUserMenuOpen(false);
@@ -289,12 +338,12 @@ export default function App() {
                 banks={data.banks}
                 canEdit={has("movimientos", "edit")}
                 onEdit={(t) => setModal({ type: "transaction", payload: t })}
-                onDelete={deleteTransaction}
+                onDelete={confirmDeleteTransaction}
                 onAddTransfer={() => setModal({ type: "transfer" })}
                 onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
-                onDeleteTransfer={deleteTransfer}
+                onDeleteTransfer={confirmDeleteTransfer}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
-                onDeleteCardPayment={deleteCardPayment}
+                onDeleteCardPayment={confirmDeleteCardPayment}
               />
             )}
             {tab === "cuentas" && (
@@ -309,16 +358,16 @@ export default function App() {
                 canEditMovements={has("movimientos", "edit")}
                 onAddBank={() => setModal({ type: "bank" })}
                 onEditBank={(b) => setModal({ type: "bank", payload: b })}
-                onDeleteBank={deleteBank}
+                onDeleteBank={confirmDeleteBank}
                 onAddAccount={(bankId) => setModal({ type: "account", payload: { bankId } })}
                 onEditAccount={(a) => setModal({ type: "account", payload: { bankId: a.bankId, account: a } })}
-                onDeleteAccount={deleteAccount}
+                onDeleteAccount={confirmDeleteAccount}
                 onEditTransaction={(t) => setModal({ type: "transaction", payload: t })}
-                onDeleteTransaction={deleteTransaction}
+                onDeleteTransaction={confirmDeleteTransaction}
                 onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
-                onDeleteTransfer={deleteTransfer}
+                onDeleteTransfer={confirmDeleteTransfer}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
-                onDeleteCardPayment={deleteCardPayment}
+                onDeleteCardPayment={confirmDeleteCardPayment}
               />
             )}
             {tab === "tarjetas" && (
@@ -327,12 +376,13 @@ export default function App() {
                 canEdit={has("tarjetas", "edit")}
                 onAddCard={() => setModal({ type: "card" })}
                 onEditCard={(c) => setModal({ type: "card", payload: c })}
-                onDeleteCard={deleteCard}
+                onDeleteCard={confirmDeleteCard}
                 onAddInstallment={(cardId) => setModal({ type: "installment", payload: { cardId } })}
-                onDeleteInstallment={deleteInstallment}
+                onEditInstallment={(i) => setModal({ type: "installment", payload: { cardId: i.cardId, installment: i } })}
+                onDeleteInstallment={confirmDeleteInstallment}
                 onAddCardPayment={(cardId) => setModal({ type: "cardPayment", payload: { cardId } })}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
-                onDeleteCardPayment={deleteCardPayment}
+                onDeleteCardPayment={confirmDeleteCardPayment}
               />
             )}
             {tab === "presupuestos" && (
@@ -341,7 +391,7 @@ export default function App() {
                 transactions={data.transactions}
                 canEdit={has("presupuestos", "edit")}
                 onAdd={() => setModal({ type: "budget" })}
-                onDelete={deleteBudget}
+                onDelete={confirmDeleteBudget}
               />
             )}
             {tab === "proyeccion" && <Projection data={data} />}
@@ -356,9 +406,9 @@ export default function App() {
                 onSetActiveUser={setActiveUser}
                 onAddUser={() => setModal({ type: "user" })}
                 onEditUser={(u) => setModal({ type: "user", payload: u })}
-                onDeleteUser={deleteUser}
+                onDeleteUser={confirmDeleteUser}
                 onAddCategory={() => setModal({ type: "category" })}
-                onDeleteCategory={deleteCategory}
+                onDeleteCategory={confirmDeleteCategory}
               />
             )}
           </>
@@ -397,7 +447,9 @@ export default function App() {
         <TransactionModal initial={modal.payload} accounts={data.accounts} categories={data.categories} onSave={upsertTransaction} onClose={closeModal} />
       )}
       {modal?.type === "card" && <CardModal initial={modal.payload} onSave={upsertCard} onClose={closeModal} />}
-      {modal?.type === "installment" && <InstallmentModal cardId={modal.payload.cardId} onSave={addInstallment} onClose={closeModal} />}
+      {modal?.type === "installment" && (
+        <InstallmentModal cardId={modal.payload.cardId} initial={modal.payload.installment} onSave={upsertInstallment} onClose={closeModal} />
+      )}
       {modal?.type === "budget" && <BudgetModal categories={data.categories} onSave={addBudget} onClose={closeModal} />}
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (
@@ -420,6 +472,14 @@ export default function App() {
       )}
       {modal?.type === "category" && <CategoryModal onSave={addCategory} onClose={closeModal} />}
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}
+
+      {confirm && (
+        <ConfirmDialog
+          message={confirm.message}
+          onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
     </div>
   );
 }

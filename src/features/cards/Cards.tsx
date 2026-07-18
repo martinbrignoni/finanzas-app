@@ -34,6 +34,7 @@ export function Cards({
   onEditCard,
   onDeleteCard,
   onAddInstallment,
+  onEditInstallment,
   onDeleteInstallment,
   onAddCardPayment,
   onEditCardPayment,
@@ -45,6 +46,7 @@ export function Cards({
   onEditCard: (c: Card) => void;
   onDeleteCard: (id: string) => void;
   onAddInstallment: (cardId: string) => void;
+  onEditInstallment: (i: Installment) => void;
   onDeleteInstallment: (id: string) => void;
   onAddCardPayment: (cardId: string) => void;
   onEditCardPayment: (p: CardPayment) => void;
@@ -108,7 +110,12 @@ export function Cards({
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono" style={{ color: C.textMuted }}>{formatMoney(p.installmentAmountMinor, p.currency)}</span>
-                          {canEdit && <IconBtn label="Eliminar cuota" danger onClick={() => onDeleteInstallment(p.id)}><Trash2 size={13} /></IconBtn>}
+                          {canEdit && (
+                            <>
+                              <IconBtn label="Editar cuota" onClick={() => onEditInstallment(p)}><Pencil size={13} /></IconBtn>
+                              <IconBtn label="Eliminar cuota" danger onClick={() => onDeleteInstallment(p.id)}><Trash2 size={13} /></IconBtn>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
@@ -212,12 +219,12 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
   );
 }
 
-export function InstallmentModal({ cardId, onSave, onClose }: { cardId: string; onSave: (i: Installment) => void; onClose: () => void }) {
-  const [description, setDescription] = useState("");
-  const [currency, setCurrency] = useState<Currency>("UYU");
-  const [totalAmount, setTotalAmount] = useState("");
-  const [numInstallments, setNumInstallments] = useState("1");
-  const [startMonth, setStartMonth] = useState(currentMonthKey());
+export function InstallmentModal({ cardId, initial, onSave, onClose }: { cardId: string; initial?: Installment; onSave: (i: Installment) => void; onClose: () => void }) {
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
+  const [totalAmount, setTotalAmount] = useState(initial ? String(fromMinor(initial.totalAmountMinor)) : "");
+  const [numInstallments, setNumInstallments] = useState(initial ? String(initial.numInstallments) : "1");
+  const [startMonth, setStartMonth] = useState(initial?.startMonth ?? currentMonthKey());
   const [error, setError] = useState<string | null>(null);
 
   const totalMinorPreview = parseAmountInput(totalAmount) ?? 0;
@@ -231,7 +238,7 @@ export function InstallmentModal({ cardId, onSave, onClose }: { cardId: string; 
     if (n < 1) return setError("La cantidad de cuotas debe ser al menos 1.");
 
     onSave({
-      id: crypto.randomUUID(),
+      id: initial?.id ?? crypto.randomUUID(),
       cardId,
       description: description.trim(),
       currency,
@@ -243,7 +250,7 @@ export function InstallmentModal({ cardId, onSave, onClose }: { cardId: string; 
   };
 
   return (
-    <Modal title="Nueva compra en cuotas" onClose={onClose}>
+    <Modal title={initial ? "Editar compra en cuotas" : "Nueva compra en cuotas"} onClose={onClose}>
       <Field label="Descripción">{(id) => <TextInput id={id} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Heladera, notebook..." />}</Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Monto total">{(id) => <TextInput id={id} type="number" min="0" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0" />}</Field>

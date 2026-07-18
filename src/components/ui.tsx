@@ -103,6 +103,67 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
   );
 }
 
+/**
+ * Diálogo de confirmación genérico, pensado sobre todo para acciones de
+ * eliminar. Se monta por encima de todo (incluso de un Modal ya abierto).
+ */
+export function ConfirmDialog({
+  title = "¿Eliminar?",
+  message,
+  confirmLabel = "Eliminar",
+  onConfirm,
+  onCancel,
+}: {
+  title?: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-xs rounded-2xl p-5"
+        style={{ background: C.surface, border: `1px solid ${C.border}` }}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+      >
+        <h3 id="confirm-title" className="text-base font-semibold mb-2 font-display" style={{ color: C.text }}>{title}</h3>
+        <p className="text-sm mb-5" style={{ color: C.textMuted }}>{message}</p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
+            style={{ background: C.surface2, color: C.text }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
+            style={{ background: C.negative, color: "#fff" }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PrimaryButton({ children, disabled, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
