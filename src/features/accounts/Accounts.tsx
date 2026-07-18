@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger } from "../../lib/accounts";
 import { exportBankToExcel } from "../../lib/excelExport";
@@ -311,6 +312,7 @@ function AccountLedgerModal({
                 : `Transferencia desde ${accountLabel(accounts.find((a) => a.id === entry.transfer!.fromAccountId), banks)}`
               : `${entry.transaction!.category}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
             const note = isCardPayment ? entry.cardPayment!.note : isTransfer ? entry.transfer!.note : undefined;
+            const receiptPath = entry.transaction?.receiptPath ?? entry.transfer?.receiptPath ?? entry.cardPayment?.receiptPath;
 
             return (
               <div key={key} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
@@ -350,6 +352,7 @@ function AccountLedgerModal({
                       </div>
                       <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>saldo {formatMoney(entry.runningBalanceMinor, account.currency)}</div>
                     </div>
+                    <ReceiptButton path={receiptPath} />
                     {canEdit && (
                       <>
                         <IconBtn

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CreditCard, Pencil, Trash2, Plus, Landmark, ShoppingBag } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
+import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, todayISO } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
@@ -178,6 +179,7 @@ export function Cards({
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(t.amountMinor, t.currency)}</span>
+                        <ReceiptButton path={t.receiptPath} />
                         {canEditMovements && (
                           <>
                             <IconBtn label="Editar gasto" onClick={() => onEditTransaction(t)}><Pencil size={13} /></IconBtn>
@@ -218,6 +220,7 @@ export function Cards({
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</span>
+                          <ReceiptButton path={p.receiptPath} />
                           {canEdit && (
                             <>
                               <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={13} /></IconBtn>
@@ -355,12 +358,14 @@ export function CardPaymentModal({
   onSave: (p: CardPayment) => void;
   onClose: () => void;
 }) {
+  const [movementId] = useState(() => initial?.id ?? crypto.randomUUID());
   const [selectedCardId, setSelectedCardId] = useState(initial?.cardId ?? cardId);
   const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
   const [accountId, setAccountId] = useState(initial?.accountId ?? "");
   const [amount, setAmount] = useState(initial ? String(fromMinor(initial.amountMinor)) : "");
   const [date, setDate] = useState(initial?.date ?? todayISO());
   const [note, setNote] = useState(initial?.note ?? "");
+  const [receiptPath, setReceiptPath] = useState<string | undefined>(initial?.receiptPath);
   const [error, setError] = useState<string | null>(null);
 
   const eligibleAccounts = accounts.filter((a) => a.currency === currency);
@@ -375,13 +380,14 @@ export function CardPaymentModal({
     if (!date) return setError("Elegí una fecha.");
 
     onSave({
-      id: initial?.id ?? crypto.randomUUID(),
+      id: movementId,
       cardId: selectedCardId,
       accountId,
       date,
       amountMinor,
       currency,
       note: note.trim() || undefined,
+      receiptPath,
     });
   };
 
@@ -429,6 +435,7 @@ export function CardPaymentModal({
       <Field label="Nota (opcional)">
         {(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Pago mínimo, pago total..." />}
       </Field>
+      <ReceiptField movementId={movementId} path={receiptPath} onChange={setReceiptPath} />
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>

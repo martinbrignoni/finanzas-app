@@ -2,6 +2,7 @@ import { useState, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
@@ -116,6 +117,7 @@ export function Transactions({
                     </div>
                     <CurrencyPill currency={t.currency} />
                   </div>
+                  <ReceiptButton path={t.receiptPath} />
                   {canEdit && (
                     <>
                       <IconBtn label="Editar movimiento" onClick={() => onEdit(t)}><Pencil size={15} /></IconBtn>
@@ -159,6 +161,7 @@ export function Transactions({
                       </div>
                     )}
                   </div>
+                  <ReceiptButton path={tr.receiptPath} />
                   {canEdit && (
                     <>
                       <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
@@ -195,6 +198,7 @@ export function Transactions({
                   <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</div>
                   <CurrencyPill currency={p.currency} />
                 </div>
+                <ReceiptButton path={p.receiptPath} />
                 {canEdit && (
                   <>
                     <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={15} /></IconBtn>
@@ -232,6 +236,8 @@ interface FormState {
   fromAmount: string;
   toAmount: string;
   exchangeRate: string;
+  // comprobante
+  receiptPath: string | undefined;
 }
 
 /**
@@ -269,6 +275,9 @@ export function MovementModal({
   const catsFor = (type: TransactionType) => categories.filter((c) => c.type === type);
   const isEditingTransaction = !!initial;
   const isEditingTransfer = !!initialTransfer;
+  // Estable durante toda la vida del modal, aunque el movimiento sea nuevo: sirve como prefijo
+  // del archivo del comprobante en Storage y después se usa como id real al guardar.
+  const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? crypto.randomUUID());
 
   const [form, setForm] = useState<FormState>(() => ({
     kind: initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
@@ -285,6 +294,7 @@ export function MovementModal({
     fromAmount: initialTransfer ? String(fromMinor(initialTransfer.fromAmountMinor)) : "",
     toAmount: initialTransfer ? String(fromMinor(initialTransfer.toAmountMinor)) : "",
     exchangeRate: initialTransfer?.exchangeRate ? String(initialTransfer.exchangeRate) : "",
+    receiptPath: initialTransfer?.receiptPath ?? initial?.receiptPath,
   }));
   const [error, setError] = useState<string | null>(null);
   const cats = form.kind === "transferencia" ? [] : catsFor(form.kind);
@@ -329,7 +339,7 @@ export function MovementModal({
       }
 
       onSaveTransfer({
-        id: initialTransfer?.id ?? crypto.randomUUID(),
+        id: movementId,
         date: form.date,
         fromAccountId: fromAcc.id,
         toAccountId: toAcc.id,
@@ -337,6 +347,7 @@ export function MovementModal({
         toAmountMinor,
         exchangeRate,
         note: form.note.trim() || undefined,
+        receiptPath: form.receiptPath,
       });
       return;
     }
@@ -348,7 +359,7 @@ export function MovementModal({
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
 
     onSaveTransaction({
-      id: initial?.id ?? crypto.randomUUID(),
+      id: movementId,
       type: form.kind,
       amountMinor,
       currency: form.currency,
@@ -357,6 +368,7 @@ export function MovementModal({
       note: form.note.trim() || undefined,
       accountId: form.kind === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
       cardId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
+      receiptPath: form.receiptPath,
     });
   };
 
@@ -556,6 +568,8 @@ export function MovementModal({
           )}
         </>
       )}
+
+      <ReceiptField movementId={movementId} path={form.receiptPath} onChange={(p) => setForm((f) => ({ ...f, receiptPath: p }))} />
 
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>

@@ -24,6 +24,12 @@ export interface Transaction {
    * a la "deuda pendiente" de la tarjeta en la sección Tarjetas.
    */
   cardId?: string;
+  /**
+   * Ruta (no URL) del comprobante adjunto en el bucket "receipts" de Supabase
+   * Storage, con forma `${userId}/${archivo}`. Se resuelve a una URL firmada
+   * (temporal) recién al momento de mostrarla, porque el bucket es privado.
+   */
+  receiptPath?: string;
 }
 
 export interface Bank {
@@ -58,6 +64,8 @@ export interface Transfer {
   toAmountMinor: number;
   exchangeRate?: number;
   note?: string;
+  /** Ruta del comprobante adjunto en Supabase Storage (ver Transaction.receiptPath). */
+  receiptPath?: string;
 }
 
 export interface Card {
@@ -92,6 +100,8 @@ export interface CardPayment {
   amountMinor: number;
   currency: Currency;
   note?: string;
+  /** Ruta del comprobante adjunto en Supabase Storage (ver Transaction.receiptPath). */
+  receiptPath?: string;
 }
 
 export interface Budget {
