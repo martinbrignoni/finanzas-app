@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { accountBalance } from "./accounts";
-import type { Account, Transaction, Transfer } from "../types";
+import type { Account, Transaction, Transfer, CardPayment } from "../types";
 
 describe("accountBalance", () => {
   const account: Account = { id: "a1", bankId: "b1", name: "Caja de ahorro", currency: "UYU", initialBalanceMinor: 10000 };
@@ -37,5 +37,13 @@ describe("accountBalance", () => {
     ];
     expect(accountBalance(usdAccount, [], transfers)).toBe(0 - 10000);
     expect(accountBalance(account, [], transfers)).toBe(10000 + 400000);
+  });
+
+  it("resta pagos de tarjeta hechos desde esa cuenta, e ignora los de otras cuentas", () => {
+    const cardPayments: CardPayment[] = [
+      { id: "p1", cardId: "c1", accountId: "a1", date: "2026-07-05", amountMinor: 1500, currency: "UYU" },
+      { id: "p2", cardId: "c1", accountId: "otra-cuenta", date: "2026-07-05", amountMinor: 99999, currency: "UYU" },
+    ];
+    expect(accountBalance(account, [], [], cardPayments)).toBe(10000 - 1500);
   });
 });

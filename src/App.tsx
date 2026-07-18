@@ -5,11 +5,11 @@ import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
-  Category, AppUser, PermissionKey, Transfer,
+  Category, AppUser, PermissionKey, Transfer, CardPayment,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, TransactionModal, TransferModal } from "./features/transactions/Transactions";
-import { Cards, CardModal, InstallmentModal } from "./features/cards/Cards";
+import { Cards, CardModal, InstallmentModal, CardPaymentModal } from "./features/cards/Cards";
 import { Budgets, BudgetModal } from "./features/budgets/Budgets";
 import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
@@ -36,6 +36,7 @@ type ModalState =
   | { type: "bank"; payload?: Bank }
   | { type: "account"; payload: { bankId: string; account?: Account } }
   | { type: "transfer"; payload?: Transfer }
+  | { type: "cardPayment"; payload: { cardId: string; payment?: CardPayment } }
   | { type: "category" }
   | { type: "user"; payload?: AppUser }
   | null;
@@ -91,7 +92,16 @@ export default function App() {
     closeModal();
   }, []);
   const deleteCard = useCallback((id: string) => {
-    setData((d) => (d ? { ...d, cards: d.cards.filter((x) => x.id !== id), installments: d.installments.filter((i) => i.cardId !== id) } : d));
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            cards: d.cards.filter((x) => x.id !== id),
+            installments: d.installments.filter((i) => i.cardId !== id),
+            cardPayments: d.cardPayments.filter((p) => p.cardId !== id),
+          }
+        : d
+    );
   }, []);
   const addInstallment = useCallback((inst: Installment) => {
     setData((d) => (d ? { ...d, installments: [...d.installments, inst] } : d));
@@ -99,6 +109,18 @@ export default function App() {
   }, []);
   const deleteInstallment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, installments: d.installments.filter((x) => x.id !== id) } : d));
+  }, []);
+  const upsertCardPayment = useCallback((p: CardPayment) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.cardPayments.findIndex((x) => x.id === p.id);
+      const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? p : x)) : [...d.cardPayments, p];
+      return { ...d, cardPayments };
+    });
+    closeModal();
+  }, []);
+  const deleteCardPayment = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, cardPayments: d.cardPayments.filter((x) => x.id !== id) } : d));
   }, []);
 
   // --- budgets ---
@@ -149,6 +171,7 @@ export default function App() {
             accounts: d.accounts.filter((x) => x.id !== id),
             transactions: d.transactions.map((t) => (t.accountId === id ? { ...t, accountId: undefined } : t)),
             transfers: d.transfers.filter((tr) => tr.fromAccountId !== id && tr.toAccountId !== id),
+            cardPayments: d.cardPayments.filter((p) => p.accountId !== id),
           }
         : d
     );
@@ -260,6 +283,8 @@ export default function App() {
               <Transactions
                 transactions={data.transactions}
                 transfers={data.transfers}
+                cardPayments={data.cardPayments}
+                cards={data.cards}
                 accounts={data.accounts}
                 banks={data.banks}
                 canEdit={has("movimientos", "edit")}
@@ -268,6 +293,8 @@ export default function App() {
                 onAddTransfer={() => setModal({ type: "transfer" })}
                 onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
                 onDeleteTransfer={deleteTransfer}
+                onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
+                onDeleteCardPayment={deleteCardPayment}
               />
             )}
             {tab === "cuentas" && (
@@ -276,6 +303,8 @@ export default function App() {
                 accounts={data.accounts}
                 transactions={data.transactions}
                 transfers={data.transfers}
+                cardPayments={data.cardPayments}
+                cards={data.cards}
                 canEdit={has("cuentas", "edit")}
                 canEditMovements={has("movimientos", "edit")}
                 onAddBank={() => setModal({ type: "bank" })}
@@ -288,6 +317,8 @@ export default function App() {
                 onDeleteTransaction={deleteTransaction}
                 onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
                 onDeleteTransfer={deleteTransfer}
+                onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
+                onDeleteCardPayment={deleteCardPayment}
               />
             )}
             {tab === "tarjetas" && (
@@ -299,6 +330,9 @@ export default function App() {
                 onDeleteCard={deleteCard}
                 onAddInstallment={(cardId) => setModal({ type: "installment", payload: { cardId } })}
                 onDeleteInstallment={deleteInstallment}
+                onAddCardPayment={(cardId) => setModal({ type: "cardPayment", payload: { cardId } })}
+                onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
+                onDeleteCardPayment={deleteCardPayment}
               />
             )}
             {tab === "presupuestos" && (
@@ -371,6 +405,18 @@ export default function App() {
       )}
       {modal?.type === "transfer" && (
         <TransferModal initial={modal.payload} accounts={data.accounts} banks={data.banks} onSave={upsertTransfer} onClose={closeModal} />
+      )}
+      {modal?.type === "cardPayment" && (
+        <CardPaymentModal
+          cardId={modal.payload.cardId}
+          initial={modal.payload.payment}
+          cards={data.cards}
+          accounts={data.accounts}
+          banks={data.banks}
+          installments={data.installments}
+          onSave={upsertCardPayment}
+          onClose={closeModal}
+        />
       )}
       {modal?.type === "category" && <CategoryModal onSave={addCategory} onClose={closeModal} />}
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}

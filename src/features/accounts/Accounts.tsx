@@ -1,17 +1,19 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger } from "../../lib/accounts";
 import { exportBankToExcel } from "../../lib/excelExport";
-import type { Bank, Account, Transaction, Currency, Transfer } from "../../types";
+import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card } from "../../types";
 
 export function Accounts({
   banks,
   accounts,
   transactions,
   transfers,
+  cardPayments,
+  cards,
   canEdit,
   canEditMovements,
   onAddBank,
@@ -24,11 +26,15 @@ export function Accounts({
   onDeleteTransaction,
   onEditTransfer,
   onDeleteTransfer,
+  onEditCardPayment,
+  onDeleteCardPayment,
 }: {
   banks: Bank[];
   accounts: Account[];
   transactions: Transaction[];
   transfers: Transfer[];
+  cardPayments: CardPayment[];
+  cards: Card[];
   canEdit: boolean;
   canEditMovements: boolean;
   onAddBank: () => void;
@@ -41,6 +47,8 @@ export function Accounts({
   onDeleteTransaction: (id: string) => void;
   onEditTransfer: (t: Transfer) => void;
   onDeleteTransfer: (id: string) => void;
+  onEditCardPayment: (p: CardPayment) => void;
+  onDeleteCardPayment: (id: string) => void;
 }) {
   const [viewAccountId, setViewAccountId] = useState<string | null>(null);
   const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
@@ -73,7 +81,8 @@ export function Accounts({
               const bankAccounts = [...accountsByBank(accounts, bank.id)].sort((a, b) => dirMul * a.name.localeCompare(b.name));
               const hasMovements =
                 transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
-                transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId));
+                transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId)) ||
+                cardPayments.some((p) => bankAccounts.some((a) => a.id === p.accountId));
               return (
                 <div key={bank.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                   <div className="flex items-center justify-between mb-3">
@@ -86,7 +95,7 @@ export function Accounts({
                     <div className="flex gap-1">
                       <IconBtn
                         label="Exportar a Excel"
-                        onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers)}
+                        onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers, cardPayments)}
                       >
                         <FileSpreadsheet size={15} />
                       </IconBtn>
@@ -104,7 +113,7 @@ export function Accounts({
                   ) : (
                     <div className="space-y-1.5 mb-2">
                       {bankAccounts.map((acc) => {
-                        const balance = accountBalance(acc, transactions, transfers);
+                        const balance = accountBalance(acc, transactions, transfers, cardPayments);
                         return (
                           <button
                             key={acc.id}
@@ -160,7 +169,7 @@ export function Accounts({
                 .filter((a) => a.currency === currency)
                 .sort((a, b) => dirMul * accountLabel(a, banks).localeCompare(accountLabel(b, banks)));
               if (currencyAccounts.length === 0) return null;
-              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers), 0);
+              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers, cardPayments), 0);
               return (
                 <div key={currency} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                   <div className="flex items-center justify-between mb-3">
@@ -172,7 +181,7 @@ export function Accounts({
                   </div>
                   <div className="space-y-1.5">
                     {currencyAccounts.map((acc) => {
-                      const balance = accountBalance(acc, transactions, transfers);
+                      const balance = accountBalance(acc, transactions, transfers, cardPayments);
                       return (
                         <button
                           key={acc.id}
@@ -223,11 +232,15 @@ export function Accounts({
           accounts={accounts}
           transactions={transactions}
           transfers={transfers}
+          cardPayments={cardPayments}
+          cards={cards}
           canEdit={canEditMovements}
           onEditTransaction={onEditTransaction}
           onDeleteTransaction={onDeleteTransaction}
           onEditTransfer={onEditTransfer}
           onDeleteTransfer={onDeleteTransfer}
+          onEditCardPayment={onEditCardPayment}
+          onDeleteCardPayment={onDeleteCardPayment}
           onClose={() => setViewAccountId(null)}
         />
       )}
@@ -241,11 +254,15 @@ function AccountLedgerModal({
   accounts,
   transactions,
   transfers,
+  cardPayments,
+  cards,
   canEdit,
   onEditTransaction,
   onDeleteTransaction,
   onEditTransfer,
   onDeleteTransfer,
+  onEditCardPayment,
+  onDeleteCardPayment,
   onClose,
 }: {
   account: Account;
@@ -253,15 +270,19 @@ function AccountLedgerModal({
   accounts: Account[];
   transactions: Transaction[];
   transfers: Transfer[];
+  cardPayments: CardPayment[];
+  cards: Card[];
   canEdit: boolean;
   onEditTransaction: (t: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   onEditTransfer: (t: Transfer) => void;
   onDeleteTransfer: (id: string) => void;
+  onEditCardPayment: (p: CardPayment) => void;
+  onDeleteCardPayment: (id: string) => void;
   onClose: () => void;
 }) {
-  const entries = accountLedger(account, transactions, transfers);
-  const balance = accountBalance(account, transactions, transfers);
+  const entries = accountLedger(account, transactions, transfers, cardPayments);
+  const balance = accountBalance(account, transactions, transfers, cardPayments);
 
   return (
     <Modal title={accountLabel(account, banks)} onClose={onClose}>
@@ -278,14 +299,18 @@ function AccountLedgerModal({
       ) : (
         <div className="space-y-2 max-h-[55vh] overflow-y-auto">
           {entries.map((entry) => {
-            const key = entry.kind === "transaction" ? entry.transaction!.id : `${entry.transfer!.id}-${entry.kind}`;
-            const isTransfer = entry.kind !== "transaction";
-            const label = isTransfer
+            const isTransfer = entry.kind === "transfer-out" || entry.kind === "transfer-in";
+            const isCardPayment = entry.kind === "card-payment";
+            const key =
+              entry.kind === "transaction" ? entry.transaction!.id : isCardPayment ? entry.cardPayment!.id : `${entry.transfer!.id}-${entry.kind}`;
+            const label = isCardPayment
+              ? `Pago tarjeta ${cards.find((c) => c.id === entry.cardPayment!.cardId)?.name ?? "eliminada"}`
+              : isTransfer
               ? entry.kind === "transfer-out"
                 ? `Transferencia a ${accountLabel(accounts.find((a) => a.id === entry.transfer!.toAccountId), banks)}`
                 : `Transferencia desde ${accountLabel(accounts.find((a) => a.id === entry.transfer!.fromAccountId), banks)}`
               : `${entry.transaction!.category}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
-            const note = isTransfer ? entry.transfer!.note : undefined;
+            const note = isCardPayment ? entry.cardPayment!.note : isTransfer ? entry.transfer!.note : undefined;
 
             return (
               <div key={key} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
@@ -293,9 +318,19 @@ function AccountLedgerModal({
                   <div className="flex items-center gap-3">
                     <div
                       className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-                      style={{ background: isTransfer ? "rgba(79,168,160,0.15)" : entry.amountMinor >= 0 ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}
+                      style={{
+                        background: isCardPayment
+                          ? "rgba(217,119,106,0.15)"
+                          : isTransfer
+                          ? "rgba(79,168,160,0.15)"
+                          : entry.amountMinor >= 0
+                          ? "rgba(111,191,139,0.15)"
+                          : "rgba(217,119,106,0.15)",
+                      }}
                     >
-                      {isTransfer ? (
+                      {isCardPayment ? (
+                        <CreditCardIcon size={14} color={C.negative} />
+                      ) : isTransfer ? (
                         <ArrowRightLeft size={14} color={C.usd} />
                       ) : entry.amountMinor >= 0 ? (
                         <ArrowUpRight size={14} color={C.positive} />
@@ -319,14 +354,26 @@ function AccountLedgerModal({
                       <>
                         <IconBtn
                           label="Editar movimiento"
-                          onClick={() => (entry.kind === "transaction" ? onEditTransaction(entry.transaction!) : onEditTransfer(entry.transfer!))}
+                          onClick={() =>
+                            entry.kind === "transaction"
+                              ? onEditTransaction(entry.transaction!)
+                              : isCardPayment
+                              ? onEditCardPayment(entry.cardPayment!)
+                              : onEditTransfer(entry.transfer!)
+                          }
                         >
                           <Pencil size={13} />
                         </IconBtn>
                         <IconBtn
                           label="Eliminar movimiento"
                           danger
-                          onClick={() => (entry.kind === "transaction" ? onDeleteTransaction(entry.transaction!.id) : onDeleteTransfer(entry.transfer!.id))}
+                          onClick={() =>
+                            entry.kind === "transaction"
+                              ? onDeleteTransaction(entry.transaction!.id)
+                              : isCardPayment
+                              ? onDeleteCardPayment(entry.cardPayment!.id)
+                              : onDeleteTransfer(entry.transfer!.id)
+                          }
                         >
                           <Trash2 size={13} />
                         </IconBtn>

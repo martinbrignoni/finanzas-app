@@ -1,10 +1,16 @@
-import type { Account, Bank, Transaction, Transfer } from "../types";
+import type { Account, Bank, Transaction, Transfer, CardPayment } from "../types";
 
 /**
  * Saldo actual de una cuenta: saldo inicial + ingresos - gastos asignados a
- * esa cuenta, +/- transferencias donde la cuenta es origen o destino.
+ * esa cuenta, +/- transferencias donde la cuenta es origen o destino,
+ * - pagos de tarjeta hechos desde esa cuenta.
  */
-export function accountBalance(account: Account, transactions: Transaction[], transfers: Transfer[] = []): number {
+export function accountBalance(
+  account: Account,
+  transactions: Transaction[],
+  transfers: Transfer[] = [],
+  cardPayments: CardPayment[] = []
+): number {
   const movement = transactions
     .filter((t) => t.accountId === account.id)
     .reduce((sum, t) => sum + (t.type === "ingreso" ? t.amountMinor : -t.amountMinor), 0);
@@ -15,7 +21,11 @@ export function accountBalance(account: Account, transactions: Transaction[], tr
     return sum;
   }, 0);
 
-  return account.initialBalanceMinor + movement + transferMovement;
+  const cardPaymentsMovement = cardPayments
+    .filter((p) => p.accountId === account.id)
+    .reduce((sum, p) => sum - p.amountMinor, 0);
+
+  return account.initialBalanceMinor + movement + transferMovement + cardPaymentsMovement;
 }
 
 export function accountsByBank(accounts: Account[], bankId: string): Account[] {
@@ -34,18 +44,33 @@ export interface AccountLedgerEntry {
   /** Monto con signo, en la moneda de la cuenta: positivo = entra, negativo = sale. */
   amountMinor: number;
   runningBalanceMinor: number;
-  kind: "transaction" | "transfer-out" | "transfer-in";
+  kind: "transaction" | "transfer-out" | "transfer-in" | "card-payment";
   transaction?: Transaction;
   transfer?: Transfer;
+  cardPayment?: CardPayment;
 }
 
 /**
- * Historial completo de una cuenta (movimientos propios + ambas patas de
- * transferencias donde participa), con saldo corriendo, del más reciente al
- * más antiguo. Pensado para la vista "Movimientos de esta cuenta".
+ * Historial completo de una cuenta (movimientos propios, ambas patas de
+ * transferencias donde participa, y pagos de tarjeta hechos desde ella), con
+ * saldo corriendo, del más reciente al más antiguo. Pensado para la vista
+ * "Movimientos de esta cuenta".
  */
-export function accountLedger(account: Account, transactions: Transaction[], transfers: Transfer[]): AccountLedgerEntry[] {
-  type Raw = { date: string; id: string; amountMinor: number; kind: AccountLedgerEntry["kind"]; transaction?: Transaction; transfer?: Transfer };
+export function accountLedger(
+  account: Account,
+  transactions: Transaction[],
+  transfers: Transfer[],
+  cardPayments: CardPayment[] = []
+): AccountLedgerEntry[] {
+  type Raw = {
+    date: string;
+    id: string;
+    amountMinor: number;
+    kind: AccountLedgerEntry["kind"];
+    transaction?: Transaction;
+    transfer?: Transfer;
+    cardPayment?: CardPayment;
+  };
 
   const raw: Raw[] = [
     ...transactions
@@ -57,12 +82,15 @@ export function accountLedger(account: Account, transactions: Transaction[], tra
     ...transfers
       .filter((tr) => tr.toAccountId === account.id)
       .map((tr): Raw => ({ date: tr.date, id: `${tr.id}-in`, amountMinor: tr.toAmountMinor, kind: "transfer-in", transfer: tr })),
+    ...cardPayments
+      .filter((p) => p.accountId === account.id)
+      .map((p): Raw => ({ date: p.date, id: `${p.id}-pay`, amountMinor: -p.amountMinor, kind: "card-payment", cardPayment: p })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
   let running = account.initialBalanceMinor;
   const withBalance = raw.map((r) => {
     running += r.amountMinor;
-    return { date: r.date, amountMinor: r.amountMinor, kind: r.kind, transaction: r.transaction, transfer: r.transfer, runningBalanceMinor: running };
+    return { date: r.date, amountMinor: r.amountMinor, kind: r.kind, transaction: r.transaction, transfer: r.transfer, cardPayment: r.cardPayment, runningBalanceMinor: running };
   });
 
   return withBalance.reverse();

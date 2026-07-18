@@ -70,6 +70,22 @@ export interface Installment {
   installmentAmountMinor: number;
 }
 
+/**
+ * Pago real de una tarjeta de crédito: dinero que efectivamente salió de una
+ * cuenta propia para cancelar (total o parcialmente) el resumen de la
+ * tarjeta. Se guarda separado de Installment: las cuotas son la proyección
+ * de la deuda contraída, esto es el movimiento de caja real que la salda.
+ */
+export interface CardPayment {
+  id: string;
+  cardId: string;
+  accountId: string;
+  date: string; // YYYY-MM-DD
+  amountMinor: number;
+  currency: Currency;
+  note?: string;
+}
+
 export interface Budget {
   id: string;
   category: string;
@@ -136,13 +152,14 @@ export interface FinanceData {
   banks: Bank[];
   accounts: Account[];
   transfers: Transfer[];
+  cardPayments: CardPayment[];
   categories: Category[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -184,6 +201,7 @@ export function emptyFinanceData(): FinanceData {
     banks: [],
     accounts: [],
     transfers: [],
+    cardPayments: [],
     categories: defaultCategories(),
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,

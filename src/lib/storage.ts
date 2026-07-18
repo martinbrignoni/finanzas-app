@@ -63,6 +63,11 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 4, transfers: [] };
   }
 
+  if (data.schemaVersion === 4) {
+    // v5: pagos reales de tarjeta de crédito, que descuentan saldo de una cuenta.
+    data = { ...data, schemaVersion: 5, cardPayments: [] };
+  }
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     transactions: data.transactions ?? [],
@@ -72,6 +77,7 @@ function migrate(raw: any): FinanceData {
     banks: data.banks ?? [],
     accounts: data.accounts ?? [],
     transfers: data.transfers ?? [],
+    cardPayments: data.cardPayments ?? [],
     categories: data.categories ?? [],
     users: data.users ?? [],
     activeUserId: data.activeUserId ?? null,

@@ -1,19 +1,22 @@
 import { useState } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, Repeat } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, Repeat, CreditCard as CreditCardIcon } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, currentMonthKey, todayISO } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
-import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer } from "../../types";
+import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
-  | { kind: "transfer"; date: string; data: Transfer };
+  | { kind: "transfer"; date: string; data: Transfer }
+  | { kind: "cardPayment"; date: string; data: CardPayment };
 
 export function Transactions({
   transactions,
   transfers,
+  cardPayments,
+  cards,
   accounts,
   banks,
   canEdit,
@@ -22,9 +25,13 @@ export function Transactions({
   onAddTransfer,
   onEditTransfer,
   onDeleteTransfer,
+  onEditCardPayment,
+  onDeleteCardPayment,
 }: {
   transactions: Transaction[];
   transfers: Transfer[];
+  cardPayments: CardPayment[];
+  cards: Card[];
   accounts: Account[];
   banks: Bank[];
   canEdit: boolean;
@@ -33,12 +40,15 @@ export function Transactions({
   onAddTransfer: () => void;
   onEditTransfer: (t: Transfer) => void;
   onDeleteTransfer: (id: string) => void;
+  onEditCardPayment: (p: CardPayment) => void;
+  onDeleteCardPayment: (id: string) => void;
 }) {
   const [filterMonth, setFilterMonth] = useState(currentMonthKey());
 
   const items: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
     ...transfers.map((t): LedgerItem => ({ kind: "transfer", date: t.date, data: t })),
+    ...cardPayments.map((p): LedgerItem => ({ kind: "cardPayment", date: p.date, data: p })),
   ]
     .filter((item) => monthKeyOf(item.date) === filterMonth)
     .sort((a, b) => b.date.localeCompare(a.date));
@@ -108,38 +118,72 @@ export function Transactions({
             );
           }
 
-          const tr = item.data;
-          const fromAcc = accounts.find((a) => a.id === tr.fromAccountId);
-          const toAcc = accounts.find((a) => a.id === tr.toAccountId);
-          const sameCurrency = fromAcc && toAcc && fromAcc.currency === toAcc.currency;
+          if (item.kind === "transfer") {
+            const tr = item.data;
+            const fromAcc = accounts.find((a) => a.id === tr.fromAccountId);
+            const toAcc = accounts.find((a) => a.id === tr.toAccountId);
+            const sameCurrency = fromAcc && toAcc && fromAcc.currency === toAcc.currency;
+            return (
+              <div key={tr.id} className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
+                    <ArrowRightLeft size={16} color={C.usd} />
+                  </div>
+                  <div>
+                    <div className="text-sm" style={{ color: C.text }}>
+                      {accountLabel(fromAcc, banks)} → {accountLabel(toAcc, banks)}
+                      {tr.note ? ` · ${tr.note}` : ""}
+                    </div>
+                    <div className="text-xs" style={{ color: C.textFaint }}>{tr.date} · Transferencia</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    {sameCurrency ? (
+                      <div className="font-mono text-sm" style={{ color: C.text }}>{formatMoney(tr.fromAmountMinor, fromAcc!.currency)}</div>
+                    ) : (
+                      <div className="font-mono text-xs" style={{ color: C.text }}>
+                        {fromAcc && formatMoney(tr.fromAmountMinor, fromAcc.currency)} → {toAcc && formatMoney(tr.toAmountMinor, toAcc.currency)}
+                      </div>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <>
+                      <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
+                      <IconBtn label="Eliminar transferencia" danger onClick={() => onDeleteTransfer(tr.id)}><Trash2 size={15} /></IconBtn>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          const p = item.data;
+          const account = accounts.find((a) => a.id === p.accountId);
+          const card = cards.find((c) => c.id === p.cardId);
           return (
-            <div key={tr.id} className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <div key={p.id} className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
-                  <ArrowRightLeft size={16} color={C.usd} />
+                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
+                  <CreditCardIcon size={16} color={C.negative} />
                 </div>
                 <div>
                   <div className="text-sm" style={{ color: C.text }}>
-                    {accountLabel(fromAcc, banks)} → {accountLabel(toAcc, banks)}
-                    {tr.note ? ` · ${tr.note}` : ""}
+                    Pago tarjeta {card?.name ?? "eliminada"} · {accountLabel(account, banks)}
+                    {p.note ? ` · ${p.note}` : ""}
                   </div>
-                  <div className="text-xs" style={{ color: C.textFaint }}>{tr.date} · Transferencia</div>
+                  <div className="text-xs" style={{ color: C.textFaint }}>{p.date}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <div className="text-right">
-                  {sameCurrency ? (
-                    <div className="font-mono text-sm" style={{ color: C.text }}>{formatMoney(tr.fromAmountMinor, fromAcc!.currency)}</div>
-                  ) : (
-                    <div className="font-mono text-xs" style={{ color: C.text }}>
-                      {fromAcc && formatMoney(tr.fromAmountMinor, fromAcc.currency)} → {toAcc && formatMoney(tr.toAmountMinor, toAcc.currency)}
-                    </div>
-                  )}
+                  <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</div>
+                  <CurrencyPill currency={p.currency} />
                 </div>
                 {canEdit && (
                   <>
-                    <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
-                    <IconBtn label="Eliminar transferencia" danger onClick={() => onDeleteTransfer(tr.id)}><Trash2 size={15} /></IconBtn>
+                    <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={15} /></IconBtn>
+                    <IconBtn label="Eliminar pago" danger onClick={() => onDeleteCardPayment(p.id)}><Trash2 size={15} /></IconBtn>
                   </>
                 )}
               </div>

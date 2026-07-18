@@ -1,21 +1,27 @@
 import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
 import { accountBalance } from "./accounts";
-import type { Bank, Account, Transaction, Transfer } from "../types";
+import type { Bank, Account, Transaction, Transfer, CardPayment } from "../types";
 
 /** Nombres de hoja de Excel: máx 31 caracteres, sin : \ / ? * [ ] */
 function sheetName(raw: string): string {
   return raw.replace(/[:\\/?*[\]]/g, "-").slice(0, 31) || "Cuenta";
 }
 
-export function exportBankToExcel(bank: Bank, accounts: Account[], transactions: Transaction[], transfers: Transfer[] = []): void {
+export function exportBankToExcel(
+  bank: Bank,
+  accounts: Account[],
+  transactions: Transaction[],
+  transfers: Transfer[] = [],
+  cardPayments: CardPayment[] = []
+): void {
   const wb = XLSX.utils.book_new();
 
   const summary = accounts.map((acc) => ({
     Cuenta: acc.name,
     Moneda: acc.currency,
     "Saldo inicial": fromMinor(acc.initialBalanceMinor),
-    "Saldo actual": fromMinor(accountBalance(acc, transactions, transfers)),
+    "Saldo actual": fromMinor(accountBalance(acc, transactions, transfers, cardPayments)),
   }));
   const summarySheet = XLSX.utils.json_to_sheet(summary);
   XLSX.utils.book_append_sheet(wb, summarySheet, "Resumen");
@@ -55,7 +61,18 @@ export function exportBankToExcel(bank: Bank, accounts: Account[], transactions:
         Moneda: acc.currency,
       }));
 
-    const accRows = [...accTx, ...accTransfersOut, ...accTransfersIn].sort((a, b) => a.Fecha.localeCompare(b.Fecha));
+    const accCardPayments = cardPayments
+      .filter((p) => p.accountId === acc.id)
+      .map((p) => ({
+        Fecha: p.date,
+        Tipo: "Pago tarjeta",
+        Categoría: "",
+        Nota: p.note ?? "",
+        Monto: -fromMinor(p.amountMinor),
+        Moneda: p.currency,
+      }));
+
+    const accRows = [...accTx, ...accTransfersOut, ...accTransfersIn, ...accCardPayments].sort((a, b) => a.Fecha.localeCompare(b.Fecha));
 
     let name = sheetName(acc.name);
     let suffix = 2;
