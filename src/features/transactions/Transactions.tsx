@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, Repeat, CreditCard as CreditCardIcon } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
@@ -6,6 +6,10 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
+
+function capitalize(s: string): string {
+  return s.replace(/^./, (c) => c.toUpperCase());
+}
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
@@ -63,7 +67,7 @@ export function Transactions({
           <Select aria-label="Filtrar por período" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
             <option value="all">Todos los períodos</option>
             {availableMonths.map((mk) => (
-              <option key={mk} value={mk}>{monthLabel(mk).replace(/^./, (c) => c.toUpperCase())}</option>
+              <option key={mk} value={mk}>{capitalize(monthLabel(mk))}</option>
             ))}
           </Select>
         </div>
@@ -86,11 +90,24 @@ export function Transactions({
       )}
 
       <div className="space-y-2">
-        {items.map((item) => {
+        {(() => {
+          let lastMonth: string | null = null;
+          return items.map((item) => {
+            const mk = monthKeyOf(item.date);
+            const separator =
+              mk !== lastMonth ? (
+                <div className="text-xs font-semibold uppercase tracking-widest pt-3 pb-1" style={{ color: C.textFaint }}>
+                  {capitalize(monthLabel(mk))}
+                </div>
+              ) : null;
+            lastMonth = mk;
+
           if (item.kind === "transaction") {
             const t = item.data;
             return (
-              <div key={t.id} className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+              <Fragment key={t.id}>
+                {separator}
+                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: t.type === "ingreso" ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}>
                     {t.type === "ingreso" ? <ArrowUpRight size={16} color={C.positive} /> : <ArrowDownRight size={16} color={C.negative} />}
@@ -117,7 +134,8 @@ export function Transactions({
                     </>
                   )}
                 </div>
-              </div>
+                </div>
+              </Fragment>
             );
           }
 
@@ -127,7 +145,9 @@ export function Transactions({
             const toAcc = accounts.find((a) => a.id === tr.toAccountId);
             const sameCurrency = fromAcc && toAcc && fromAcc.currency === toAcc.currency;
             return (
-              <div key={tr.id} className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+              <Fragment key={tr.id}>
+                {separator}
+                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
                     <ArrowRightLeft size={16} color={C.usd} />
@@ -157,7 +177,8 @@ export function Transactions({
                     </>
                   )}
                 </div>
-              </div>
+                </div>
+              </Fragment>
             );
           }
 
@@ -165,7 +186,9 @@ export function Transactions({
           const account = accounts.find((a) => a.id === p.accountId);
           const card = cards.find((c) => c.id === p.cardId);
           return (
-            <div key={p.id} className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+            <Fragment key={p.id}>
+              {separator}
+              <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
                   <CreditCardIcon size={16} color={C.negative} />
@@ -190,9 +213,11 @@ export function Transactions({
                   </>
                 )}
               </div>
-            </div>
+              </div>
+            </Fragment>
           );
-        })}
+          });
+        })()}
       </div>
     </div>
   );
