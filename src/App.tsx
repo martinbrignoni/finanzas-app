@@ -9,7 +9,7 @@ import type {
   Category, AppUser, PermissionKey, Transfer, CardPayment,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
-import { Transactions, TransactionModal, TransferModal } from "./features/transactions/Transactions";
+import { Transactions, MovementModal } from "./features/transactions/Transactions";
 import { Cards, CardModal, InstallmentModal, CardPaymentModal } from "./features/cards/Cards";
 import { Budgets, BudgetModal } from "./features/budgets/Budgets";
 import { Projection } from "./features/projection/Projection";
@@ -30,13 +30,12 @@ const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
 ];
 
 type ModalState =
-  | { type: "transaction"; payload?: { transaction?: Transaction; presetCardId?: string } }
+  | { type: "movement"; payload?: { transaction?: Transaction; transfer?: Transfer; presetCardId?: string } }
   | { type: "card"; payload?: Card }
   | { type: "installment"; payload: { cardId: string; installment?: Installment } }
   | { type: "budget" }
   | { type: "bank"; payload?: Bank }
   | { type: "account"; payload: { bankId: string; account?: Account } }
-  | { type: "transfer"; payload?: Transfer }
   | { type: "cardPayment"; payload: { cardId: string; payment?: CardPayment } }
   | { type: "category" }
   | { type: "user"; payload?: AppUser }
@@ -328,7 +327,7 @@ export default function App() {
           </div>
         ) : (
           <>
-            {tab === "inicio" && <Dashboard data={data} canAddTransaction={has("movimientos", "edit")} onAdd={() => setModal({ type: "transaction", payload: {} })} />}
+            {tab === "inicio" && <Dashboard data={data} canAddTransaction={has("movimientos", "edit")} onAdd={() => setModal({ type: "movement", payload: {} })} />}
             {tab === "movimientos" && (
               <Transactions
                 transactions={data.transactions}
@@ -338,10 +337,9 @@ export default function App() {
                 accounts={data.accounts}
                 banks={data.banks}
                 canEdit={has("movimientos", "edit")}
-                onEdit={(t) => setModal({ type: "transaction", payload: { transaction: t } })}
+                onEdit={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDelete={confirmDeleteTransaction}
-                onAddTransfer={() => setModal({ type: "transfer" })}
-                onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
+                onEditTransfer={(t) => setModal({ type: "movement", payload: { transfer: t } })}
                 onDeleteTransfer={confirmDeleteTransfer}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
                 onDeleteCardPayment={confirmDeleteCardPayment}
@@ -363,9 +361,9 @@ export default function App() {
                 onAddAccount={(bankId) => setModal({ type: "account", payload: { bankId } })}
                 onEditAccount={(a) => setModal({ type: "account", payload: { bankId: a.bankId, account: a } })}
                 onDeleteAccount={confirmDeleteAccount}
-                onEditTransaction={(t) => setModal({ type: "transaction", payload: { transaction: t } })}
+                onEditTransaction={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDeleteTransaction={confirmDeleteTransaction}
-                onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
+                onEditTransfer={(t) => setModal({ type: "movement", payload: { transfer: t } })}
                 onDeleteTransfer={confirmDeleteTransfer}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
                 onDeleteCardPayment={confirmDeleteCardPayment}
@@ -385,8 +383,8 @@ export default function App() {
                 onAddCardPayment={(cardId) => setModal({ type: "cardPayment", payload: { cardId } })}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
                 onDeleteCardPayment={confirmDeleteCardPayment}
-                onAddCardExpense={(cardId) => setModal({ type: "transaction", payload: { presetCardId: cardId } })}
-                onEditTransaction={(t) => setModal({ type: "transaction", payload: { transaction: t } })}
+                onAddCardExpense={(cardId) => setModal({ type: "movement", payload: { presetCardId: cardId } })}
+                onEditTransaction={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDeleteTransaction={confirmDeleteTransaction}
               />
             )}
@@ -422,7 +420,7 @@ export default function App() {
 
       {showFab && (
         <button
-          onClick={() => setModal({ type: "transaction", payload: {} })}
+          onClick={() => setModal({ type: "movement", payload: {} })}
           aria-label="Nuevo movimiento"
           className="fixed bottom-20 right-5 rounded-full flex items-center justify-center shadow-lg"
           style={{ background: C.usd, width: 52, height: 52, color: "#0A1413" }}
@@ -448,14 +446,17 @@ export default function App() {
         </div>
       </nav>
 
-      {modal?.type === "transaction" && (
-        <TransactionModal
+      {modal?.type === "movement" && (
+        <MovementModal
           initial={modal.payload?.transaction}
+          initialTransfer={modal.payload?.transfer}
           presetCardId={modal.payload?.presetCardId}
           accounts={data.accounts}
+          banks={data.banks}
           cards={data.cards}
           categories={data.categories}
-          onSave={upsertTransaction}
+          onSaveTransaction={upsertTransaction}
+          onSaveTransfer={upsertTransfer}
           onClose={closeModal}
         />
       )}
@@ -467,9 +468,6 @@ export default function App() {
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (
         <AccountModal bankId={modal.payload.bankId} initial={modal.payload.account} onSave={upsertAccount} onClose={closeModal} />
-      )}
-      {modal?.type === "transfer" && (
-        <TransferModal initial={modal.payload} accounts={data.accounts} banks={data.banks} onSave={upsertTransfer} onClose={closeModal} />
       )}
       {modal?.type === "cardPayment" && (
         <CardPaymentModal
