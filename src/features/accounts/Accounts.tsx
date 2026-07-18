@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { accountBalance, accountsByBank } from "../../lib/accounts";
+import { accountBalance, accountsByBank, accountLabel, accountLedger } from "../../lib/accounts";
 import { exportBankToExcel } from "../../lib/excelExport";
 import type { Bank, Account, Transaction, Currency, Transfer } from "../../types";
 
@@ -13,25 +13,38 @@ export function Accounts({
   transactions,
   transfers,
   canEdit,
+  canEditMovements,
   onAddBank,
   onEditBank,
   onDeleteBank,
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
+  onEditTransaction,
+  onDeleteTransaction,
+  onEditTransfer,
+  onDeleteTransfer,
 }: {
   banks: Bank[];
   accounts: Account[];
   transactions: Transaction[];
   transfers: Transfer[];
   canEdit: boolean;
+  canEditMovements: boolean;
   onAddBank: () => void;
   onEditBank: (b: Bank) => void;
   onDeleteBank: (id: string) => void;
   onAddAccount: (bankId: string) => void;
   onEditAccount: (a: Account) => void;
   onDeleteAccount: (id: string) => void;
+  onEditTransaction: (t: Transaction) => void;
+  onDeleteTransaction: (id: string) => void;
+  onEditTransfer: (t: Transfer) => void;
+  onDeleteTransfer: (id: string) => void;
 }) {
+  const [viewAccountId, setViewAccountId] = useState<string | null>(null);
+  const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
+
   return (
     <div className="pb-24">
       <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Cuentas</h1>
@@ -80,7 +93,12 @@ export function Accounts({
                   {bankAccounts.map((acc) => {
                     const balance = accountBalance(acc, transactions, transfers);
                     return (
-                      <div key={acc.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
+                      <button
+                        key={acc.id}
+                        onClick={() => setViewAccountId(acc.id)}
+                        className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
+                        style={{ background: C.surface2 }}
+                      >
                         <div className="flex items-center gap-2">
                           <Wallet size={13} color={C.textFaint} />
                           <span style={{ color: C.text }}>{acc.name}</span>
@@ -90,12 +108,12 @@ export function Accounts({
                           <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
                           {canEdit && (
                             <>
-                              <IconBtn label="Editar caja" onClick={() => onEditAccount(acc)}><Pencil size={13} /></IconBtn>
-                              <IconBtn label="Eliminar caja" danger onClick={() => onDeleteAccount(acc.id)}><Trash2 size={13} /></IconBtn>
+                              <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
+                              <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
                             </>
                           )}
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -130,7 +148,131 @@ export function Accounts({
           <Plus size={16} /> Agregar banco
         </button>
       )}
+
+      {viewAccount && (
+        <AccountLedgerModal
+          account={viewAccount}
+          banks={banks}
+          accounts={accounts}
+          transactions={transactions}
+          transfers={transfers}
+          canEdit={canEditMovements}
+          onEditTransaction={onEditTransaction}
+          onDeleteTransaction={onDeleteTransaction}
+          onEditTransfer={onEditTransfer}
+          onDeleteTransfer={onDeleteTransfer}
+          onClose={() => setViewAccountId(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function AccountLedgerModal({
+  account,
+  banks,
+  accounts,
+  transactions,
+  transfers,
+  canEdit,
+  onEditTransaction,
+  onDeleteTransaction,
+  onEditTransfer,
+  onDeleteTransfer,
+  onClose,
+}: {
+  account: Account;
+  banks: Bank[];
+  accounts: Account[];
+  transactions: Transaction[];
+  transfers: Transfer[];
+  canEdit: boolean;
+  onEditTransaction: (t: Transaction) => void;
+  onDeleteTransaction: (id: string) => void;
+  onEditTransfer: (t: Transfer) => void;
+  onDeleteTransfer: (id: string) => void;
+  onClose: () => void;
+}) {
+  const entries = accountLedger(account, transactions, transfers);
+  const balance = accountBalance(account, transactions, transfers);
+
+  return (
+    <Modal title={accountLabel(account, banks)} onClose={onClose}>
+      <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-4" style={{ background: C.surface2 }}>
+        <span className="text-xs" style={{ color: C.textMuted }}>Saldo actual</span>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, account.currency)}</span>
+          <CurrencyPill currency={account.currency} />
+        </div>
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="text-sm text-center py-6" style={{ color: C.textMuted }}>Sin movimientos en esta cuenta todavía.</p>
+      ) : (
+        <div className="space-y-2 max-h-[55vh] overflow-y-auto">
+          {entries.map((entry) => {
+            const key = entry.kind === "transaction" ? entry.transaction!.id : `${entry.transfer!.id}-${entry.kind}`;
+            const isTransfer = entry.kind !== "transaction";
+            const label = isTransfer
+              ? entry.kind === "transfer-out"
+                ? `Transferencia a ${accountLabel(accounts.find((a) => a.id === entry.transfer!.toAccountId), banks)}`
+                : `Transferencia desde ${accountLabel(accounts.find((a) => a.id === entry.transfer!.fromAccountId), banks)}`
+              : `${entry.transaction!.category}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
+            const note = isTransfer ? entry.transfer!.note : undefined;
+
+            return (
+              <div key={key} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+                      style={{ background: isTransfer ? "rgba(79,168,160,0.15)" : entry.amountMinor >= 0 ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}
+                    >
+                      {isTransfer ? (
+                        <ArrowRightLeft size={14} color={C.usd} />
+                      ) : entry.amountMinor >= 0 ? (
+                        <ArrowUpRight size={14} color={C.positive} />
+                      ) : (
+                        <ArrowDownRight size={14} color={C.negative} />
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-sm" style={{ color: C.text }}>{label}{note ? ` · ${note}` : ""}</div>
+                      <div className="text-xs" style={{ color: C.textFaint }}>{entry.date}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-right">
+                      <div className="font-mono text-sm" style={{ color: entry.amountMinor >= 0 ? C.positive : C.negative }}>
+                        {entry.amountMinor >= 0 ? "+" : "-"}{formatMoney(Math.abs(entry.amountMinor), account.currency)}
+                      </div>
+                      <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>saldo {formatMoney(entry.runningBalanceMinor, account.currency)}</div>
+                    </div>
+                    {canEdit && (
+                      <>
+                        <IconBtn
+                          label="Editar movimiento"
+                          onClick={() => (entry.kind === "transaction" ? onEditTransaction(entry.transaction!) : onEditTransfer(entry.transfer!))}
+                        >
+                          <Pencil size={13} />
+                        </IconBtn>
+                        <IconBtn
+                          label="Eliminar movimiento"
+                          danger
+                          onClick={() => (entry.kind === "transaction" ? onDeleteTransaction(entry.transaction!.id) : onDeleteTransfer(entry.transfer!.id))}
+                        >
+                          <Trash2 size={13} />
+                        </IconBtn>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
   );
 }
 

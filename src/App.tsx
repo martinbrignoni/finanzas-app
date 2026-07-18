@@ -277,12 +277,17 @@ export default function App() {
                 transactions={data.transactions}
                 transfers={data.transfers}
                 canEdit={has("cuentas", "edit")}
+                canEditMovements={has("movimientos", "edit")}
                 onAddBank={() => setModal({ type: "bank" })}
                 onEditBank={(b) => setModal({ type: "bank", payload: b })}
                 onDeleteBank={deleteBank}
                 onAddAccount={(bankId) => setModal({ type: "account", payload: { bankId } })}
                 onEditAccount={(a) => setModal({ type: "account", payload: { bankId: a.bankId, account: a } })}
                 onDeleteAccount={deleteAccount}
+                onEditTransaction={(t) => setModal({ type: "transaction", payload: t })}
+                onDeleteTransaction={deleteTransaction}
+                onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
+                onDeleteTransfer={deleteTransfer}
               />
             )}
             {tab === "tarjetas" && (

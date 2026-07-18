@@ -4,13 +4,8 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, currentMonthKey, todayISO } from "../../lib/dates";
+import { accountLabel } from "../../lib/accounts";
 import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer } from "../../types";
-
-function accountLabel(account: Account | undefined, banks: Bank[]): string {
-  if (!account) return "cuenta eliminada";
-  const bank = banks.find((b) => b.id === account.bankId);
-  return bank ? `${bank.name} · ${account.name}` : account.name;
-}
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }

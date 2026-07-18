@@ -116,7 +116,7 @@ export function PrimaryButton({ children, disabled, ...props }: React.ButtonHTML
   );
 }
 
-export function IconBtn({ onClick, children, danger, label }: { onClick: () => void; children: React.ReactNode; danger?: boolean; label: string }) {
+export function IconBtn({ onClick, children, danger, label }: { onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; children: React.ReactNode; danger?: boolean; label: string }) {
   return (
     <button onClick={onClick} aria-label={label} className="p-2 rounded-md" style={{ color: danger ? C.negative : C.textMuted }}>
       {children}
