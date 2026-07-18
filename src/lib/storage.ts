@@ -1,4 +1,5 @@
 import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermissions, type FinanceData, type Category } from "../types";
+import { supabase } from "./supabaseClient";
 
 export interface FinanceRepository {
   load(): Promise<FinanceData>;
@@ -93,10 +94,54 @@ export class LocalStorageRepository implements FinanceRepository {
 }
 
 /**
- * Punto único donde se decide qué repositorio usar. El día que armes un backend,
- * acá agregás `new ApiRepository(baseUrl)` según una variable de entorno, y
- * ningún componente de la UI se entera del cambio.
+ * Repositorio que guarda todo el estado de la app como un único registro JSON
+ * en la tabla `finance_data` de Supabase, asociado al usuario logueado. Así,
+ * los mismos datos se ven desde cualquier dispositivo en el que inicies sesión.
+ *
+ * Nota: si dos dispositivos guardan casi al mismo tiempo sin haber recargado,
+ * gana el último `save()` (no hay merge). Para uso personal, alcanza.
+ */
+export class SupabaseRepository implements FinanceRepository {
+  async load(): Promise<FinanceData> {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) return emptyFinanceData();
+
+    const { data, error } = await supabase
+      .from("finance_data")
+      .select("data")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Error leyendo datos de Supabase, se usan datos vacíos.", error);
+      return emptyFinanceData();
+    }
+    if (!data) return emptyFinanceData();
+    return migrate(data.data);
+  }
+
+  async save(data: FinanceData): Promise<void> {
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth.user?.id;
+    if (!userId) throw new Error("No hay sesión activa, no se puede guardar.");
+
+    const { error } = await supabase
+      .from("finance_data")
+      .upsert({ user_id: userId, data, updated_at: new Date().toISOString() });
+
+    if (error) {
+      console.error("Error guardando datos en Supabase.", error);
+      throw error;
+    }
+  }
+}
+
+/**
+ * Punto único donde se decide qué repositorio usar. Hoy usa Supabase (nube,
+ * sincronizado entre dispositivos). El repositorio de localStorage queda
+ * disponible como referencia/fallback si en algún momento hiciera falta.
  */
 export function getRepository(): FinanceRepository {
-  return new LocalStorageRepository();
+  return new SupabaseRepository();
 }
