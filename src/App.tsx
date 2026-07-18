@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon } from "lucide-react";
 import { theme as C } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
+import { CalculatorModal } from "./components/Calculator";
 import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
@@ -49,6 +50,7 @@ export default function App() {
   const [modal, setModal] = useState<ModalState>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
 
   useEffect(() => {
     repo.load().then(setData);
@@ -308,11 +310,16 @@ export default function App() {
               </div>
             )}
           </div>
-          {has("configuracion", "view") && (
-            <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
-              <SettingsIcon size={20} />
+          <div className="flex items-center gap-3">
+            <button onClick={() => setCalculatorOpen(true)} aria-label="Calculadora" style={{ color: C.textFaint }}>
+              <CalculatorIcon size={20} />
             </button>
-          )}
+            {has("configuracion", "view") && (
+              <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
+                <SettingsIcon size={20} />
+              </button>
+            )}
+          </div>
         </div>
 
         {saveError && (
@@ -483,6 +490,8 @@ export default function App() {
       )}
       {modal?.type === "category" && <CategoryModal onSave={addCategory} onClose={closeModal} />}
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}
+
+      {calculatorOpen && <CalculatorModal onClose={() => setCalculatorOpen(false)} />}
 
       {confirm && (
         <ConfirmDialog
