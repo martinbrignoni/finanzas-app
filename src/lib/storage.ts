@@ -57,6 +57,12 @@ function migrate(raw: any): FinanceData {
     };
   }
 
+  if (data.schemaVersion === 3) {
+    // v4: transferencias entre cuentas propias, separadas de los movimientos
+    // de ingreso/gasto para no distorsionar totales ni presupuestos.
+    data = { ...data, schemaVersion: 4, transfers: [] };
+  }
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     transactions: data.transactions ?? [],
@@ -65,6 +71,7 @@ function migrate(raw: any): FinanceData {
     budgets: data.budgets ?? [],
     banks: data.banks ?? [],
     accounts: data.accounts ?? [],
+    transfers: data.transfers ?? [],
     categories: data.categories ?? [],
     users: data.users ?? [],
     activeUserId: data.activeUserId ?? null,

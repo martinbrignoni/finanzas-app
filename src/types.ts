@@ -31,6 +31,27 @@ export interface Account {
   initialBalanceMinor: number;
 }
 
+/**
+ * Movimiento de dinero entre dos cuentas propias (no es ingreso ni gasto real,
+ * por eso vive separado de Transaction y no entra en los totales de
+ * ingresos/gastos, presupuestos ni proyección).
+ *
+ * Si origen y destino tienen distinta moneda, `fromAmountMinor` es lo que sale
+ * de la cuenta origen (en su moneda) y `toAmountMinor` lo que entra en la
+ * cuenta destino (en su moneda); `exchangeRate` queda solo como referencia de
+ * la cotización usada.
+ */
+export interface Transfer {
+  id: string;
+  date: string; // YYYY-MM-DD
+  fromAccountId: string;
+  toAccountId: string;
+  fromAmountMinor: number;
+  toAmountMinor: number;
+  exchangeRate?: number;
+  note?: string;
+}
+
 export interface Card {
   id: string;
   name: string;
@@ -114,13 +135,14 @@ export interface FinanceData {
   budgets: Budget[];
   banks: Bank[];
   accounts: Account[];
+  transfers: Transfer[];
   categories: Category[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -161,6 +183,7 @@ export function emptyFinanceData(): FinanceData {
     budgets: [],
     banks: [],
     accounts: [],
+    transfers: [],
     categories: defaultCategories(),
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,

@@ -23,20 +23,22 @@ describe("LocalStorageRepository migration", () => {
     const repo = new LocalStorageRepository();
     const migrated = await repo.load();
 
-    expect(migrated.schemaVersion).toBe(3);
+    expect(migrated.schemaVersion).toBe(4);
     expect(migrated.transactions).toHaveLength(1);
     expect(migrated.categories.some((c) => c.name === "Mascotas")).toBe(true);
     expect(migrated.categories.some((c) => c.name === "Alimentación")).toBe(true);
     expect(migrated.users).toHaveLength(1);
     expect(migrated.activeUserId).toBe(migrated.users[0].id);
     expect(migrated.users[0].permissions.cuentas.edit).toBe(true);
+    expect(migrated.transfers).toEqual([]);
   });
 
   it("no rompe con datos vacíos (primera vez que se abre la app)", async () => {
     const repo = new LocalStorageRepository();
     const data = await repo.load();
-    expect(data.schemaVersion).toBe(3);
+    expect(data.schemaVersion).toBe(4);
     expect(data.users).toHaveLength(1);
     expect(data.categories.length).toBeGreaterThan(0);
+    expect(data.transfers).toEqual([]);
   });
 });

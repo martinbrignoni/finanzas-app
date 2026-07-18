@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { accountBalance } from "./accounts";
-import type { Account, Transaction } from "../types";
+import type { Account, Transaction, Transfer } from "../types";
 
 describe("accountBalance", () => {
   const account: Account = { id: "a1", bankId: "b1", name: "Caja de ahorro", currency: "UYU", initialBalanceMinor: 10000 };
@@ -19,5 +19,23 @@ describe("accountBalance", () => {
       { id: "4", type: "gasto", amountMinor: 500, currency: "UYU", category: "Ocio", date: "2026-07-01" },
     ];
     expect(accountBalance(account, transactions)).toBe(10000);
+  });
+
+  it("resta transferencias salientes y suma las entrantes, misma moneda", () => {
+    const transfers: Transfer[] = [
+      { id: "t1", date: "2026-07-01", fromAccountId: "a1", toAccountId: "a2", fromAmountMinor: 3000, toAmountMinor: 3000 },
+      { id: "t2", date: "2026-07-02", fromAccountId: "a2", toAccountId: "a1", fromAmountMinor: 1000, toAmountMinor: 1000 },
+    ];
+    expect(accountBalance(account, [], transfers)).toBe(10000 - 3000 + 1000);
+  });
+
+  it("en transferencias entre monedas usa el monto de la pata correspondiente a la cuenta", () => {
+    const usdAccount: Account = { id: "a2", bankId: "b1", name: "Caja USD", currency: "USD", initialBalanceMinor: 0 };
+    const transfers: Transfer[] = [
+      // 100 USD salen de a2, entran 4000 UYU a a1, cotización 40
+      { id: "t3", date: "2026-07-01", fromAccountId: "a2", toAccountId: "a1", fromAmountMinor: 10000, toAmountMinor: 400000, exchangeRate: 40 },
+    ];
+    expect(accountBalance(usdAccount, [], transfers)).toBe(0 - 10000);
+    expect(accountBalance(account, [], transfers)).toBe(10000 + 400000);
   });
 });

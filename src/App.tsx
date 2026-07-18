@@ -5,10 +5,10 @@ import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
-  Category, AppUser, PermissionKey,
+  Category, AppUser, PermissionKey, Transfer,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
-import { Transactions, TransactionModal } from "./features/transactions/Transactions";
+import { Transactions, TransactionModal, TransferModal } from "./features/transactions/Transactions";
 import { Cards, CardModal, InstallmentModal } from "./features/cards/Cards";
 import { Budgets, BudgetModal } from "./features/budgets/Budgets";
 import { Projection } from "./features/projection/Projection";
@@ -35,6 +35,7 @@ type ModalState =
   | { type: "budget" }
   | { type: "bank"; payload?: Bank }
   | { type: "account"; payload: { bankId: string; account?: Account } }
+  | { type: "transfer"; payload?: Transfer }
   | { type: "category" }
   | { type: "user"; payload?: AppUser }
   | null;
@@ -142,8 +143,27 @@ export default function App() {
   }, []);
   const deleteAccount = useCallback((id: string) => {
     setData((d) =>
-      d ? { ...d, accounts: d.accounts.filter((x) => x.id !== id), transactions: d.transactions.map((t) => (t.accountId === id ? { ...t, accountId: undefined } : t)) } : d
+      d
+        ? {
+            ...d,
+            accounts: d.accounts.filter((x) => x.id !== id),
+            transactions: d.transactions.map((t) => (t.accountId === id ? { ...t, accountId: undefined } : t)),
+            transfers: d.transfers.filter((tr) => tr.fromAccountId !== id && tr.toAccountId !== id),
+          }
+        : d
     );
+  }, []);
+  const upsertTransfer = useCallback((tr: Transfer) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.transfers.findIndex((x) => x.id === tr.id);
+      const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? tr : x)) : [...d.transfers, tr];
+      return { ...d, transfers };
+    });
+    closeModal();
+  }, []);
+  const deleteTransfer = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, transfers: d.transfers.filter((x) => x.id !== id) } : d));
   }, []);
 
   // --- categories ---
@@ -239,10 +259,15 @@ export default function App() {
             {tab === "movimientos" && (
               <Transactions
                 transactions={data.transactions}
+                transfers={data.transfers}
                 accounts={data.accounts}
+                banks={data.banks}
                 canEdit={has("movimientos", "edit")}
                 onEdit={(t) => setModal({ type: "transaction", payload: t })}
                 onDelete={deleteTransaction}
+                onAddTransfer={() => setModal({ type: "transfer" })}
+                onEditTransfer={(t) => setModal({ type: "transfer", payload: t })}
+                onDeleteTransfer={deleteTransfer}
               />
             )}
             {tab === "cuentas" && (
@@ -250,6 +275,7 @@ export default function App() {
                 banks={data.banks}
                 accounts={data.accounts}
                 transactions={data.transactions}
+                transfers={data.transfers}
                 canEdit={has("cuentas", "edit")}
                 onAddBank={() => setModal({ type: "bank" })}
                 onEditBank={(b) => setModal({ type: "bank", payload: b })}
@@ -337,6 +363,9 @@ export default function App() {
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (
         <AccountModal bankId={modal.payload.bankId} initial={modal.payload.account} onSave={upsertAccount} onClose={closeModal} />
+      )}
+      {modal?.type === "transfer" && (
+        <TransferModal initial={modal.payload} accounts={data.accounts} banks={data.banks} onSave={upsertTransfer} onClose={closeModal} />
       )}
       {modal?.type === "category" && <CategoryModal onSave={addCategory} onClose={closeModal} />}
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}

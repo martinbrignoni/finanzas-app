@@ -5,12 +5,13 @@ import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill 
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank } from "../../lib/accounts";
 import { exportBankToExcel } from "../../lib/excelExport";
-import type { Bank, Account, Transaction, Currency } from "../../types";
+import type { Bank, Account, Transaction, Currency, Transfer } from "../../types";
 
 export function Accounts({
   banks,
   accounts,
   transactions,
+  transfers,
   canEdit,
   onAddBank,
   onEditBank,
@@ -22,6 +23,7 @@ export function Accounts({
   banks: Bank[];
   accounts: Account[];
   transactions: Transaction[];
+  transfers: Transfer[];
   canEdit: boolean;
   onAddBank: () => void;
   onEditBank: (b: Bank) => void;
@@ -43,7 +45,9 @@ export function Accounts({
       <div className="space-y-3 mb-4">
         {banks.map((bank) => {
           const bankAccounts = accountsByBank(accounts, bank.id);
-          const hasMovements = transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId));
+          const hasMovements =
+            transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
+            transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId));
           return (
             <div key={bank.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
               <div className="flex items-center justify-between mb-3">
@@ -56,7 +60,7 @@ export function Accounts({
                 <div className="flex gap-1">
                   <IconBtn
                     label="Exportar a Excel"
-                    onClick={() => exportBankToExcel(bank, bankAccounts, transactions)}
+                    onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers)}
                   >
                     <FileSpreadsheet size={15} />
                   </IconBtn>
@@ -74,7 +78,7 @@ export function Accounts({
               ) : (
                 <div className="space-y-1.5 mb-2">
                   {bankAccounts.map((acc) => {
-                    const balance = accountBalance(acc, transactions);
+                    const balance = accountBalance(acc, transactions, transfers);
                     return (
                       <div key={acc.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
                         <div className="flex items-center gap-2">
