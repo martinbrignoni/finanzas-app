@@ -1,18 +1,35 @@
 import { useState } from "react";
-import { CreditCard, Pencil, Trash2, Plus, Landmark } from "lucide-react";
+import { CreditCard, Pencil, Trash2, Plus, Landmark, ShoppingBag } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, todayISO } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
-import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank } from "../../types";
+import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction } from "../../types";
 
-function debtForCard(cardId: string, installments: Installment[], mk: string): Record<Currency, number> {
+/**
+ * Deuda real de la tarjeta: cuotas restantes (proyección) + gastos de pago
+ * único cargados a la tarjeta, menos los pagos ya registrados. A diferencia
+ * de una proyección pura, esto sí se reduce cuando registrás un pago.
+ */
+function cardDebt(
+  cardId: string,
+  installments: Installment[],
+  transactions: Transaction[],
+  cardPayments: CardPayment[],
+  mk: string
+): Record<Currency, number> {
   const debt: Record<Currency, number> = { UYU: 0, USD: 0 };
   installments.filter((i) => i.cardId === cardId).forEach((inst) => {
     const passed = monthsBetween(inst.startMonth, mk);
     const remaining = Math.max(0, Math.min(inst.numInstallments, inst.numInstallments - Math.max(0, passed)));
     debt[inst.currency] += remaining * inst.installmentAmountMinor;
+  });
+  transactions.filter((t) => t.type === "gasto" && t.cardId === cardId).forEach((t) => {
+    debt[t.currency] += t.amountMinor;
+  });
+  cardPayments.filter((p) => p.cardId === cardId).forEach((p) => {
+    debt[p.currency] -= p.amountMinor;
   });
   return debt;
 }
@@ -30,6 +47,7 @@ function dueForCardInMonth(cardId: string, installments: Installment[], mk: stri
 export function Cards({
   data,
   canEdit,
+  canEditMovements,
   onAddCard,
   onEditCard,
   onDeleteCard,
@@ -39,9 +57,14 @@ export function Cards({
   onAddCardPayment,
   onEditCardPayment,
   onDeleteCardPayment,
+  onAddCardExpense,
+  onEditTransaction,
+  onDeleteTransaction,
 }: {
   data: FinanceData;
   canEdit: boolean;
+  /** Permiso para editar/eliminar los gastos con tarjeta (viven en Movimientos). */
+  canEditMovements: boolean;
   onAddCard: () => void;
   onEditCard: (c: Card) => void;
   onDeleteCard: (id: string) => void;
@@ -51,6 +74,9 @@ export function Cards({
   onAddCardPayment: (cardId: string) => void;
   onEditCardPayment: (p: CardPayment) => void;
   onDeleteCardPayment: (id: string) => void;
+  onAddCardExpense: (cardId: string) => void;
+  onEditTransaction: (t: Transaction) => void;
+  onDeleteTransaction: (id: string) => void;
 }) {
   const mk = currentMonthKey();
   return (
@@ -65,8 +91,11 @@ export function Cards({
 
       <div className="space-y-3 mb-4">
         {data.cards.map((card) => {
-          const debt = debtForCard(card.id, data.installments, mk);
+          const debt = cardDebt(card.id, data.installments, data.transactions, data.cardPayments, mk);
           const purchases = data.installments.filter((i) => i.cardId === card.id);
+          const expenses = data.transactions
+            .filter((t) => t.type === "gasto" && t.cardId === card.id)
+            .sort((a, b) => b.date.localeCompare(a.date));
           const payments = data.cardPayments
             .filter((p) => p.cardId === card.id)
             .sort((a, b) => b.date.localeCompare(a.date));
@@ -92,8 +121,8 @@ export function Cards({
 
               <div className="flex gap-4 mb-3 text-xs font-mono" style={{ color: C.textMuted }}>
                 <span>Deuda pendiente:</span>
-                <span style={{ color: C.uyu }}>{formatMoney(debt.UYU, "UYU")}</span>
-                <span style={{ color: C.usd }}>{formatMoney(debt.USD, "USD")}</span>
+                <span style={{ color: C.uyu }}>{formatMoney(Math.max(0, debt.UYU), "UYU")}</span>
+                <span style={{ color: C.usd }}>{formatMoney(Math.max(0, debt.USD), "USD")}</span>
               </div>
 
               {purchases.length > 0 && (
@@ -130,6 +159,44 @@ export function Cards({
                   style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
                 >
                   <Plus size={13} /> Agregar compra en cuotas
+                </button>
+              )}
+
+              <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Gastos con tarjeta</div>
+              {expenses.length === 0 ? (
+                <p className="text-xs mb-2" style={{ color: C.textFaint }}>Todavía no cargaste gastos de pago único con esta tarjeta.</p>
+              ) : (
+                <div className="space-y-1.5 mb-2">
+                  {expenses.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
+                      <div className="flex items-center gap-2">
+                        <ShoppingBag size={13} color={C.textFaint} />
+                        <div>
+                          <div style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
+                          <div style={{ color: C.textFaint }}>{t.date}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(t.amountMinor, t.currency)}</span>
+                        {canEditMovements && (
+                          <>
+                            <IconBtn label="Editar gasto" onClick={() => onEditTransaction(t)}><Pencil size={13} /></IconBtn>
+                            <IconBtn label="Eliminar gasto" danger onClick={() => onDeleteTransaction(t.id)}><Trash2 size={13} /></IconBtn>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {canEditMovements && (
+                <button
+                  onClick={() => onAddCardExpense(card.id)}
+                  className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-3"
+                  style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+                >
+                  <Plus size={13} /> Agregar gasto con tarjeta
                 </button>
               )}
 

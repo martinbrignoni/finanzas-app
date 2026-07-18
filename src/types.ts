@@ -16,6 +16,14 @@ export interface Transaction {
   note?: string;
   /** Cuenta bancaria asociada (opcional: un movimiento puede no estar ligado a ninguna cuenta). */
   accountId?: string;
+  /**
+   * Tarjeta de crédito con la que se pagó este gasto (pago único, sin cuotas).
+   * Mutuamente excluyente con `accountId`: un movimiento se paga con una cuenta
+   * o con una tarjeta, no con ambas. No afecta el saldo de ninguna cuenta hasta
+   * que se registre el pago de esa tarjeta (CardPayment); mientras tanto suma
+   * a la "deuda pendiente" de la tarjeta en la sección Tarjetas.
+   */
+  cardId?: string;
 }
 
 export interface Bank {

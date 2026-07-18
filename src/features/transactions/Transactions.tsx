@@ -117,6 +117,7 @@ export function Transactions({
                     <div className="text-xs" style={{ color: C.textFaint }}>
                       {t.date}
                       {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
+                      {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
                     </div>
                   </div>
                 </div>
@@ -223,6 +224,8 @@ export function Transactions({
   );
 }
 
+type PaymentMethod = "ninguno" | "cuenta" | "tarjeta";
+
 interface FormState {
   type: TransactionType;
   amount: string;
@@ -231,17 +234,24 @@ interface FormState {
   date: string;
   note: string;
   accountId: string; // "" significa sin cuenta asignada
+  paymentMethod: PaymentMethod; // solo aplica a gastos
+  cardId: string; // "" significa sin tarjeta elegida
 }
 
 export function TransactionModal({
   initial,
+  presetCardId,
   accounts,
+  cards,
   categories,
   onSave,
   onClose,
 }: {
   initial?: Transaction;
+  /** Si se abre el modal para cargar un gasto desde una tarjeta puntual (ej. desde Tarjetas), la precarga como medio de pago. */
+  presetCardId?: string;
   accounts: Account[];
+  cards: Card[];
   categories: Category[];
   onSave: (t: Transaction) => void;
   onClose: () => void;
@@ -250,11 +260,32 @@ export function TransactionModal({
 
   const [form, setForm] = useState<FormState>(
     initial
-      ? { type: initial.type, amount: String(fromMinor(initial.amountMinor)), currency: initial.currency, category: initial.category, date: initial.date, note: initial.note ?? "", accountId: initial.accountId ?? "" }
-      : { type: "gasto", amount: "", currency: "UYU", category: catsFor("gasto")[0]?.name ?? "", date: todayISO(), note: "", accountId: "" }
+      ? {
+          type: initial.type,
+          amount: String(fromMinor(initial.amountMinor)),
+          currency: initial.currency,
+          category: initial.category,
+          date: initial.date,
+          note: initial.note ?? "",
+          accountId: initial.accountId ?? "",
+          paymentMethod: initial.cardId ? "tarjeta" : initial.accountId ? "cuenta" : "ninguno",
+          cardId: initial.cardId ?? "",
+        }
+      : {
+          type: "gasto",
+          amount: "",
+          currency: "UYU",
+          category: catsFor("gasto")[0]?.name ?? "",
+          date: todayISO(),
+          note: "",
+          accountId: "",
+          paymentMethod: presetCardId ? "tarjeta" : "ninguno",
+          cardId: presetCardId ?? "",
+        }
   );
   const [error, setError] = useState<string | null>(null);
   const cats = catsFor(form.type);
+  const eligibleAccounts = accounts.filter((a) => a.currency === form.currency);
 
   const handleSave = () => {
     const amountMinor = parseAmountInput(form.amount);
@@ -270,6 +301,10 @@ export function TransactionModal({
       setError("Elegí una categoría (o creá una nueva en Configuración).");
       return;
     }
+    if (form.type === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) {
+      setError("Elegí una tarjeta.");
+      return;
+    }
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
       type: form.type,
@@ -278,12 +313,13 @@ export function TransactionModal({
       category: form.category,
       date: form.date,
       note: form.note.trim() || undefined,
-      accountId: form.accountId || undefined,
+      accountId: form.type === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
+      cardId: form.type === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
     });
   };
 
   return (
-    <Modal title={initial ? "Editar movimiento" : "Nuevo movimiento"} onClose={onClose}>
+    <Modal title={initial ? "Editar movimiento" : presetCardId ? "Nuevo gasto con tarjeta" : "Nuevo movimiento"} onClose={onClose}>
       <Field label="Tipo">
         {() => (
           <Segment
@@ -320,16 +356,66 @@ export function TransactionModal({
       <Field label="Nota (opcional)">
         {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
       </Field>
-      <Field label="Cuenta (opcional)">
-        {(id) => (
-          <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
-            <option value="">Sin cuenta asignada</option>
-            {accounts.filter((a) => a.currency === form.currency).map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </Select>
-        )}
-      </Field>
+
+      {form.type === "ingreso" ? (
+        <Field label="Cuenta (opcional)">
+          {(id) => (
+            <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
+              <option value="">Sin cuenta asignada</option>
+              {eligibleAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      ) : (
+        <>
+          <Field label="Medio de pago">
+            {() => (
+              <Segment
+                value={form.paymentMethod}
+                onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "" }))}
+                options={[
+                  { value: "ninguno", label: "Sin asignar" },
+                  { value: "cuenta", label: "Cuenta" },
+                  { value: "tarjeta", label: "Tarjeta" },
+                ]}
+              />
+            )}
+          </Field>
+          {form.paymentMethod === "cuenta" && (
+            <Field label="Cuenta">
+              {(id) =>
+                eligibleAccounts.length === 0 ? (
+                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}. Creá una en Cuentas.</p>
+                ) : (
+                  <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
+                    <option value="">Elegí una cuenta</option>
+                    {eligibleAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </Select>
+                )
+              }
+            </Field>
+          )}
+          {form.paymentMethod === "tarjeta" && (
+            <Field label="Tarjeta">
+              {(id) =>
+                cards.length === 0 ? (
+                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés tarjetas creadas. Creá una en Tarjetas.</p>
+                ) : (
+                  <Select id={id} value={form.cardId} onChange={(e) => setForm((f) => ({ ...f, cardId: e.target.value }))}>
+                    <option value="">Elegí una tarjeta</option>
+                    {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </Select>
+                )
+              }
+            </Field>
+          )}
+        </>
+      )}
+
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
