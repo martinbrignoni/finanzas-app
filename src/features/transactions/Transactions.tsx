@@ -4,7 +4,7 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { monthKeyOf, todayISO, monthLabel, capitalize } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
 
@@ -36,6 +36,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       t.category,
       t.note,
       t.date,
+      formatDateDMY(t.date),
       monthLabel(monthKeyOf(t.date)),
       t.type === "ingreso" ? "ingreso" : "gasto",
       amountVariants(t.amountMinor),
@@ -52,6 +53,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       "transferencia",
       tr.note,
       tr.date,
+      formatDateDMY(tr.date),
       monthLabel(monthKeyOf(tr.date)),
       amountVariants(tr.fromAmountMinor),
       amountVariants(tr.toAmountMinor),
@@ -66,6 +68,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
     "pago tarjeta",
     p.note,
     p.date,
+    formatDateDMY(p.date),
     monthLabel(monthKeyOf(p.date)),
     amountVariants(p.amountMinor),
     formatMoney(p.amountMinor, p.currency),
@@ -188,7 +191,7 @@ export function Transactions({
                   <div>
                     <div className="text-sm" style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
                     <div className="text-xs" style={{ color: C.textFaint }}>
-                      {t.date}
+                      {formatDateDMY(t.date)}
                       {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
                       {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
                     </div>
@@ -232,7 +235,7 @@ export function Transactions({
                       {accountLabel(fromAcc, banks)} → {accountLabel(toAcc, banks)}
                       {tr.note ? ` · ${tr.note}` : ""}
                     </div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>{tr.date} · Transferencia</div>
+                    <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(tr.date)} · Transferencia</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -274,7 +277,7 @@ export function Transactions({
                     Pago tarjeta {card?.name ?? "eliminada"} · {accountLabel(account, banks)}
                     {p.note ? ` · ${p.note}` : ""}
                   </div>
-                  <div className="text-xs" style={{ color: C.textFaint }}>{p.date}</div>
+                  <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(p.date)}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">

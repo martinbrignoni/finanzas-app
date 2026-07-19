@@ -6,6 +6,7 @@ import { ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText } from "../../lib/accounts";
 import { exportBankToExcel } from "../../lib/excelExport";
+import { formatDateDMY } from "../../lib/dates";
 import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card } from "../../types";
 
 export function Accounts({
@@ -404,7 +405,7 @@ function AccountLedgerModal({
                     </div>
                     <div>
                       <div className="text-sm" style={{ color: C.text }}>{label}{note ? ` · ${note}` : ""}</div>
-                      <div className="text-xs" style={{ color: C.textFaint }}>{entry.date}</div>
+                      <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(entry.date)}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">

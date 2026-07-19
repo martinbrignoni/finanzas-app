@@ -10,6 +10,14 @@ export function capitalize(s: string): string {
   return s.replace(/^./, (c) => c.toUpperCase());
 }
 
+/** Convierte una fecha guardada como YYYY-MM-DD a DD/MM/AAAA para mostrarla. Fechas vacías o con otro formato quedan tal cual. */
+export function formatDateDMY(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return iso;
+  const [, y, m, d] = match;
+  return `${d}/${m}/${y}`;
+}
+
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }

@@ -4,7 +4,7 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { currentMonthKey, monthsBetween, todayISO } from "../../lib/dates";
+import { currentMonthKey, monthsBetween, todayISO, formatDateDMY } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction } from "../../types";
 
@@ -174,7 +174,7 @@ export function Cards({
                         <ShoppingBag size={13} color={C.textFaint} />
                         <div>
                           <div style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
-                          <div style={{ color: C.textFaint }}>{t.date}</div>
+                          <div style={{ color: C.textFaint }}>{formatDateDMY(t.date)}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -215,7 +215,7 @@ export function Cards({
                           <Landmark size={13} color={C.textFaint} />
                           <div>
                             <div style={{ color: C.text }}>{accountLabel(account, data.banks)}{p.note ? ` · ${p.note}` : ""}</div>
-                            <div style={{ color: C.textFaint }}>{p.date}</div>
+                            <div style={{ color: C.textFaint }}>{formatDateDMY(p.date)}</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
