@@ -789,6 +789,7 @@ export function MovementModal({
                         min="1"
                         value={form.numInstallments}
                         onChange={(e) => setForm((f) => ({ ...f, numInstallments: e.target.value }))}
+                        onFocus={(e) => e.currentTarget.select()}
                       />
                     )}
                   </Field>
