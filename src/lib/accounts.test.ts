@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { accountBalance } from "./accounts";
-import type { Account, Transaction, Transfer, CardPayment } from "../types";
+import { accountBalance, shareableAccountText } from "./accounts";
+import type { Account, Bank, Transaction, Transfer, CardPayment } from "../types";
 
 describe("accountBalance", () => {
   const account: Account = { id: "a1", bankId: "b1", name: "Caja de ahorro", currency: "UYU", initialBalanceMinor: 10000 };
@@ -45,5 +45,32 @@ describe("accountBalance", () => {
       { id: "p2", cardId: "c1", accountId: "otra-cuenta", date: "2026-07-05", amountMinor: 99999, currency: "UYU" },
     ];
     expect(accountBalance(account, [], [], cardPayments)).toBe(10000 - 1500);
+  });
+});
+
+describe("shareableAccountText", () => {
+  const banks: Bank[] = [{ id: "b1", name: "Santander" }];
+
+  it("incluye titular y número de cuenta cuando están cargados", () => {
+    const account: Account = {
+      id: "a1",
+      bankId: "b1",
+      name: "Caja de ahorro",
+      currency: "UYU",
+      initialBalanceMinor: 0,
+      holderName: "María Pérez",
+      accountNumber: "001234567",
+    };
+    const text = shareableAccountText(account, banks);
+    expect(text).toContain("Banco: Santander");
+    expect(text).toContain("Titular: María Pérez");
+    expect(text).toContain("Número de cuenta: 001234567");
+  });
+
+  it("omite titular y número de cuenta cuando no están cargados", () => {
+    const account: Account = { id: "a2", bankId: "b1", name: "Cuenta corriente", currency: "USD", initialBalanceMinor: 0 };
+    const text = shareableAccountText(account, banks);
+    expect(text).not.toContain("Titular");
+    expect(text).not.toContain("Número de cuenta");
   });
 });

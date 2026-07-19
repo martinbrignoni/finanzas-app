@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { accountBalance, accountsByBank, accountLabel, accountLedger } from "../../lib/accounts";
+import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText } from "../../lib/accounts";
 import { exportBankToExcel } from "../../lib/excelExport";
 import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card } from "../../types";
 
@@ -56,6 +56,27 @@ export function Accounts({
   const [sortBy, setSortBy] = useState<"banco" | "moneda">("banco");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const dirMul = sortDir === "asc" ? 1 : -1;
+  const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
+
+  /** Comparte (o, si el navegador no soporta compartir, copia al portapapeles) los datos bancarios de una cuenta. */
+  const handleShare = async (account: Account) => {
+    const text = shareableAccountText(account, banks);
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Datos bancarios", text });
+      } catch {
+        // el usuario cerró el panel de compartir, no hacemos nada
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedAccountId(account.id);
+      setTimeout(() => setCopiedAccountId((id) => (id === account.id ? null : id)), 1500);
+    } catch {
+      // si tampoco hay portapapeles disponible, no rompemos nada
+    }
+  };
 
   return (
     <div className="pb-24">
@@ -129,6 +150,12 @@ export function Accounts({
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                              <IconBtn
+                                label="Compartir datos bancarios"
+                                onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
+                              >
+                                {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
+                              </IconBtn>
                               {canEdit && (
                                 <>
                                   <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
@@ -196,6 +223,12 @@ export function Accounts({
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                            <IconBtn
+                              label="Compartir datos bancarios"
+                              onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
+                            >
+                              {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
+                            </IconBtn>
                             {canEdit && (
                               <>
                                 <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
@@ -284,16 +317,45 @@ function AccountLedgerModal({
 }) {
   const entries = accountLedger(account, transactions, transfers, cardPayments);
   const balance = accountBalance(account, transactions, transfers, cardPayments);
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = async () => {
+    const text = shareableAccountText(account, banks);
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Datos bancarios", text });
+      } catch {
+        // el usuario cerró el panel de compartir, no hacemos nada
+      }
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // si tampoco hay portapapeles disponible, no rompemos nada
+    }
+  };
 
   return (
     <Modal title={accountLabel(account, banks)} onClose={onClose}>
-      <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-4" style={{ background: C.surface2 }}>
+      <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-2" style={{ background: C.surface2 }}>
         <span className="text-xs" style={{ color: C.textMuted }}>Saldo actual</span>
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, account.currency)}</span>
           <CurrencyPill currency={account.currency} />
         </div>
       </div>
+
+      <button
+        onClick={handleShare}
+        className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 mb-4"
+        style={{ border: `1px dashed ${C.borderLight}`, color: copied ? C.positive : C.textMuted }}
+      >
+        {copied ? <Check size={13} /> : <Share2 size={13} />}
+        {copied ? "Copiado" : "Compartir datos bancarios"}
+      </button>
 
       {entries.length === 0 ? (
         <p className="text-sm text-center py-6" style={{ color: C.textMuted }}>Sin movimientos en esta cuenta todavía.</p>
@@ -408,22 +470,36 @@ export function BankModal({ initial, onSave, onClose }: { initial?: Bank; onSave
   );
 }
 
-export function AccountModal({ bankId, initial, onSave, onClose }: {
+export function AccountModal({ bankId, initial, accounts, onSave, onClose }: {
   bankId: string;
   initial?: Account;
+  /** Cuentas ya cargadas, solo para sugerir titulares ya usados (ej. vos o tu esposa) sin tener que retipearlos. */
+  accounts: Account[];
   onSave: (a: Account) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
   const [initialBalance, setInitialBalance] = useState(initial ? String(fromMinor(initial.initialBalanceMinor)) : "0");
+  const [holderName, setHolderName] = useState(initial?.holderName ?? "");
+  const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? "");
   const [error, setError] = useState<string | null>(null);
+
+  const holderSuggestions = Array.from(new Set(accounts.map((a) => a.holderName).filter((h): h is string => !!h)));
 
   const handleSave = () => {
     if (!name.trim()) return setError("Ingresá un nombre para la caja (ej. Caja de ahorro).");
     const minor = parseAmountInput(initialBalance || "0");
     if (minor === null) return setError("El saldo inicial no es un número válido.");
-    onSave({ id: initial?.id ?? crypto.randomUUID(), bankId, name: name.trim(), currency, initialBalanceMinor: minor });
+    onSave({
+      id: initial?.id ?? crypto.randomUUID(),
+      bankId,
+      name: name.trim(),
+      currency,
+      initialBalanceMinor: minor,
+      holderName: holderName.trim() || undefined,
+      accountNumber: accountNumber.trim() || undefined,
+    });
   };
 
   return (
@@ -433,6 +509,19 @@ export function AccountModal({ bankId, initial, onSave, onClose }: {
         <Field label="Saldo inicial">{(id) => <TextInput id={id} type="number" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0" />}</Field>
         <Field label="Moneda">{() => <Segment value={currency} onChange={setCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}</Field>
       </div>
+      <Field label="Titular (opcional)">
+        {(id) => (
+          <>
+            <TextInput id={id} list="holder-suggestions" value={holderName} onChange={(e) => setHolderName(e.target.value)} placeholder="Ej. Martín Brignoni" />
+            <datalist id="holder-suggestions">
+              {holderSuggestions.map((h) => <option key={h} value={h} />)}
+            </datalist>
+          </>
+        )}
+      </Field>
+      <Field label="Número de cuenta (opcional)">
+        {(id) => <TextInput id={id} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Para compartir cuando te pidan transferirte" />}
+      </Field>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>

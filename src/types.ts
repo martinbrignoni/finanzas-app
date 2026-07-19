@@ -43,6 +43,10 @@ export interface Account {
   name: string; // ej. "Caja de ahorro", "Cuenta corriente"
   currency: Currency;
   initialBalanceMinor: number;
+  /** Nombre del titular de la cuenta (puede no coincidir con quien usa la app, ej. cuenta a nombre de la esposa). */
+  holderName?: string;
+  /** Número de cuenta, para poder compartir los datos bancarios cuando te piden hacerte una transferencia. */
+  accountNumber?: string;
 }
 
 /**

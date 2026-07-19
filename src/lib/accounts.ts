@@ -39,6 +39,20 @@ export function accountLabel(account: Account | undefined, banks: Bank[]): strin
   return bank ? `${bank.name} · ${account.name}` : account.name;
 }
 
+/** Texto listo para compartir (WhatsApp, etc.) cuando te piden los datos para transferirte. */
+export function shareableAccountText(account: Account, banks: Bank[]): string {
+  const bank = banks.find((b) => b.id === account.bankId);
+  const lines = [
+    "Datos para transferencia:",
+    bank ? `Banco: ${bank.name}` : null,
+    `Cuenta: ${account.name}`,
+    `Moneda: ${account.currency}`,
+    account.accountNumber ? `Número de cuenta: ${account.accountNumber}` : null,
+    account.holderName ? `Titular: ${account.holderName}` : null,
+  ].filter((l): l is string => l !== null);
+  return lines.join("\n");
+}
+
 export interface AccountLedgerEntry {
   date: string;
   /** Monto con signo, en la moneda de la cuenta: positivo = entra, negativo = sale. */
