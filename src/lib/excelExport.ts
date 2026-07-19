@@ -2,6 +2,7 @@ import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
 import { accountBalance } from "./accounts";
 import type { Bank, Account, Transaction, Transfer, CardPayment } from "../types";
+import type { ExchangeRateRow } from "./exchangeRates";
 
 /** Nombres de hoja de Excel: máx 31 caracteres, sin : \ / ? * [ ] */
 function sheetName(raw: string): string {
@@ -89,4 +90,25 @@ export function exportBankToExcel(
   const today = new Date().toISOString().slice(0, 10);
   const filename = `${bank.name.replace(/[^a-zA-Z0-9-_ ]/g, "")}_${today}.xlsx`;
   XLSX.writeFile(wb, filename);
+}
+
+/** Exporta el histórico completo de cotizaciones (una hoja por moneda) a un Excel. */
+export function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRateRow[]>): void {
+  const wb = XLSX.utils.book_new();
+
+  Object.entries(porMoneda).forEach(([moneda, filas]) => {
+    const rows = filas.map((f) => ({
+      "Fecha aplicable": f.rate_date,
+      "Fecha publicación BCU": f.published_date,
+      Venta: f.sell,
+      "Arbitraje vs USD": f.arbitrage ?? "",
+    }));
+    const sheet = XLSX.utils.json_to_sheet(
+      rows.length ? rows : [{ "Fecha aplicable": "", "Fecha publicación BCU": "", Venta: "", "Arbitraje vs USD": "" }]
+    );
+    XLSX.utils.book_append_sheet(wb, sheet, moneda.slice(0, 31));
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Cotizaciones_BCU_${today}.xlsx`);
 }

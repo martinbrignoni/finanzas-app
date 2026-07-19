@@ -44,3 +44,33 @@ export async function fetchRateHistory(currency: ExchangeRateCurrency, limit = 3
   if (error || !data) return [];
   return data as ExchangeRateRow[];
 }
+
+/**
+ * Trae TODO el histórico guardado de una moneda (paginado, porque Supabase
+ * limita cuántas filas devuelve por pedido). Pensado para exportar, no para
+ * mostrar en pantalla.
+ */
+export async function fetchAllRateHistory(currency: ExchangeRateCurrency): Promise<ExchangeRateRow[]> {
+  const PAGINA = 1000;
+  const resultado: ExchangeRateRow[] = [];
+  let desde = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("exchange_rates")
+      .select("currency, rate_date, published_date, sell, arbitrage")
+      .eq("currency", currency)
+      .order("rate_date", { ascending: true })
+      .range(desde, desde + PAGINA - 1);
+    if (error || !data || data.length === 0) break;
+    resultado.push(...(data as ExchangeRateRow[]));
+    if (data.length < PAGINA) break;
+    desde += PAGINA;
+  }
+  return resultado;
+}
+
+/** Todo el histórico guardado, de todas las monedas. */
+export async function fetchAllRatesAllCurrencies(currencies: ExchangeRateCurrency[]): Promise<Record<string, ExchangeRateRow[]>> {
+  const entries = await Promise.all(currencies.map(async (c) => [c, await fetchAllRateHistory(c)] as const));
+  return Object.fromEntries(entries);
+}

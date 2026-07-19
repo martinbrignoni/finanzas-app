@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, FileSpreadsheet } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Segment } from "../../components/ui";
 import { formatDateDMY } from "../../lib/dates";
-import { fetchLatestRates, fetchRateHistory, type ExchangeRateCurrency, type ExchangeRateRow } from "../../lib/exchangeRates";
+import { fetchLatestRates, fetchRateHistory, fetchAllRatesAllCurrencies, type ExchangeRateCurrency, type ExchangeRateRow } from "../../lib/exchangeRates";
+import { exportExchangeRatesToExcel } from "../../lib/excelExport";
 
 const MONEDAS: { id: ExchangeRateCurrency; label: string; decimals: number }[] = [
-  { id: "USD", label: "Dólar (billete, venta)", decimals: 2 },
+  { id: "USD", label: "Dólar (billete, venta)", decimals: 3 },
   { id: "EUR", label: "Euro", decimals: 2 },
   { id: "ARS", label: "Peso argentino", decimals: 3 },
   { id: "BRL", label: "Real", decimals: 2 },
@@ -23,12 +24,23 @@ export function ExchangeRates() {
   const [selected, setSelected] = useState<ExchangeRateCurrency>("USD");
   const [historia, setHistoria] = useState<ExchangeRateRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const cargarTodo = () => {
     setLoading(true);
     fetchLatestRates(MONEDAS.map((m) => m.id))
       .then(setLatest)
       .finally(() => setLoading(false));
+  };
+
+  const exportar = async () => {
+    setExporting(true);
+    try {
+      const porMoneda = await fetchAllRatesAllCurrencies(MONEDAS.map((m) => m.id));
+      exportExchangeRatesToExcel(porMoneda);
+    } finally {
+      setExporting(false);
+    }
   };
 
   useEffect(cargarTodo, []);
@@ -42,9 +54,14 @@ export function ExchangeRates() {
     <div className="pb-24">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-xs uppercase tracking-widest" style={{ color: C.textFaint }}>Fuente: BCU</h2>
-        <button onClick={cargarTodo} aria-label="Actualizar" style={{ color: C.textFaint }} disabled={loading}>
-          <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={exportar} aria-label="Exportar histórico a Excel" style={{ color: C.textFaint }} disabled={exporting}>
+            <FileSpreadsheet size={15} className={exporting ? "animate-pulse" : ""} />
+          </button>
+          <button onClick={cargarTodo} aria-label="Actualizar" style={{ color: C.textFaint }} disabled={loading}>
+            <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
       <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Cotizaciones</h1>
 
@@ -66,7 +83,10 @@ export function ExchangeRates() {
                 <>
                   <div className="font-mono text-base font-semibold" style={{ color: C.text }}>{fmt(row.sell, m.decimals)}</div>
                   {row.arbitrage != null && (
-                    <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>arb. {fmt(row.arbitrage, 4)} vs USD</div>
+                    <>
+                      <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>arb. {fmt(row.arbitrage, 4)} vs USD</div>
+                      <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>1 USD = {fmt(1 / row.arbitrage, 2)} {m.id}</div>
+                    </>
                   )}
                   <div className="text-[10px] mt-0.5" style={{ color: C.textFaint }}>
                     {m.id === "UR" ? "mes " : "al "}{formatDateDMY(row.rate_date)}
