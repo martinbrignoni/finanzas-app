@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText } from "../../lib/accounts";
@@ -58,6 +58,7 @@ export function Accounts({
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const dirMul = sortDir === "asc" ? 1 : -1;
   const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   /** Comparte (o, si el navegador no soporta compartir, copia al portapapeles) los datos bancarios de una cuenta. */
   const handleShare = async (account: Account) => {
@@ -81,7 +82,46 @@ export function Accounts({
 
   return (
     <div className="pb-24">
-      <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Cuentas</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-display" style={{ color: C.text }}>Cuentas</h1>
+        {canEdit && (
+          <div className="relative">
+            <button
+              onClick={() => setAddMenuOpen((v) => !v)}
+              aria-label="Agregar"
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+            >
+              <Plus size={18} />
+            </button>
+            {addMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setAddMenuOpen(false)} />
+                <div
+                  className="absolute right-0 top-11 z-40 rounded-lg overflow-hidden w-48"
+                  style={{ background: C.surface, border: `1px solid ${C.border}` }}
+                >
+                  <button
+                    onClick={() => { setAddMenuOpen(false); onAddBank(); }}
+                    className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2"
+                    style={{ color: C.text }}
+                  >
+                    <Landmark size={14} /> Nuevo banco
+                  </button>
+                  <button
+                    onClick={() => { if (banks.length === 0) return; setAddMenuOpen(false); onAddAccount(banks[0].id); }}
+                    disabled={banks.length === 0}
+                    className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 disabled:opacity-40"
+                    style={{ color: C.text, borderTop: `1px solid ${C.border}` }}
+                  >
+                    <Wallet size={14} /> Nueva caja
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {banks.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
@@ -175,16 +215,6 @@ export function Accounts({
                       El export a Excel va a incluir solo el saldo inicial hasta que asignes movimientos a estas cajas.
                     </p>
                   )}
-
-                  {canEdit && (
-                    <button
-                      onClick={() => onAddAccount(bank.id)}
-                      className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                      style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-                    >
-                      <Plus size={13} /> Agregar caja
-                    </button>
-                  )}
                 </div>
               );
             })}
@@ -248,16 +278,6 @@ export function Accounts({
             <p className="text-xs text-center py-4" style={{ color: C.textFaint }}>Todavía no agregaste cajas.</p>
           )}
         </div>
-      )}
-
-      {canEdit && (
-        <button
-          onClick={onAddBank}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Agregar banco
-        </button>
       )}
 
       {viewAccount && (
@@ -471,14 +491,17 @@ export function BankModal({ initial, onSave, onClose }: { initial?: Bank; onSave
   );
 }
 
-export function AccountModal({ bankId, initial, accounts, onSave, onClose }: {
+export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose }: {
+  /** Banco preseleccionado al abrir el modal (el usuario puede cambiarlo). */
   bankId: string;
+  banks: Bank[];
   initial?: Account;
   /** Cuentas ya cargadas, solo para sugerir titulares ya usados (ej. vos o tu esposa) sin tener que retipearlos. */
   accounts: Account[];
   onSave: (a: Account) => void;
   onClose: () => void;
 }) {
+  const [selectedBankId, setSelectedBankId] = useState(initial?.bankId ?? bankId ?? banks[0]?.id ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
   const [initialBalance, setInitialBalance] = useState(initial ? String(fromMinor(initial.initialBalanceMinor)) : "0");
@@ -489,12 +512,13 @@ export function AccountModal({ bankId, initial, accounts, onSave, onClose }: {
   const holderSuggestions = Array.from(new Set(accounts.map((a) => a.holderName).filter((h): h is string => !!h)));
 
   const handleSave = () => {
+    if (!selectedBankId) return setError("Elegí un banco.");
     if (!name.trim()) return setError("Ingresá un nombre para la caja (ej. Caja de ahorro).");
     const minor = parseAmountInput(initialBalance || "0");
     if (minor === null) return setError("El saldo inicial no es un número válido.");
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
-      bankId,
+      bankId: selectedBankId,
       name: name.trim(),
       currency,
       initialBalanceMinor: minor,
@@ -505,6 +529,17 @@ export function AccountModal({ bankId, initial, accounts, onSave, onClose }: {
 
   return (
     <Modal title={initial ? "Editar caja" : "Nueva caja"} onClose={onClose}>
+      <Field label="Banco">
+        {(id) =>
+          banks.length === 0 ? (
+            <p className="text-xs" style={{ color: C.textFaint }}>Primero creá un banco.</p>
+          ) : (
+            <Select id={id} value={selectedBankId} onChange={(e) => setSelectedBankId(e.target.value)}>
+              {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </Select>
+          )
+        }
+      </Field>
       <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Caja de ahorro, Cuenta corriente..." />}</Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Saldo inicial">{(id) => <TextInput id={id} type="number" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0" />}</Field>
