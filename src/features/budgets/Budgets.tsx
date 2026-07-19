@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Trash2, Plus } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
 import { formatMoney, parseAmountInput } from "../../lib/money";
 import { currentMonthKey, monthKeyOf } from "../../lib/dates";
 import type { Budget, Transaction, Currency, Category } from "../../types";
@@ -66,8 +67,7 @@ export function Budgets({ budgets, transactions, canEdit, onAdd, onDelete }: {
 }
 
 export function BudgetModal({ categories, onSave, onClose }: { categories: Category[]; onSave: (b: Budget) => void; onClose: () => void }) {
-  const expenseCats = categories.filter((c) => c.type === "gasto");
-  const [category, setCategory] = useState<string>(expenseCats[0]?.name ?? "");
+  const [category, setCategory] = useState<string>(() => defaultLeafCategoryName(categories, "gasto"));
   const [currency, setCurrency] = useState<Currency>("UYU");
   const [limit, setLimit] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -81,17 +81,7 @@ export function BudgetModal({ categories, onSave, onClose }: { categories: Categ
 
   return (
     <Modal title="Nuevo presupuesto" onClose={onClose}>
-      <Field label="Categoría">
-        {(id) =>
-          expenseCats.length === 0 ? (
-            <p className="text-xs" style={{ color: C.textFaint }}>No hay categorías de gasto. Creá una en Configuración → Categorías.</p>
-          ) : (
-            <Select id={id} value={category} onChange={(e) => setCategory(e.target.value)}>
-              {expenseCats.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-            </Select>
-          )
-        }
-      </Field>
+      <CategoryPicker categories={categories} type="gasto" value={category} onChange={setCategory} />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Límite mensual">{(id) => <TextInput id={id} type="number" min="0" step="0.01" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="0" />}</Field>
         <Field label="Moneda">{() => <Segment value={currency} onChange={setCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}</Field>

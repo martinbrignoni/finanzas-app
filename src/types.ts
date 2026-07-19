@@ -129,6 +129,13 @@ export interface Category {
   id: string;
   name: string;
   type: TransactionType;
+  /**
+   * Categoría padre en la jerarquía Categoría madre → Categoría → Subcategoría.
+   * Sin `parentId`, es una Categoría madre (primer nivel). Opcional por
+   * compatibilidad con categorías cargadas antes de este esquema: todas
+   * quedan como categoría madre automáticamente.
+   */
+  parentId?: string;
 }
 
 /**

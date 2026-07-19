@@ -233,10 +233,13 @@ export default function App() {
   );
 
   // --- categories ---
-  const addCategory = useCallback((c: Category) => {
+  const saveCategory = useCallback((c: Category) => {
     setData((d) => (d ? { ...d, categories: [...d.categories, c] } : d));
-    closeModal();
   }, []);
+  const addCategory = useCallback((c: Category) => {
+    saveCategory(c);
+    closeModal();
+  }, [saveCategory]);
   const deleteCategory = useCallback((id: string) => {
     setData((d) => (d ? { ...d, categories: d.categories.filter((x) => x.id !== id) } : d));
   }, []);
@@ -472,6 +475,7 @@ export default function App() {
           onSaveTransaction={upsertTransaction}
           onSaveTransfer={upsertTransfer}
           onSaveInstallment={upsertInstallment}
+          onSaveCategory={saveCategory}
           onClose={closeModal}
         />
       )}
@@ -493,7 +497,7 @@ export default function App() {
           onClose={closeModal}
         />
       )}
-      {modal?.type === "category" && <CategoryModal onSave={addCategory} onClose={closeModal} />}
+      {modal?.type === "category" && <CategoryModal categories={data.categories} onSave={addCategory} onClose={closeModal} />}
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}
 
       {calculatorOpen && <CalculatorModal onClose={() => setCalculatorOpen(false)} />}

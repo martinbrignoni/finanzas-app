@@ -3,11 +3,13 @@ import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCar
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
+import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
+import { CategoryModal } from "../settings/Categories";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
-import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card, Installment } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment } from "../../types";
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
@@ -413,6 +415,7 @@ export function MovementModal({
   onSaveTransaction,
   onSaveTransfer,
   onSaveInstallment,
+  onSaveCategory,
   onClose,
 }: {
   /** Editar un gasto/ingreso existente. */
@@ -429,10 +432,11 @@ export function MovementModal({
   categories: Category[];
   onSaveTransaction: (t: Transaction) => void;
   onSaveTransfer: (t: Transfer) => void;
+  /** Crear una categoría nueva (en cualquier nivel) sin salir del modal de movimiento. */
+  onSaveCategory: (c: Category) => void;
   onSaveInstallment: (i: Installment) => void;
   onClose: () => void;
 }) {
-  const catsFor = (type: TransactionType) => categories.filter((c) => c.type === type);
   const isEditingTransaction = !!initial;
   const isEditingTransfer = !!initialTransfer;
   const isEditingInstallment = !!initialInstallment;
@@ -444,7 +448,7 @@ export function MovementModal({
     kind: initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
     amount: initialInstallment ? String(fromMinor(initialInstallment.totalAmountMinor)) : initial ? String(fromMinor(initial.amountMinor)) : "",
     currency: initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
-    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category : catsFor("gasto")[0]?.name ?? "",
+    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category : defaultLeafCategoryName(categories, "gasto"),
     date: initialTransfer ? initialTransfer.date : initial ? initial.date : initialInstallment ? initialInstallment.date ?? `${initialInstallment.startMonth}-01` : todayISO(),
     note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
     accountId: initial?.accountId ?? "",
@@ -459,7 +463,7 @@ export function MovementModal({
     receiptPath: initialTransfer?.receiptPath ?? initial?.receiptPath ?? initialInstallment?.receiptPath,
   }));
   const [error, setError] = useState<string | null>(null);
-  const cats = form.kind === "transferencia" ? [] : catsFor(form.kind);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
   const eligibleAccounts = accounts.filter((a) => a.currency === form.currency);
 
   const fromAcc = accounts.find((a) => a.id === form.fromAccountId);
@@ -597,7 +601,7 @@ export function MovementModal({
           {() => (
             <Segment
               value={form.kind}
-              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : catsFor(v)[0]?.name ?? "" }))}
+              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : defaultLeafCategoryName(categories, v) }))}
               options={kindOptions}
             />
           )}
@@ -702,19 +706,17 @@ export function MovementModal({
               {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
             </Field>
           </div>
-          <Field label="Categoría">
-            {(id) =>
-              cats.length === 0 ? (
-                <p className="text-xs" style={{ color: C.textFaint }}>
-                  No hay categorías de {form.kind === "ingreso" ? "ingreso" : "gasto"}. Creá una en Configuración → Categorías.
-                </p>
-              ) : (
-                <Select id={id} value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}>
-                  {cats.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-                </Select>
-              )
-            }
-          </Field>
+          <CategoryPicker
+            categories={categories}
+            type={form.kind === "ingreso" ? "ingreso" : "gasto"}
+            value={form.category}
+            onChange={(name) => setForm((f) => ({ ...f, category: name }))}
+          />
+          <div className="flex justify-end -mt-1 mb-3">
+            <button type="button" onClick={() => setShowCategoryModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
+              + Nueva categoría
+            </button>
+          </div>
           <Field label="Fecha">
             {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
           </Field>
@@ -812,6 +814,19 @@ export function MovementModal({
 
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
+
+      {showCategoryModal && (
+        <CategoryModal
+          categories={categories}
+          defaultType={form.kind === "ingreso" ? "ingreso" : "gasto"}
+          onSave={(c) => {
+            onSaveCategory(c);
+            setForm((f) => ({ ...f, category: c.name }));
+            setShowCategoryModal(false);
+          }}
+          onClose={() => setShowCategoryModal(false)}
+        />
+      )}
     </Modal>
   );
 }
