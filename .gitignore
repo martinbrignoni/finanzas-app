@@ -7,3 +7,7 @@ dist
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+supabase/.temp/
+cotizaciones_dryrun.json
+debug_chunk.json
+historico_dryrun.json
