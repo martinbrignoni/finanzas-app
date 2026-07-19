@@ -88,6 +88,15 @@ export interface Installment {
   numInstallments: number;
   startMonth: string; // YYYY-MM
   installmentAmountMinor: number;
+  /**
+   * Fecha real de la compra y demás campos "de movimiento", agregados cuando
+   * las compras en cuotas se unificaron con el modal de Nuevo movimiento.
+   * Opcionales por compatibilidad con compras en cuotas cargadas antes.
+   */
+  date?: string; // YYYY-MM-DD
+  category?: string;
+  note?: string;
+  receiptPath?: string;
 }
 
 /**

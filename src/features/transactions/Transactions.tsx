@@ -7,12 +7,13 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
-import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
+import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card, Installment } from "../../types";
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
   | { kind: "transfer"; date: string; data: Transfer }
-  | { kind: "cardPayment"; date: string; data: CardPayment };
+  | { kind: "cardPayment"; date: string; data: CardPayment }
+  | { kind: "installment"; date: string; data: Installment };
 
 const DIACRITICS_RE = new RegExp("[\\u0300-\\u036f]", "g");
 
@@ -29,6 +30,23 @@ function amountVariants(amountMinor: number): string {
 
 /** Junta todo el texto relevante de un movimiento (categoría, nota, fecha, importe, cuenta, tarjeta...) para buscar en él. */
 function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], cards: Card[]): string {
+  if (item.kind === "installment") {
+    const inst = item.data;
+    const card = cards.find((c) => c.id === inst.cardId);
+    const date = inst.date ?? `${inst.startMonth}-01`;
+    return [
+      "cuotas",
+      inst.category,
+      inst.description,
+      inst.note,
+      date,
+      formatDateDMY(date),
+      monthLabel(monthKeyOf(date)),
+      amountVariants(inst.totalAmountMinor),
+      formatMoney(inst.totalAmountMinor, inst.currency),
+      card?.name,
+    ].filter((x): x is string => !!x).join(" ");
+  }
   if (item.kind === "transaction") {
     const t = item.data;
     const acc = accounts.find((a) => a.id === t.accountId);
@@ -82,6 +100,7 @@ export function Transactions({
   transactions,
   transfers,
   cardPayments,
+  installments,
   cards,
   accounts,
   banks,
@@ -92,10 +111,13 @@ export function Transactions({
   onDeleteTransfer,
   onEditCardPayment,
   onDeleteCardPayment,
+  onEditInstallment,
+  onDeleteInstallment,
 }: {
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  installments: Installment[];
   cards: Card[];
   accounts: Account[];
   banks: Bank[];
@@ -106,6 +128,8 @@ export function Transactions({
   onDeleteTransfer: (id: string) => void;
   onEditCardPayment: (p: CardPayment) => void;
   onDeleteCardPayment: (id: string) => void;
+  onEditInstallment: (i: Installment) => void;
+  onDeleteInstallment: (id: string) => void;
 }) {
   const [filterMonth, setFilterMonth] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -114,6 +138,7 @@ export function Transactions({
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
     ...transfers.map((t): LedgerItem => ({ kind: "transfer", date: t.date, data: t })),
     ...cardPayments.map((p): LedgerItem => ({ kind: "cardPayment", date: p.date, data: p })),
+    ...installments.map((i): LedgerItem => ({ kind: "installment", date: i.date ?? `${i.startMonth}-01`, data: i })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 
   const availableMonths = Array.from(new Set(allItems.map((item) => monthKeyOf(item.date)))).sort((a, b) => b.localeCompare(a));
@@ -262,6 +287,46 @@ export function Transactions({
             );
           }
 
+          if (item.kind === "installment") {
+            const inst = item.data;
+            const card = cards.find((c) => c.id === inst.cardId);
+            const instDate = inst.date ?? `${inst.startMonth}-01`;
+            const title = inst.category ? `${inst.category} · ${inst.description}` : inst.description;
+            return (
+              <Fragment key={inst.id}>
+                {separator}
+                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
+                    <CreditCardIcon size={16} color={C.negative} />
+                  </div>
+                  <div>
+                    <div className="text-sm" style={{ color: C.text }}>{title}{inst.note ? ` · ${inst.note}` : ""}</div>
+                    <div className="text-xs" style={{ color: C.textFaint }}>
+                      {formatDateDMY(instDate)}
+                      {card && ` · ${card.name}`}
+                      {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(inst.totalAmountMinor, inst.currency)}</div>
+                    <CurrencyPill currency={inst.currency} />
+                  </div>
+                  <ReceiptButton path={inst.receiptPath} />
+                  {canEdit && (
+                    <>
+                      <IconBtn label="Editar compra en cuotas" onClick={() => onEditInstallment(inst)}><Pencil size={15} /></IconBtn>
+                      <IconBtn label="Eliminar compra en cuotas" danger onClick={() => onDeleteInstallment(inst.id)}><Trash2 size={15} /></IconBtn>
+                    </>
+                  )}
+                </div>
+                </div>
+              </Fragment>
+            );
+          }
+
           const p = item.data;
           const account = accounts.find((a) => a.id === p.accountId);
           const card = cards.find((c) => c.id === p.cardId);
@@ -324,6 +389,8 @@ interface FormState {
   fromAmount: string;
   toAmount: string;
   exchangeRate: string;
+  // cuotas (solo gasto con tarjeta)
+  numInstallments: string;
   // comprobante
   receiptPath: string | undefined;
 }
@@ -337,6 +404,7 @@ interface FormState {
 export function MovementModal({
   initial,
   initialTransfer,
+  initialInstallment,
   presetCardId,
   accounts,
   banks,
@@ -344,12 +412,15 @@ export function MovementModal({
   categories,
   onSaveTransaction,
   onSaveTransfer,
+  onSaveInstallment,
   onClose,
 }: {
   /** Editar un gasto/ingreso existente. */
   initial?: Transaction;
   /** Editar una transferencia existente. */
   initialTransfer?: Transfer;
+  /** Editar una compra en cuotas existente. */
+  initialInstallment?: Installment;
   /** Si se abre el modal para cargar un gasto desde una tarjeta puntual (ej. desde Tarjetas), la precarga como medio de pago. */
   presetCardId?: string;
   accounts: Account[];
@@ -358,31 +429,34 @@ export function MovementModal({
   categories: Category[];
   onSaveTransaction: (t: Transaction) => void;
   onSaveTransfer: (t: Transfer) => void;
+  onSaveInstallment: (i: Installment) => void;
   onClose: () => void;
 }) {
   const catsFor = (type: TransactionType) => categories.filter((c) => c.type === type);
   const isEditingTransaction = !!initial;
   const isEditingTransfer = !!initialTransfer;
+  const isEditingInstallment = !!initialInstallment;
   // Estable durante toda la vida del modal, aunque el movimiento sea nuevo: sirve como prefijo
   // del archivo del comprobante en Storage y después se usa como id real al guardar.
-  const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? crypto.randomUUID());
+  const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? initialInstallment?.id ?? crypto.randomUUID());
 
   const [form, setForm] = useState<FormState>(() => ({
     kind: initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
-    amount: initial ? String(fromMinor(initial.amountMinor)) : "",
-    currency: initial ? initial.currency : "UYU",
-    category: initial ? initial.category : catsFor("gasto")[0]?.name ?? "",
-    date: initialTransfer ? initialTransfer.date : initial ? initial.date : todayISO(),
-    note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : "",
+    amount: initialInstallment ? String(fromMinor(initialInstallment.totalAmountMinor)) : initial ? String(fromMinor(initial.amountMinor)) : "",
+    currency: initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
+    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category : catsFor("gasto")[0]?.name ?? "",
+    date: initialTransfer ? initialTransfer.date : initial ? initial.date : initialInstallment ? initialInstallment.date ?? `${initialInstallment.startMonth}-01` : todayISO(),
+    note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
     accountId: initial?.accountId ?? "",
-    paymentMethod: initial?.cardId ? "tarjeta" : initial?.accountId ? "cuenta" : presetCardId ? "tarjeta" : "ninguno",
-    cardId: initial?.cardId ?? presetCardId ?? "",
+    paymentMethod: initialInstallment ? "tarjeta" : initial?.cardId ? "tarjeta" : initial?.accountId ? "cuenta" : presetCardId ? "tarjeta" : "ninguno",
+    cardId: initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
     fromAccountId: initialTransfer ? initialTransfer.fromAccountId : accounts[0]?.id ?? "",
     toAccountId: initialTransfer ? initialTransfer.toAccountId : accounts[1]?.id ?? accounts[0]?.id ?? "",
     fromAmount: initialTransfer ? String(fromMinor(initialTransfer.fromAmountMinor)) : "",
     toAmount: initialTransfer ? String(fromMinor(initialTransfer.toAmountMinor)) : "",
     exchangeRate: initialTransfer?.exchangeRate ? String(initialTransfer.exchangeRate) : "",
-    receiptPath: initialTransfer?.receiptPath ?? initial?.receiptPath,
+    numInstallments: initialInstallment ? String(initialInstallment.numInstallments) : "1",
+    receiptPath: initialTransfer?.receiptPath ?? initial?.receiptPath ?? initialInstallment?.receiptPath,
   }));
   const [error, setError] = useState<string | null>(null);
   const cats = form.kind === "transferencia" ? [] : catsFor(form.kind);
@@ -464,6 +538,27 @@ export function MovementModal({
     if (!form.category) return setError("Elegí una categoría (o creá una nueva en Configuración).");
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
 
+    if (showInstallmentsField) {
+      const numCuotas = Math.max(1, parseInt(form.numInstallments) || 1);
+      if (isEditingInstallment || numCuotas > 1) {
+        onSaveInstallment({
+          id: movementId,
+          cardId: form.cardId,
+          description: form.category,
+          category: form.category,
+          note: form.note.trim() || undefined,
+          currency: form.currency,
+          totalAmountMinor: amountMinor,
+          numInstallments: numCuotas,
+          startMonth: form.date.slice(0, 7),
+          installmentAmountMinor: Math.round(amountMinor / numCuotas),
+          date: form.date,
+          receiptPath: form.receiptPath,
+        });
+        return;
+      }
+    }
+
     onSaveTransaction({
       id: movementId,
       type: form.kind,
@@ -478,12 +573,22 @@ export function MovementModal({
     });
   };
 
+  // La cantidad de cuotas solo se puede elegir al pagar un gasto con tarjeta, y no al
+  // editar un gasto de pago único ya cargado (para eso conviene cargar un movimiento nuevo).
+  const showInstallmentsField = form.kind === "gasto" && form.paymentMethod === "tarjeta" && !isEditingTransaction;
+
   const kindOptions =
-    presetCardId || isEditingTransaction
+    presetCardId || isEditingTransaction || isEditingInstallment
       ? [{ value: "gasto" as const, label: "Gasto" }, { value: "ingreso" as const, label: "Ingreso" }]
       : [{ value: "gasto" as const, label: "Gasto" }, { value: "ingreso" as const, label: "Ingreso" }, { value: "transferencia" as const, label: "Transferencia" }];
 
-  const title = isEditingTransfer ? "Editar transferencia" : isEditingTransaction ? "Editar movimiento" : presetCardId ? "Nuevo gasto con tarjeta" : "Nuevo movimiento";
+  const title = isEditingTransfer
+    ? "Editar transferencia"
+    : isEditingTransaction || isEditingInstallment
+    ? "Editar movimiento"
+    : presetCardId
+    ? "Nuevo gasto con tarjeta"
+    : "Nuevo movimiento";
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -672,6 +777,30 @@ export function MovementModal({
                     )
                   }
                 </Field>
+              )}
+              {showInstallmentsField && (
+                <>
+                  <Field label="Cantidad de cuotas">
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        value={form.numInstallments}
+                        onChange={(e) => setForm((f) => ({ ...f, numInstallments: e.target.value }))}
+                      />
+                    )}
+                  </Field>
+                  {Math.max(1, parseInt(form.numInstallments) || 1) > 1 && (
+                    <div className="text-xs mb-2" style={{ color: C.textMuted }}>
+                      {Math.max(1, parseInt(form.numInstallments) || 1)} cuotas de{" "}
+                      <span className="font-mono" style={{ color: C.text }}>
+                        {formatMoney(Math.round((parseAmountInput(form.amount) ?? 0) / Math.max(1, parseInt(form.numInstallments) || 1)), form.currency)}
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

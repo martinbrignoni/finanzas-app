@@ -52,7 +52,6 @@ export function Cards({
   onAddCard,
   onEditCard,
   onDeleteCard,
-  onAddInstallment,
   onEditInstallment,
   onDeleteInstallment,
   onAddCardPayment,
@@ -64,12 +63,11 @@ export function Cards({
 }: {
   data: FinanceData;
   canEdit: boolean;
-  /** Permiso para editar/eliminar los gastos con tarjeta (viven en Movimientos). */
+  /** Permiso para editar/eliminar los gastos con tarjeta y compras en cuotas (viven en Movimientos). */
   canEditMovements: boolean;
   onAddCard: () => void;
   onEditCard: (c: Card) => void;
   onDeleteCard: (id: string) => void;
-  onAddInstallment: (cardId: string) => void;
   onEditInstallment: (i: Installment) => void;
   onDeleteInstallment: (id: string) => void;
   onAddCardPayment: (cardId: string) => void;
@@ -126,7 +124,12 @@ export function Cards({
                 <span style={{ color: C.usd }}>{formatMoney(Math.max(0, debt.USD), "USD")}</span>
               </div>
 
-              {purchases.length > 0 && (
+              <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Compras en cuotas</div>
+              {purchases.length === 0 ? (
+                <p className="text-xs mb-2" style={{ color: C.textFaint }}>
+                  Todavía no tenés compras en cuotas. Para agregar una, usá "Agregar gasto con tarjeta" más abajo y elegí más de 1 cuota.
+                </p>
+              ) : (
                 <div className="space-y-1.5 mb-3">
                   {purchases.map((p) => {
                     const passed = monthsBetween(p.startMonth, mk);
@@ -135,12 +138,12 @@ export function Cards({
                     return (
                       <div key={p.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
                         <div>
-                          <div style={{ color: C.text }}>{p.description}</div>
+                          <div style={{ color: C.text }}>{p.category ? `${p.category} · ${p.description}` : p.description}</div>
                           <div style={{ color: C.textFaint }}>{finished ? "Pagada" : `Cuota ${cuotaActual}/${p.numInstallments}`}</div>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono" style={{ color: C.textMuted }}>{formatMoney(p.installmentAmountMinor, p.currency)}</span>
-                          {canEdit && (
+                          {canEditMovements && (
                             <>
                               <IconBtn label="Editar cuota" onClick={() => onEditInstallment(p)}><Pencil size={13} /></IconBtn>
                               <IconBtn label="Eliminar cuota" danger onClick={() => onDeleteInstallment(p.id)}><Trash2 size={13} /></IconBtn>
@@ -151,16 +154,6 @@ export function Cards({
                     );
                   })}
                 </div>
-              )}
-
-              {canEdit && (
-                <button
-                  onClick={() => onAddInstallment(card.id)}
-                  className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-3"
-                  style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-                >
-                  <Plus size={13} /> Agregar compra en cuotas
-                </button>
               )}
 
               <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Gastos con tarjeta</div>
@@ -201,6 +194,7 @@ export function Cards({
                   <Plus size={13} /> Agregar gasto con tarjeta
                 </button>
               )}
+              {/* El mismo modal de arriba permite elegir "Cantidad de cuotas" para cargar compras financiadas. */}
 
               <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Pagos registrados</div>
               {payments.length === 0 ? (
@@ -282,56 +276,6 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
       <div className="grid grid-cols-2 gap-3">
         <Field label="Día de cierre">{(id) => <TextInput id={id} type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />}</Field>
         <Field label="Día de vencimiento">{(id) => <TextInput id={id} type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}</Field>
-      </div>
-      {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
-      <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
-    </Modal>
-  );
-}
-
-export function InstallmentModal({ cardId, initial, onSave, onClose }: { cardId: string; initial?: Installment; onSave: (i: Installment) => void; onClose: () => void }) {
-  const [description, setDescription] = useState(initial?.description ?? "");
-  const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
-  const [totalAmount, setTotalAmount] = useState(initial ? String(fromMinor(initial.totalAmountMinor)) : "");
-  const [numInstallments, setNumInstallments] = useState(initial ? String(initial.numInstallments) : "1");
-  const [startMonth, setStartMonth] = useState(initial?.startMonth ?? currentMonthKey());
-  const [error, setError] = useState<string | null>(null);
-
-  const totalMinorPreview = parseAmountInput(totalAmount) ?? 0;
-  const n = Math.max(1, parseInt(numInstallments) || 1);
-  const previewInstallment = totalMinorPreview ? Math.round(totalMinorPreview / n) : 0;
-
-  const handleSave = () => {
-    const totalAmountMinor = parseAmountInput(totalAmount);
-    if (!description.trim()) return setError("Ingresá una descripción.");
-    if (totalAmountMinor === null || totalAmountMinor === 0) return setError("Ingresá un monto total válido.");
-    if (n < 1) return setError("La cantidad de cuotas debe ser al menos 1.");
-
-    onSave({
-      id: initial?.id ?? crypto.randomUUID(),
-      cardId,
-      description: description.trim(),
-      currency,
-      totalAmountMinor,
-      numInstallments: n,
-      startMonth,
-      installmentAmountMinor: Math.round(totalAmountMinor / n),
-    });
-  };
-
-  return (
-    <Modal title={initial ? "Editar compra en cuotas" : "Nueva compra en cuotas"} onClose={onClose}>
-      <Field label="Descripción">{(id) => <TextInput id={id} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Heladera, notebook..." />}</Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Monto total">{(id) => <TextInput id={id} type="number" min="0" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0" />}</Field>
-        <Field label="Moneda">{() => <Segment value={currency} onChange={setCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}</Field>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Cantidad de cuotas">{(id) => <TextInput id={id} type="number" min="1" value={numInstallments} onChange={(e) => setNumInstallments(e.target.value)} />}</Field>
-        <Field label="Primer mes">{(id) => <TextInput id={id} type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} />}</Field>
-      </div>
-      <div className="text-xs mb-2" style={{ color: C.textMuted }}>
-        Cuota estimada: <span className="font-mono" style={{ color: C.text }}>{formatMoney(previewInstallment, currency)}</span>
       </div>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>

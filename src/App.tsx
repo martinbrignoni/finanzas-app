@@ -11,7 +11,7 @@ import type {
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
-import { Cards, CardModal, InstallmentModal, CardPaymentModal } from "./features/cards/Cards";
+import { Cards, CardModal, CardPaymentModal } from "./features/cards/Cards";
 import { Budgets, BudgetModal } from "./features/budgets/Budgets";
 import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
@@ -32,9 +32,8 @@ const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
 ];
 
 type ModalState =
-  | { type: "movement"; payload?: { transaction?: Transaction; transfer?: Transfer; presetCardId?: string } }
+  | { type: "movement"; payload?: { transaction?: Transaction; transfer?: Transfer; installment?: Installment; presetCardId?: string } }
   | { type: "card"; payload?: Card }
-  | { type: "installment"; payload: { cardId: string; installment?: Installment } }
   | { type: "budget" }
   | { type: "bank"; payload?: Bank }
   | { type: "account"; payload: { bankId: string; account?: Account } }
@@ -344,6 +343,7 @@ export default function App() {
                 transactions={data.transactions}
                 transfers={data.transfers}
                 cardPayments={data.cardPayments}
+                installments={data.installments}
                 cards={data.cards}
                 accounts={data.accounts}
                 banks={data.banks}
@@ -354,6 +354,8 @@ export default function App() {
                 onDeleteTransfer={confirmDeleteTransfer}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
                 onDeleteCardPayment={confirmDeleteCardPayment}
+                onEditInstallment={(i) => setModal({ type: "movement", payload: { installment: i } })}
+                onDeleteInstallment={confirmDeleteInstallment}
               />
             )}
             {tab === "cuentas" && (
@@ -388,8 +390,7 @@ export default function App() {
                 onAddCard={() => setModal({ type: "card" })}
                 onEditCard={(c) => setModal({ type: "card", payload: c })}
                 onDeleteCard={confirmDeleteCard}
-                onAddInstallment={(cardId) => setModal({ type: "installment", payload: { cardId } })}
-                onEditInstallment={(i) => setModal({ type: "installment", payload: { cardId: i.cardId, installment: i } })}
+                onEditInstallment={(i) => setModal({ type: "movement", payload: { installment: i } })}
                 onDeleteInstallment={confirmDeleteInstallment}
                 onAddCardPayment={(cardId) => setModal({ type: "cardPayment", payload: { cardId } })}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
@@ -462,6 +463,7 @@ export default function App() {
         <MovementModal
           initial={modal.payload?.transaction}
           initialTransfer={modal.payload?.transfer}
+          initialInstallment={modal.payload?.installment}
           presetCardId={modal.payload?.presetCardId}
           accounts={data.accounts}
           banks={data.banks}
@@ -469,13 +471,11 @@ export default function App() {
           categories={data.categories}
           onSaveTransaction={upsertTransaction}
           onSaveTransfer={upsertTransfer}
+          onSaveInstallment={upsertInstallment}
           onClose={closeModal}
         />
       )}
       {modal?.type === "card" && <CardModal initial={modal.payload} onSave={upsertCard} onClose={closeModal} />}
-      {modal?.type === "installment" && (
-        <InstallmentModal cardId={modal.payload.cardId} initial={modal.payload.installment} onSave={upsertInstallment} onClose={closeModal} />
-      )}
       {modal?.type === "budget" && <BudgetModal categories={data.categories} onSave={addBudget} onClose={closeModal} />}
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (
