@@ -1,4 +1,4 @@
-import { useState, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
@@ -6,6 +6,7 @@ import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
+import { fetchRateForDate } from "../../lib/exchangeRates";
 import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
 
 type LedgerItem =
@@ -403,6 +404,24 @@ export function MovementModal({
     return String(Math.round(result * 100) / 100);
   };
 
+  // Sugiere automáticamente la cotización del BCU (USD billete, venta, con el
+  // desfasaje día+1 ya aplicado) para la fecha de la transferencia, mientras
+  // el usuario no la haya tocado a mano. Si edita el campo, dejamos de
+  // pisarla aunque cambie la cuenta o la fecha.
+  const [rateAutoSuggested, setRateAutoSuggested] = useState(() => !initialTransfer);
+  useEffect(() => {
+    if (form.kind !== "transferencia" || !needsRate || !rateAutoSuggested) return;
+    let cancelado = false;
+    fetchRateForDate("USD", form.date).then((row) => {
+      if (cancelado || !row) return;
+      setForm((f) => ({ ...f, exchangeRate: String(row.sell), toAmount: applyRate(f.fromAmount, String(row.sell)) }));
+    });
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.kind, needsRate, form.date, rateAutoSuggested]);
+
   const handleSave = () => {
     if (form.kind === "transferencia") {
       if (!fromAcc || !toAcc) return setError("Elegí cuenta de origen y destino.");
@@ -529,7 +548,7 @@ export function MovementModal({
 
             {needsRate && (
               <>
-                <Field label={`Cotización (1 USD = ? UYU)`}>
+                <Field label={`Cotización (1 USD = ? UYU)${rateAutoSuggested ? " · sugerida" : ""}`}>
                   {(id) => (
                     <TextInput
                       id={id}
@@ -538,7 +557,10 @@ export function MovementModal({
                       min="0"
                       step="0.01"
                       value={form.exchangeRate}
-                      onChange={(e) => setForm((f) => ({ ...f, exchangeRate: e.target.value, toAmount: applyRate(f.fromAmount, e.target.value) }))}
+                      onChange={(e) => {
+                        setRateAutoSuggested(false);
+                        setForm((f) => ({ ...f, exchangeRate: e.target.value, toAmount: applyRate(f.fromAmount, e.target.value) }));
+                      }}
                       placeholder="ej. 40.50"
                     />
                   )}

@@ -133,6 +133,7 @@ export type PermissionKey =
   | "tarjetas"
   | "presupuestos"
   | "proyeccion"
+  | "cotizaciones"
   | "configuracion";
 
 export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
@@ -142,6 +143,7 @@ export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
   { key: "tarjetas", label: "Tarjetas" },
   { key: "presupuestos", label: "Presupuestos" },
   { key: "proyeccion", label: "Proyección" },
+  { key: "cotizaciones", label: "Cotizaciones" },
   { key: "configuracion", label: "Configuración" },
 ];
 

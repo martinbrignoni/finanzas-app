@@ -1,4 +1,4 @@
-import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermissions, type FinanceData, type Category } from "../types";
+import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermissions, type FinanceData, type Category, type AppUser } from "../types";
 import { supabase } from "./supabaseClient";
 
 export interface FinanceRepository {
@@ -68,6 +68,13 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 5, cardPayments: [] };
   }
 
+  // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
+  // existentes que no lo tenían (se agregó después de que ya hubiera gente
+  // usando la app), dándoles acceso por defecto para no bloquearlos.
+  const usersConCotizaciones: AppUser[] = (data.users ?? []).map((u: any) =>
+    u.permissions?.cotizaciones ? u : { ...u, permissions: { ...u.permissions, cotizaciones: { view: true, edit: true } } }
+  );
+
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     transactions: data.transactions ?? [],
@@ -79,7 +86,7 @@ function migrate(raw: any): FinanceData {
     transfers: data.transfers ?? [],
     cardPayments: data.cardPayments ?? [],
     categories: data.categories ?? [],
-    users: data.users ?? [],
+    users: usersConCotizaciones,
     activeUserId: data.activeUserId ?? null,
   };
 }

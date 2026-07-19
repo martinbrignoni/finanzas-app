@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins } from "lucide-react";
 import { theme as C } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
@@ -15,11 +15,12 @@ import { Cards, CardModal, InstallmentModal, CardPaymentModal } from "./features
 import { Budgets, BudgetModal } from "./features/budgets/Budgets";
 import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
+import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
 import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 
-type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "configuracion";
+type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "configuracion";
 
 const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
   { id: "inicio", label: "Inicio", Icon: Home },
@@ -314,6 +315,9 @@ export default function App() {
             <button onClick={() => setCalculatorOpen(true)} aria-label="Calculadora" style={{ color: C.textFaint }}>
               <CalculatorIcon size={20} />
             </button>
+            <button onClick={() => setTab("cotizaciones")} aria-label="Cotizaciones" style={{ color: tab === "cotizaciones" ? C.usd : C.textFaint }}>
+              <Coins size={20} />
+            </button>
             {has("configuracion", "view") && (
               <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
                 <SettingsIcon size={20} />
@@ -405,6 +409,7 @@ export default function App() {
               />
             )}
             {tab === "proyeccion" && <Projection data={data} />}
+            {tab === "cotizaciones" && <ExchangeRates />}
             {tab === "configuracion" && (
               <Settings
                 users={data.users}
