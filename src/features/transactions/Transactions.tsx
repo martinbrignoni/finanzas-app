@@ -1,5 +1,5 @@
 import { useState, Fragment } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -12,6 +12,67 @@ type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
   | { kind: "transfer"; date: string; data: Transfer }
   | { kind: "cardPayment"; date: string; data: CardPayment };
+
+const DIACRITICS_RE = new RegExp("[\\u0300-\\u036f]", "g");
+
+/** Saca tildes y pasa a minúsculas, para que buscar "alimentacion" encuentre "Alimentación". */
+function normalizeText(s: string): string {
+  return s.normalize("NFD").replace(DIACRITICS_RE, "").toLowerCase();
+}
+
+/** Devuelve el importe como texto en las dos notaciones que alguien podría tipear ("1500.5" y "1500,5"). */
+function amountVariants(amountMinor: number): string {
+  const plain = String(fromMinor(amountMinor));
+  return `${plain} ${plain.replace(".", ",")}`;
+}
+
+/** Junta todo el texto relevante de un movimiento (categoría, nota, fecha, importe, cuenta, tarjeta...) para buscar en él. */
+function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], cards: Card[]): string {
+  if (item.kind === "transaction") {
+    const t = item.data;
+    const acc = accounts.find((a) => a.id === t.accountId);
+    const card = cards.find((c) => c.id === t.cardId);
+    return [
+      t.category,
+      t.note,
+      t.date,
+      monthLabel(monthKeyOf(t.date)),
+      t.type === "ingreso" ? "ingreso" : "gasto",
+      amountVariants(t.amountMinor),
+      formatMoney(t.amountMinor, t.currency),
+      acc ? accountLabel(acc, banks) : undefined,
+      card?.name,
+    ].filter((x): x is string => !!x).join(" ");
+  }
+  if (item.kind === "transfer") {
+    const tr = item.data;
+    const fromAcc = accounts.find((a) => a.id === tr.fromAccountId);
+    const toAcc = accounts.find((a) => a.id === tr.toAccountId);
+    return [
+      "transferencia",
+      tr.note,
+      tr.date,
+      monthLabel(monthKeyOf(tr.date)),
+      amountVariants(tr.fromAmountMinor),
+      amountVariants(tr.toAmountMinor),
+      fromAcc ? accountLabel(fromAcc, banks) : undefined,
+      toAcc ? accountLabel(toAcc, banks) : undefined,
+    ].filter((x): x is string => !!x).join(" ");
+  }
+  const p = item.data;
+  const acc = accounts.find((a) => a.id === p.accountId);
+  const card = cards.find((c) => c.id === p.cardId);
+  return [
+    "pago tarjeta",
+    p.note,
+    p.date,
+    monthLabel(monthKeyOf(p.date)),
+    amountVariants(p.amountMinor),
+    formatMoney(p.amountMinor, p.currency),
+    acc ? accountLabel(acc, banks) : undefined,
+    card?.name,
+  ].filter((x): x is string => !!x).join(" ");
+}
 
 export function Transactions({
   transactions,
@@ -43,6 +104,7 @@ export function Transactions({
   onDeleteCardPayment: (id: string) => void;
 }) {
   const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   const allItems: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
@@ -52,11 +114,17 @@ export function Transactions({
 
   const availableMonths = Array.from(new Set(allItems.map((item) => monthKeyOf(item.date)))).sort((a, b) => b.localeCompare(a));
 
-  const items = filterMonth === "all" ? allItems : allItems.filter((item) => monthKeyOf(item.date) === filterMonth);
+  const byMonth = filterMonth === "all" ? allItems : allItems.filter((item) => monthKeyOf(item.date) === filterMonth);
+
+  const searchNorm = normalizeText(search.trim());
+  const items =
+    searchNorm === ""
+      ? byMonth
+      : byMonth.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards)).includes(searchNorm));
 
   return (
     <div className="pb-24">
-      <div className="flex items-center justify-between mb-4 gap-2">
+      <div className="flex items-center justify-between mb-3 gap-2">
         <h1 className="text-2xl font-display" style={{ color: C.text }}>Movimientos</h1>
         <div className="w-40">
           <Select aria-label="Filtrar por período" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
@@ -68,9 +136,29 @@ export function Transactions({
         </div>
       </div>
 
+      <div className="relative mb-4">
+        <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.textFaint }} />
+        <TextInput
+          aria-label="Buscar movimientos"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por categoría, importe, concepto, fecha..."
+          style={{ paddingLeft: 32, paddingRight: search ? 32 : undefined }}
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            aria-label="Limpiar búsqueda"
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: C.textFaint }}
+          >
+            <X size={15} />
+          </button>
+        )}
+      </div>
+
       {items.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          {filterMonth === "all" ? "Todavía no registraste movimientos." : "Sin movimientos en este período."}
+          {search.trim() ? `Sin resultados para "${search.trim()}".` : filterMonth === "all" ? "Todavía no registraste movimientos." : "Sin movimientos en este período."}
         </div>
       )}
 
