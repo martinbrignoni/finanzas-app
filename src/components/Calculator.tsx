@@ -51,8 +51,16 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
   const [operator, setOperator] = useState<Op | null>(null);
   const [overwrite, setOverwrite] = useState(true);
   const [copied, setCopied] = useState(false);
+  /**
+   * Memoria de los botones de IVA: qué botón se apretó ("add"/"remove"), sobre
+   * qué valor original ("base") y en qué de sus dos estados está parado. Se
+   * borra apenas se hace cualquier otra cosa (tipear, operar, limpiar), para
+   * que el toggle solo funcione en apretadas consecutivas del mismo botón.
+   */
+  const [ivaToggle, setIvaToggle] = useState<{ kind: "add" | "remove"; base: number; state: 1 | 2 } | null>(null);
 
   const inputDigit = (d: string) => {
+    setIvaToggle(null);
     if (display === "Error" || overwrite) {
       setDisplay(d === "." ? "0." : d);
       setOverwrite(false);
@@ -68,26 +76,31 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
     setPrevious(null);
     setOperator(null);
     setOverwrite(true);
+    setIvaToggle(null);
   };
 
   const backspace = () => {
     if (overwrite || display === "Error") return;
+    setIvaToggle(null);
     const next = display.length > 1 ? display.slice(0, -1) : "0";
     setDisplay(next === "-" ? "0" : next);
   };
 
   const toggleSign = () => {
     if (display === "0" || display === "Error") return;
+    setIvaToggle(null);
     setDisplay(display.startsWith("-") ? display.slice(1) : `-${display}`);
   };
 
   const percent = () => {
     if (display === "Error") return;
+    setIvaToggle(null);
     setDisplay(String(clean(parseFloat(display) / 100)));
   };
 
   const chooseOperator = (op: Op) => {
     if (display === "Error") return;
+    setIvaToggle(null);
     const current = parseFloat(display);
     if (previous !== null && operator && !overwrite) {
       const result = applyOp(previous, current, operator);
@@ -102,6 +115,7 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
 
   const equals = () => {
     if (previous === null || !operator || display === "Error") return;
+    setIvaToggle(null);
     const current = parseFloat(display);
     const result = applyOp(previous, current, operator);
     setDisplay(Number.isFinite(result) ? String(clean(result)) : "Error");
@@ -110,25 +124,39 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
     setOverwrite(true);
   };
 
-  /** Toma el valor actual como neto (sin IVA) y calcula el total con IVA incluido: neto × 1.22. */
-  const addIva = () => {
+  /**
+   * Botón "+IVA / IVA": 1ra apretada, sobre el valor que había en pantalla,
+   * calcula el total con IVA (valor × 1.22). Si lo volvés a apretar sin tocar
+   * nada más, alterna y muestra solo el IVA de ese mismo valor original
+   * (valor × 0.22); apretadas siguientes siguen alternando entre las dos.
+   */
+  const addIvaToggle = () => {
     if (display === "Error") return;
-    setDisplay(String(round2(parseFloat(display) * (1 + IVA_RATE))));
+    const continuing = ivaToggle?.kind === "add";
+    const base = continuing ? ivaToggle!.base : parseFloat(display);
+    const nextState: 1 | 2 = continuing ? (ivaToggle!.state === 1 ? 2 : 1) : 1;
+    const result = nextState === 1 ? base * (1 + IVA_RATE) : base * IVA_RATE;
+    setDisplay(String(round2(result)));
     setOverwrite(true);
+    setIvaToggle({ kind: "add", base, state: nextState });
   };
 
-  /** Toma el valor actual como total (con IVA incluido) y calcula el neto: total ÷ 1.22. */
-  const removeIva = () => {
+  /**
+   * Botón "−IVA / IVA": 1ra apretada, sobre el valor que había en pantalla
+   * (tomado como total con IVA incluido), calcula el neto (valor ÷ 1.22). Si
+   * lo volvés a apretar sin tocar nada más, alterna y muestra solo el IVA
+   * contenido en ese mismo valor original (valor ÷ 1.22 × 0.22); apretadas
+   * siguientes siguen alternando entre las dos.
+   */
+  const removeIvaToggle = () => {
     if (display === "Error") return;
-    setDisplay(String(round2(parseFloat(display) / (1 + IVA_RATE))));
+    const continuing = ivaToggle?.kind === "remove";
+    const base = continuing ? ivaToggle!.base : parseFloat(display);
+    const nextState: 1 | 2 = continuing ? (ivaToggle!.state === 1 ? 2 : 1) : 1;
+    const result = nextState === 1 ? base / (1 + IVA_RATE) : (base / (1 + IVA_RATE)) * IVA_RATE;
+    setDisplay(String(round2(result)));
     setOverwrite(true);
-  };
-
-  /** Toma el valor actual como total (con IVA incluido) y muestra solo el IVA contenido: (total ÷ 1.22) × 0.22. */
-  const ivaOf = () => {
-    if (display === "Error") return;
-    setDisplay(String(round2((parseFloat(display) / (1 + IVA_RATE)) * IVA_RATE)));
-    setOverwrite(true);
+    setIvaToggle({ kind: "remove", base, state: nextState });
   };
 
   const copyResult = async () => {
@@ -199,15 +227,26 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 mb-2">
-        <button onClick={addIva} className="py-2.5 rounded-lg text-xs font-semibold" style={{ background: C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}>
-          +IVA (22%)
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <button
+          onClick={addIvaToggle}
+          className="py-2.5 rounded-lg text-xs font-semibold"
+          style={{ background: ivaToggle?.kind === "add" ? C.surface3 : C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}
+        >
+          +IVA / IVA
+          <div className="text-[10px] font-normal" style={{ color: C.textFaint }}>
+            {ivaToggle?.kind === "add" && ivaToggle.state === 2 ? "mostrando IVA" : "×1.22"}
+          </div>
         </button>
-        <button onClick={removeIva} className="py-2.5 rounded-lg text-xs font-semibold" style={{ background: C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}>
-          −IVA (22%)
-        </button>
-        <button onClick={ivaOf} className="py-2.5 rounded-lg text-xs font-semibold" style={{ background: C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}>
-          IVA del valor
+        <button
+          onClick={removeIvaToggle}
+          className="py-2.5 rounded-lg text-xs font-semibold"
+          style={{ background: ivaToggle?.kind === "remove" ? C.surface3 : C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}
+        >
+          −IVA / IVA
+          <div className="text-[10px] font-normal" style={{ color: C.textFaint }}>
+            {ivaToggle?.kind === "remove" && ivaToggle.state === 2 ? "mostrando IVA" : "÷1.22"}
+          </div>
         </button>
       </div>
 
