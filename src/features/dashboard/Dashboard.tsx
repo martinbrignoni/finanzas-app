@@ -1,11 +1,22 @@
-import { CalendarClock, Plus } from "lucide-react";
+import { useState } from "react";
+import { CalendarClock, Plus, RotateCcw } from "lucide-react";
 import { theme as C } from "../../styles/theme";
+import { Select } from "../../components/ui";
 import { formatMoney } from "../../lib/money";
-import { currentMonthKey, monthKeyOf, monthLabel, monthsBetween } from "../../lib/dates";
+import { currentMonthKey, monthKeyOf, monthLabel, monthsBetween, addMonths, capitalize } from "../../lib/dates";
 import type { FinanceData, Currency } from "../../types";
 
-export function Dashboard({ data, canAddTransaction, onAdd }: { data: FinanceData; canAddTransaction: boolean; onAdd: () => void }) {
+/** Ventana de meses seleccionables: un año para atrás y un año para adelante del mes actual, más reciente primero. */
+function selectableMonths(): string[] {
   const mk = currentMonthKey();
+  return Array.from({ length: 25 }, (_, i) => addMonths(mk, 12 - i));
+}
+
+export function Dashboard({ data, canAddTransaction, onAdd }: { data: FinanceData; canAddTransaction: boolean; onAdd: () => void }) {
+  const thisMonth = currentMonthKey();
+  const [mk, setMk] = useState(thisMonth);
+  const isCurrent = mk === thisMonth;
+  const months = selectableMonths();
   const monthTx = data.transactions.filter((t) => monthKeyOf(t.date) === mk);
 
   const sums: Record<Currency, { in: number; out: number }> = {
@@ -34,8 +45,24 @@ export function Dashboard({ data, canAddTransaction, onAdd }: { data: FinanceDat
 
   return (
     <div className="pb-24">
-      <h2 className="text-xs uppercase tracking-widest mb-1" style={{ color: C.textFaint }}>Libro mayor · {monthLabel(mk)}</h2>
-      <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Tu resumen del mes</h1>
+      <h2 className="text-xs uppercase tracking-widest mb-1" style={{ color: C.textFaint }}>Libro mayor</h2>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <h1 className="text-2xl font-display" style={{ color: C.text }}>{isCurrent ? "Tu resumen del mes" : capitalize(monthLabel(mk))}</h1>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!isCurrent && (
+            <button onClick={() => setMk(thisMonth)} aria-label="Volver al mes actual" style={{ color: C.textFaint }}>
+              <RotateCcw size={16} />
+            </button>
+          )}
+          <div className="w-36">
+            <Select aria-label="Filtrar por período" value={mk} onChange={(e) => setMk(e.target.value)}>
+              {months.map((m) => (
+                <option key={m} value={m}>{m === thisMonth ? "Mes actual" : capitalize(monthLabel(m))}</option>
+              ))}
+            </Select>
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-2xl overflow-hidden mb-5" style={{ border: `1px solid ${C.border}`, background: C.surface }}>
         <div className="grid grid-cols-2">
@@ -58,10 +85,10 @@ export function Dashboard({ data, canAddTransaction, onAdd }: { data: FinanceDat
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>Vencimientos de este mes</h3>
+      <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>{isCurrent ? "Vencimientos de este mes" : `Vencimientos de ${monthLabel(mk)}`}</h3>
       {dueThisMonth.length === 0 ? (
         <div className="rounded-xl p-4 text-sm mb-5" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          No tenés cuotas pendientes este mes.
+          {isCurrent ? "No tenés cuotas pendientes este mes." : "No hay cuotas pendientes en este período."}
         </div>
       ) : (
         <div className="rounded-xl overflow-hidden mb-5" style={{ border: `1px solid ${C.border}` }}>

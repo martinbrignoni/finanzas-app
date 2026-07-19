@@ -6,6 +6,10 @@ export const MONTHS_ES_FULL = [
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
+export function capitalize(s: string): string {
+  return s.replace(/^./, (c) => c.toUpperCase());
+}
+
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }

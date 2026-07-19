@@ -4,13 +4,9 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { monthKeyOf, todayISO, monthLabel } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel, capitalize } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
 import type { Transaction, Currency, TransactionType, Account, Bank, Category, Transfer, CardPayment, Card } from "../../types";
-
-function capitalize(s: string): string {
-  return s.replace(/^./, (c) => c.toUpperCase());
-}
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
