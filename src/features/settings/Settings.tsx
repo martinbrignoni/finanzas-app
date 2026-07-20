@@ -3,13 +3,14 @@ import { theme as C } from "../../styles/theme";
 import { Segment } from "../../components/ui";
 import { CategoriesSettings } from "./Categories";
 import { UsersSettings } from "./Users";
-import type { AppUser, Category, Transaction, Budget } from "../../types";
+import type { AppUser, Category, Transaction, Installment, Budget } from "../../types";
 
 export function Settings({
   users,
   activeUserId,
   categories,
   transactions,
+  installments,
   budgets,
   canEdit,
   onSetActiveUser,
@@ -18,11 +19,14 @@ export function Settings({
   onDeleteUser,
   onAddCategory,
   onDeleteCategory,
+  onMoveCategory,
+  onReclassifyCategory,
 }: {
   users: AppUser[];
   activeUserId: string | null;
   categories: Category[];
   transactions: Transaction[];
+  installments: Installment[];
   budgets: Budget[];
   canEdit: boolean;
   onSetActiveUser: (id: string) => void;
@@ -31,6 +35,8 @@ export function Settings({
   onDeleteUser: (id: string) => void;
   onAddCategory: () => void;
   onDeleteCategory: (id: string) => void;
+  onMoveCategory: (id: string, newParentId: string) => void;
+  onReclassifyCategory: (fromName: string, toName: string) => void;
 }) {
   const [section, setSection] = useState<"usuarios" | "categorias">("usuarios");
 
@@ -60,10 +66,13 @@ export function Settings({
         <CategoriesSettings
           categories={categories}
           transactions={transactions}
+          installments={installments}
           budgets={budgets}
           canEdit={canEdit}
           onAdd={onAddCategory}
           onDelete={onDeleteCategory}
+          onMove={onMoveCategory}
+          onReclassify={onReclassifyCategory}
         />
       )}
     </div>

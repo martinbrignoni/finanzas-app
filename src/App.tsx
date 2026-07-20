@@ -247,6 +247,20 @@ export default function App() {
     (id: string) => requestConfirm("¿Eliminar esta categoría?", () => deleteCategory(id)),
     [requestConfirm, deleteCategory]
   );
+  const moveCategory = useCallback((id: string, newParentId: string) => {
+    setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parentId: newParentId } : c)) } : d));
+  }, []);
+  const reclassifyCategory = useCallback((fromName: string, toName: string) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            transactions: d.transactions.map((t) => (t.category === fromName ? { ...t, category: toName } : t)),
+            installments: d.installments.map((i) => (i.category === fromName ? { ...i, category: toName } : i)),
+          }
+        : d
+    );
+  }, []);
 
   // --- users ---
   const upsertUser = useCallback((u: AppUser) => {
@@ -420,6 +434,7 @@ export default function App() {
                 activeUserId={data.activeUserId}
                 categories={data.categories}
                 transactions={data.transactions}
+                installments={data.installments}
                 budgets={data.budgets}
                 canEdit={has("configuracion", "edit")}
                 onSetActiveUser={setActiveUser}
@@ -428,6 +443,8 @@ export default function App() {
                 onDeleteUser={confirmDeleteUser}
                 onAddCategory={() => setModal({ type: "category" })}
                 onDeleteCategory={confirmDeleteCategory}
+                onMoveCategory={moveCategory}
+                onReclassifyCategory={reclassifyCategory}
               />
             )}
           </>

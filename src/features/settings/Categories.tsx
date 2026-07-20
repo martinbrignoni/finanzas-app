@@ -1,37 +1,54 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, ArrowRightLeft } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
-import type { Category, Transaction, Budget, TransactionType } from "../../types";
+import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
+import type { Category, Transaction, Installment, Budget, TransactionType } from "../../types";
 
 export function CategoriesSettings({
   categories,
   transactions,
+  installments,
   budgets,
   canEdit,
   onAdd,
   onDelete,
+  onMove,
+  onReclassify,
 }: {
   categories: Category[];
   transactions: Transaction[];
+  installments: Installment[];
   budgets: Budget[];
   canEdit: boolean;
   onAdd: () => void;
   onDelete: (id: string) => void;
+  /** Cambia el padre de una categoría (nivel 2) o subcategoría (nivel 3) existente. */
+  onMove: (id: string, newParentId: string) => void;
+  /** Reasigna todos los movimientos de una categoría a otra (antes de poder borrar la primera). */
+  onReclassify: (fromName: string, toName: string) => void;
 }) {
   const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
+  const [reclassifyTarget, setReclassifyTarget] = useState<Category | null>(null);
+  const [moveTarget, setMoveTarget] = useState<Category | null>(null);
 
   const hasChildren = (cat: Category) => categories.some((c) => c.parentId === cat.id);
-  const isInUse = (cat: Category) =>
-    transactions.some((t) => t.category === cat.name) || budgets.some((b) => b.category === cat.name);
+  const countMovements = (cat: Category) =>
+    transactions.filter((t) => t.category === cat.name).length + installments.filter((i) => i.category === cat.name).length;
 
   const handleDelete = (cat: Category) => {
     if (hasChildren(cat)) {
       setBlockedMsg(`"${cat.name}" tiene categorías o subcategorías debajo. Borrá esas primero.`);
       return;
     }
-    if (isInUse(cat)) {
-      setBlockedMsg(`"${cat.name}" está en uso en movimientos o presupuestos. Reasigná esos registros a otra categoría antes de borrarla.`);
+    const movCount = countMovements(cat);
+    if (movCount > 0) {
+      setBlockedMsg(null);
+      setReclassifyTarget(cat);
+      return;
+    }
+    if (budgets.some((b) => b.category === cat.name)) {
+      setBlockedMsg(`"${cat.name}" está en uso en un presupuesto. Borrá o recreá ese presupuesto con otra categoría antes de eliminar esta.`);
       return;
     }
     setBlockedMsg(null);
@@ -76,7 +93,12 @@ export function CategoriesSettings({
                           style={{ background: C.surface2, borderTop: `1px solid ${C.border}` }}
                         >
                           <span style={{ color: C.text }}>{cat.name}</span>
-                          {canEdit && <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>}
+                          {canEdit && (
+                            <div className="flex gap-1">
+                              <IconBtn label={`Mover ${cat.name}`} onClick={() => setMoveTarget(cat)}><ArrowRightLeft size={13} /></IconBtn>
+                              <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>
+                            </div>
+                          )}
                         </div>
                         {nietas.map((sub) => (
                           <div
@@ -85,7 +107,12 @@ export function CategoriesSettings({
                             style={{ background: C.surface, borderTop: `1px solid ${C.border}` }}
                           >
                             <span style={{ color: C.textMuted }}>{sub.name}</span>
-                            {canEdit && <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>}
+                            {canEdit && (
+                              <div className="flex gap-1">
+                                <IconBtn label={`Mover ${sub.name}`} onClick={() => setMoveTarget(sub)}><ArrowRightLeft size={12} /></IconBtn>
+                                <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -107,7 +134,134 @@ export function CategoriesSettings({
           <Plus size={16} /> Nueva categoría
         </button>
       )}
+
+      {reclassifyTarget && (
+        <ReclassifyModal
+          category={reclassifyTarget}
+          categories={categories}
+          movementCount={countMovements(reclassifyTarget)}
+          onConfirm={(toName) => {
+            onReclassify(reclassifyTarget.name, toName);
+            setReclassifyTarget(null);
+            onDelete(reclassifyTarget.id);
+          }}
+          onClose={() => setReclassifyTarget(null)}
+        />
+      )}
+
+      {moveTarget && (
+        <MoveCategoryModal
+          category={moveTarget}
+          categories={categories}
+          onMove={(id, newParentId) => {
+            onMove(id, newParentId);
+            setMoveTarget(null);
+          }}
+          onClose={() => setMoveTarget(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Pide a qué categoría pasar los movimientos de `category` antes de poder eliminarla. */
+function ReclassifyModal({
+  category,
+  categories,
+  movementCount,
+  onConfirm,
+  onClose,
+}: {
+  category: Category;
+  categories: Category[];
+  movementCount: number;
+  onConfirm: (toName: string) => void;
+  onClose: () => void;
+}) {
+  const otherCategories = categories.filter((c) => c.id !== category.id);
+  const [toName, setToName] = useState(() => defaultLeafCategoryName(otherCategories, category.type));
+  const [error, setError] = useState<string | null>(null);
+
+  const handleConfirm = () => {
+    if (!toName) return setError("Elegí una categoría destino.");
+    onConfirm(toName);
+  };
+
+  return (
+    <Modal title={`Reclasificar "${category.name}"`} onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.textMuted }}>
+        Esta categoría tiene {movementCount} movimiento{movementCount === 1 ? "" : "s"} cargado{movementCount === 1 ? "" : "s"}.
+        Elegí a qué categoría pasarlos; una vez reclasificados, "{category.name}" queda vacía y te vamos a pedir que confirmes el borrado.
+      </p>
+      <CategoryPicker categories={otherCategories} type={category.type} value={toName} onChange={setToName} />
+      {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
+      <PrimaryButton onClick={handleConfirm}>Reclasificar y continuar</PrimaryButton>
+    </Modal>
+  );
+}
+
+/** Cambia el padre de una categoría (nivel 2) o subcategoría (nivel 3), manteniendo su nivel actual. */
+function MoveCategoryModal({
+  category,
+  categories,
+  onMove,
+  onClose,
+}: {
+  category: Category;
+  categories: Category[];
+  onMove: (id: string, newParentId: string) => void;
+  onClose: () => void;
+}) {
+  const currentParent = categories.find((c) => c.id === category.parentId);
+  const isLevel2 = !!currentParent && !currentParent.parentId;
+
+  const targets = isLevel2
+    ? categories.filter((c) => c.type === category.type && !c.parentId && c.id !== category.id)
+    : categories.filter((c) => {
+        if (c.type !== category.type || !c.parentId) return false;
+        const p = categories.find((x) => x.id === c.parentId);
+        return !!p && !p.parentId;
+      });
+
+  const [targetId, setTargetId] = useState(() => targets.find((t) => t.id !== category.parentId)?.id ?? targets[0]?.id ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  const madreGroupIds = Array.from(new Set(targets.map((t) => t.parentId).filter((id): id is string => !!id)));
+
+  const handleSave = () => {
+    if (!targetId) return setError("Elegí un destino.");
+    if (targetId === category.parentId) return setError("Ya está ahí. Elegí un destino distinto.");
+    onMove(category.id, targetId);
+  };
+
+  return (
+    <Modal title={`Mover "${category.name}"`} onClose={onClose}>
+      <Field label={isLevel2 ? "Nueva categoría madre" : "Nueva categoría"}>
+        {(id) =>
+          targets.length === 0 ? (
+            <p className="text-xs" style={{ color: C.textFaint }}>No hay otro destino disponible todavía.</p>
+          ) : isLevel2 ? (
+            <Select id={id} value={targetId} onChange={(e) => setTargetId(e.target.value)}>
+              {targets.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </Select>
+          ) : (
+            <Select id={id} value={targetId} onChange={(e) => setTargetId(e.target.value)}>
+              {madreGroupIds.map((madreId) => {
+                const madre = categories.find((c) => c.id === madreId);
+                const hijas = targets.filter((t) => t.parentId === madreId);
+                return (
+                  <optgroup key={madreId} label={madre?.name ?? ""}>
+                    {hijas.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </optgroup>
+                );
+              })}
+            </Select>
+          )
+        }
+      </Field>
+      {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
+      <PrimaryButton onClick={handleSave}>Mover</PrimaryButton>
+    </Modal>
   );
 }
 
