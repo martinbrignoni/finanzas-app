@@ -150,6 +150,7 @@ export type PermissionKey =
   | "presupuestos"
   | "proyeccion"
   | "cotizaciones"
+  | "notas"
   | "configuracion";
 
 export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
@@ -160,6 +161,7 @@ export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
   { key: "presupuestos", label: "Presupuestos" },
   { key: "proyeccion", label: "Proyección" },
   { key: "cotizaciones", label: "Cotizaciones" },
+  { key: "notas", label: "Notas" },
   { key: "configuracion", label: "Configuración" },
 ];
 
@@ -183,6 +185,16 @@ export interface AppUser {
   permissions: PermissionSet;
 }
 
+/** Nota de texto libre dejada por un perfil, visible para todos los perfiles que comparten la app. */
+export interface Note {
+  id: string;
+  /** Perfil (AppUser.id) que escribió la nota. */
+  userId: string;
+  text: string;
+  createdAt: string; // ISO datetime
+  updatedAt?: string; // ISO datetime
+}
+
 export interface FinanceData {
   schemaVersion: number;
   transactions: Transaction[];
@@ -194,6 +206,7 @@ export interface FinanceData {
   transfers: Transfer[];
   cardPayments: CardPayment[];
   categories: Category[];
+  notes: Note[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
@@ -243,6 +256,7 @@ export function emptyFinanceData(): FinanceData {
     transfers: [],
     cardPayments: [],
     categories: defaultCategories(),
+    notes: [],
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };

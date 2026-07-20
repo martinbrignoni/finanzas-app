@@ -22,6 +22,13 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Convierte una fecha y hora ISO completa a "DD/MM/AAAA HH:MM" para mostrarla. */
+export function formatDateTimeDMY(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
 export function monthKeyOf(dateStr: string): string {
   return dateStr.slice(0, 7);
 }

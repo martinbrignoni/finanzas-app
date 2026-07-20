@@ -74,6 +74,10 @@ function migrate(raw: any): FinanceData {
   const usersConCotizaciones: AppUser[] = (data.users ?? []).map((u: any) =>
     u.permissions?.cotizaciones ? u : { ...u, permissions: { ...u.permissions, cotizaciones: { view: true, edit: true } } }
   );
+  // Ídem para el permiso "notas".
+  const usersConNotas: AppUser[] = usersConCotizaciones.map((u) =>
+    u.permissions?.notas ? u : { ...u, permissions: { ...u.permissions, notas: { view: true, edit: true } } }
+  );
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -86,7 +90,8 @@ function migrate(raw: any): FinanceData {
     transfers: data.transfers ?? [],
     cardPayments: data.cardPayments ?? [],
     categories: data.categories ?? [],
-    users: usersConCotizaciones,
+    notes: data.notes ?? [],
+    users: usersConNotas,
     activeUserId: data.activeUserId ?? null,
   };
 }

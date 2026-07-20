@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote } from "lucide-react";
 import { theme as C } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
@@ -8,7 +8,7 @@ import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
-  Category, AppUser, PermissionKey, Transfer, CardPayment,
+  Category, AppUser, PermissionKey, Transfer, CardPayment, Note,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -17,11 +17,12 @@ import { Budgets, BudgetModal } from "./features/budgets/Budgets";
 import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
 import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
+import { Notes, NoteModal } from "./features/notes/Notes";
 import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 
-type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "configuracion";
+type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "configuracion";
 
 const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
   { id: "inicio", label: "Inicio", Icon: Home },
@@ -41,6 +42,7 @@ type ModalState =
   | { type: "cardPayment"; payload: { cardId: string; payment?: CardPayment } }
   | { type: "category" }
   | { type: "user"; payload?: AppUser }
+  | { type: "note"; payload?: Note }
   | null;
 
 const repo = getRepository();
@@ -273,6 +275,24 @@ export default function App() {
     );
   }, []);
 
+  // --- notes ---
+  const upsertNote = useCallback((n: Note) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.notes.findIndex((x) => x.id === n.id);
+      const notes = idx >= 0 ? d.notes.map((x) => (x.id === n.id ? n : x)) : [...d.notes, n];
+      return { ...d, notes };
+    });
+    closeModal();
+  }, []);
+  const deleteNote = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, notes: d.notes.filter((x) => x.id !== id) } : d));
+  }, []);
+  const confirmDeleteNote = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta nota?", () => deleteNote(id)),
+    [requestConfirm, deleteNote]
+  );
+
   // --- users ---
   const upsertUser = useCallback((u: AppUser) => {
     setData((d) => {
@@ -349,6 +369,11 @@ export default function App() {
             <button onClick={() => setTab("cotizaciones")} aria-label="Cotizaciones" style={{ color: tab === "cotizaciones" ? C.usd : C.textFaint }}>
               <Coins size={20} />
             </button>
+            {has("notas", "view") && (
+              <button onClick={() => setTab("notas")} aria-label="Notas" style={{ color: tab === "notas" ? C.usd : C.textFaint }}>
+                <StickyNote size={20} />
+              </button>
+            )}
             {has("configuracion", "view") && (
               <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
                 <SettingsIcon size={20} />
@@ -443,6 +468,17 @@ export default function App() {
             )}
             {tab === "proyeccion" && <Projection data={data} />}
             {tab === "cotizaciones" && <ExchangeRates />}
+            {tab === "notas" && (
+              <Notes
+                notes={data.notes}
+                users={data.users}
+                activeUserId={data.activeUserId}
+                canEdit={has("notas", "edit")}
+                onAdd={() => setModal({ type: "note" })}
+                onEdit={(n) => setModal({ type: "note", payload: n })}
+                onDelete={confirmDeleteNote}
+              />
+            )}
             {tab === "configuracion" && (
               <Settings
                 users={data.users}
@@ -531,6 +567,9 @@ export default function App() {
       )}
       {modal?.type === "category" && <CategoryModal categories={data.categories} onSave={addCategory} onClose={closeModal} />}
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}
+      {modal?.type === "note" && (
+        <NoteModal initial={modal.payload} activeUserId={data.activeUserId} onSave={upsertNote} onClose={closeModal} />
+      )}
 
       {calculatorOpen && <CalculatorModal onClose={() => setCalculatorOpen(false)} />}
 
