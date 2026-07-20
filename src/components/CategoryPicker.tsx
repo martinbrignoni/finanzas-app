@@ -3,21 +3,33 @@ import { theme as C } from "../styles/theme";
 import { Field, Select } from "./ui";
 import type { Category, TransactionType } from "../types";
 
+interface LeafInfo {
+  leaf: Category;
+  /** Nombres desde justo debajo de la categoría madre hasta la hoja (vacío si la madre es la hoja). */
+  path: string[];
+  root: Category;
+}
+
 /** Baja por la rama del "primer hijo" hasta encontrar una categoría sin hijas (una hoja). */
 function firstLeafUnder(categories: Category[], type: TransactionType, node: Category): Category {
   const children = categories.filter((c) => c.type === type && c.parentId === node.id);
   return children.length === 0 ? node : firstLeafUnder(categories, type, children[0]);
 }
 
+/** Todas las hojas (categorías sin hijas) debajo de una categoría madre, con el camino recorrido para mostrarlo. */
+function collectLeaves(categories: Category[], type: TransactionType, node: Category, path: string[]): { leaf: Category; path: string[] }[] {
+  const children = categories.filter((c) => c.type === type && c.parentId === node.id);
+  if (children.length === 0) return [{ leaf: node, path }];
+  return children.flatMap((child) => collectLeaves(categories, type, child, [...path, child.name]));
+}
+
 /**
- * Selector en cascada de hasta 3 niveles: Categoría madre → Categoría →
- * Subcategoría. `value` guarda el NOMBRE del nivel elegido (el mismo string
- * que ya se guardaba en Transaction.category/Budget.category).
- *
- * Siempre exige llegar hasta la última jerarquía cargada: si una categoría
- * tiene hijas, no se puede registrar en ese nivel, hay que elegir una de
- * las hijas (y así en cascada). Solo se puede quedar en un nivel si ese
- * nivel no tiene nada debajo.
+ * Selector de categoría: un único combo, pero las opciones son siempre el
+ * nivel más bajo cargado. Si una categoría madre no tiene nada debajo,
+ * aparece como una opción suelta (ej. "Salud"); si tiene categorías o
+ * subcategorías, aparecen agrupadas bajo su madre y solo se puede elegir
+ * la hoja (ej. "Gastos Fijos" agrupa "UTE > Casa" y "UTE > Apto", ya no se
+ * puede registrar un movimiento directo en "Gastos Fijos").
  */
 export function CategoryPicker({
   categories,
@@ -31,45 +43,20 @@ export function CategoryPicker({
   onChange: (name: string) => void;
 }) {
   const roots = categories.filter((c) => c.type === type && !c.parentId);
+  const allLeaves: LeafInfo[] = roots.flatMap((root) =>
+    collectLeaves(categories, type, root, []).map(({ leaf, path }) => ({ leaf, path, root }))
+  );
 
-  const selected = categories.find((c) => c.type === type && c.name === value);
+  const current = allLeaves.find((x) => x.leaf.name === value);
 
-  let madre: Category | undefined;
-  let categoria: Category | undefined;
-  let subcategoria: Category | undefined;
-
-  if (selected) {
-    if (!selected.parentId) {
-      madre = selected;
-    } else {
-      const parent = categories.find((c) => c.id === selected.parentId);
-      if (parent && !parent.parentId) {
-        madre = parent;
-        categoria = selected;
-      } else if (parent) {
-        madre = categories.find((c) => c.id === parent.parentId);
-        categoria = parent;
-        subcategoria = selected;
-      }
-    }
-  }
-  if (!madre) madre = roots[0];
-
-  const categoriaOptions = madre ? categories.filter((c) => c.type === type && c.parentId === madre!.id) : [];
-  const subcategoriaOptions = categoria ? categories.filter((c) => c.type === type && c.parentId === categoria!.id) : [];
-
-  // El nodo elegido tiene que ser una hoja (sin hijas). Si el valor actual quedó
-  // "a mitad de camino" (ej. le agregaron subcategorías después a una categoría
-  // que ya estaba en uso), bajamos automáticamente a la primera hoja disponible.
-  const resolvedLeaf = subcategoria ?? categoria ?? madre;
-  const needsCorrection = !!resolvedLeaf && categories.some((c) => c.type === type && c.parentId === resolvedLeaf!.id);
-
+  // Si el valor actual no corresponde a ninguna hoja válida (ej. le agregaron
+  // subcategorías después a una que ya estaba en uso), corregimos a la primera disponible.
   useEffect(() => {
-    if (!needsCorrection || !resolvedLeaf) return;
-    const leaf = firstLeafUnder(categories, type, resolvedLeaf);
-    if (leaf.name !== value) onChange(leaf.name);
+    if (!current && allLeaves.length > 0) {
+      onChange(allLeaves[0].leaf.name);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsCorrection, resolvedLeaf?.id]);
+  }, [current?.leaf.id, allLeaves.length]);
 
   if (roots.length === 0) {
     return (
@@ -80,64 +67,33 @@ export function CategoryPicker({
   }
 
   return (
-    <>
-      <Field label="Categoría madre">
-        {(id) => (
-          <Select
-            id={id}
-            value={madre!.id}
-            onChange={(e) => {
-              const m = categories.find((c) => c.id === e.target.value);
-              if (m) onChange(firstLeafUnder(categories, type, m).name);
-            }}
-          >
-            {roots.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </Select>
-        )}
-      </Field>
-
-      {categoriaOptions.length > 0 && (
-        <Field label="Categoría">
-          {(id) => (
-            <Select
-              id={id}
-              value={categoria?.id ?? ""}
-              onChange={(e) => {
-                const c = categories.find((c) => c.id === e.target.value);
-                if (c) onChange(firstLeafUnder(categories, type, c).name);
-              }}
-            >
-              {!categoria && <option value="" disabled>Elegí una categoría</option>}
-              {categoriaOptions.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </Select>
-          )}
-        </Field>
+    <Field label="Categoría">
+      {(id) => (
+        <Select
+          id={id}
+          value={current?.leaf.id ?? ""}
+          onChange={(e) => {
+            const found = allLeaves.find((x) => x.leaf.id === e.target.value);
+            if (found) onChange(found.leaf.name);
+          }}
+        >
+          {!current && <option value="" disabled>Elegí una categoría</option>}
+          {roots.map((root) => {
+            const leaves = allLeaves.filter((x) => x.root.id === root.id);
+            if (leaves.length === 1 && leaves[0].leaf.id === root.id) {
+              return <option key={root.id} value={root.id}>{root.name}</option>;
+            }
+            return (
+              <optgroup key={root.id} label={root.name}>
+                {leaves.map(({ leaf, path }) => (
+                  <option key={leaf.id} value={leaf.id}>{path.join(" > ")}</option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </Select>
       )}
-
-      {categoria && subcategoriaOptions.length > 0 && (
-        <Field label="Subcategoría">
-          {(id) => (
-            <Select
-              id={id}
-              value={subcategoria?.id ?? ""}
-              onChange={(e) => {
-                const s = categories.find((c) => c.id === e.target.value);
-                if (s) onChange(firstLeafUnder(categories, type, s).name);
-              }}
-            >
-              {!subcategoria && <option value="" disabled>Elegí una subcategoría</option>}
-              {subcategoriaOptions.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </Select>
-          )}
-        </Field>
-      )}
-    </>
+    </Field>
   );
 }
 
