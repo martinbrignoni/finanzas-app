@@ -91,6 +91,7 @@ function migrate(raw: any): FinanceData {
     cardPayments: data.cardPayments ?? [],
     categories: data.categories ?? [],
     notes: data.notes ?? [],
+    appLock: data.appLock ?? { enabled: false, pinHash: null },
     users: usersConNotas,
     activeUserId: data.activeUserId ?? null,
   };

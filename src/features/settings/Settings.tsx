@@ -3,7 +3,8 @@ import { theme as C } from "../../styles/theme";
 import { Segment } from "../../components/ui";
 import { CategoriesSettings } from "./Categories";
 import { UsersSettings } from "./Users";
-import type { AppUser, Category, Transaction, Installment, Budget } from "../../types";
+import { SecuritySettings } from "./Security";
+import type { AppUser, Category, Transaction, Installment, Budget, AppLock } from "../../types";
 
 export function Settings({
   users,
@@ -12,6 +13,7 @@ export function Settings({
   transactions,
   installments,
   budgets,
+  appLock,
   canEdit,
   onSetActiveUser,
   onAddUser,
@@ -21,6 +23,7 @@ export function Settings({
   onDeleteCategory,
   onMoveCategory,
   onReclassifyCategory,
+  onUpdateAppLock,
 }: {
   users: AppUser[];
   activeUserId: string | null;
@@ -28,6 +31,7 @@ export function Settings({
   transactions: Transaction[];
   installments: Installment[];
   budgets: Budget[];
+  appLock: AppLock;
   canEdit: boolean;
   onSetActiveUser: (id: string) => void;
   onAddUser: () => void;
@@ -37,8 +41,9 @@ export function Settings({
   onDeleteCategory: (id: string) => void;
   onMoveCategory: (id: string, newParentId: string) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
+  onUpdateAppLock: (partial: Partial<AppLock>) => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "seguridad">("usuarios");
 
   return (
     <div className="pb-24">
@@ -48,11 +53,15 @@ export function Settings({
         <Segment
           value={section}
           onChange={setSection}
-          options={[{ value: "usuarios", label: "Usuarios y permisos" }, { value: "categorias", label: "Categorías" }]}
+          options={[
+            { value: "usuarios", label: "Usuarios y permisos" },
+            { value: "categorias", label: "Categorías" },
+            { value: "seguridad", label: "Seguridad" },
+          ]}
         />
       </div>
 
-      {section === "usuarios" ? (
+      {section === "usuarios" && (
         <UsersSettings
           users={users}
           activeUserId={activeUserId}
@@ -62,7 +71,8 @@ export function Settings({
           onEdit={onEditUser}
           onDelete={onDeleteUser}
         />
-      ) : (
+      )}
+      {section === "categorias" && (
         <CategoriesSettings
           categories={categories}
           transactions={transactions}
@@ -75,6 +85,7 @@ export function Settings({
           onReclassify={onReclassifyCategory}
         />
       )}
+      {section === "seguridad" && <SecuritySettings appLock={appLock} canEdit={canEdit} onUpdateAppLock={onUpdateAppLock} />}
     </div>
   );
 }

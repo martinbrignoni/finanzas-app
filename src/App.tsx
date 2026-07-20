@@ -8,7 +8,7 @@ import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
-  Category, AppUser, PermissionKey, Transfer, CardPayment, Note,
+  Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -18,6 +18,7 @@ import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
 import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
 import { Notes, NoteModal } from "./features/notes/Notes";
+import { LockScreen } from "./features/security/LockScreen";
 import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
@@ -55,6 +56,7 @@ export default function App() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
 
   const loadData = useCallback(() => {
     setRefreshing(true);
@@ -293,6 +295,11 @@ export default function App() {
     [requestConfirm, deleteNote]
   );
 
+  // --- bloqueo de la app ---
+  const updateAppLock = useCallback((partial: Partial<AppLock>) => {
+    setData((d) => (d ? { ...d, appLock: { ...d.appLock, ...partial } } : d));
+  }, []);
+
   // --- users ---
   const upsertUser = useCallback((u: AppUser) => {
     setData((d) => {
@@ -326,6 +333,10 @@ export default function App() {
         Cargando...
       </div>
     );
+  }
+
+  if (data.appLock?.enabled && !unlocked) {
+    return <LockScreen pinHash={data.appLock.pinHash} onUnlock={() => setUnlocked(true)} />;
   }
 
   const visibleTabs = TABS.filter((t) => has(t.id, "view"));
@@ -487,6 +498,7 @@ export default function App() {
                 transactions={data.transactions}
                 installments={data.installments}
                 budgets={data.budgets}
+                appLock={data.appLock}
                 canEdit={has("configuracion", "edit")}
                 onSetActiveUser={setActiveUser}
                 onAddUser={() => setModal({ type: "user" })}
@@ -496,6 +508,7 @@ export default function App() {
                 onDeleteCategory={confirmDeleteCategory}
                 onMoveCategory={moveCategory}
                 onReclassifyCategory={reclassifyCategory}
+                onUpdateAppLock={updateAppLock}
               />
             )}
           </>

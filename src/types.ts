@@ -195,6 +195,21 @@ export interface Note {
   updatedAt?: string; // ISO datetime
 }
 
+/**
+ * Bloqueo de acceso a la app (además del login de Supabase): un PIN que se
+ * pide cada vez que se abre la app, con Face ID/Touch ID como atajo opcional.
+ * Es una pantalla de privacidad local, no una capa de seguridad real del
+ * servidor (el PIN se guarda hasheado, pero cualquiera con la sesión de
+ * Supabase iniciada y sin el PIN igual podría acceder a los datos vía
+ * Supabase directamente). El registro de Face ID/Touch ID (WebAuthn) queda
+ * guardado por dispositivo/navegador, no viaja con este dato sincronizado.
+ */
+export interface AppLock {
+  enabled: boolean;
+  /** Hash SHA-256 (hex) del PIN. `null` si todavía no se configuró ninguno. */
+  pinHash: string | null;
+}
+
 export interface FinanceData {
   schemaVersion: number;
   transactions: Transaction[];
@@ -207,6 +222,7 @@ export interface FinanceData {
   cardPayments: CardPayment[];
   categories: Category[];
   notes: Note[];
+  appLock: AppLock;
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
@@ -257,6 +273,7 @@ export function emptyFinanceData(): FinanceData {
     cardPayments: [],
     categories: defaultCategories(),
     notes: [],
+    appLock: { enabled: false, pinHash: null },
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };
