@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw } from "lucide-react";
 import { theme as C } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
+import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
@@ -51,9 +52,19 @@ export default function App() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback(() => {
+    setRefreshing(true);
+    return repo
+      .load()
+      .then(setData)
+      .finally(() => setRefreshing(false));
+  }, []);
 
   useEffect(() => {
-    repo.load().then(setData);
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -301,6 +312,7 @@ export default function App() {
   const showFab = (tab === "inicio" || tab === "movimientos") && has("movimientos", "edit");
 
   return (
+    <PullToRefresh onRefresh={() => loadData()} refreshing={refreshing}>
     <div className="min-h-screen" style={{ background: C.bg }}>
       <div className="max-w-md mx-auto px-4 pt-4">
         <div className="flex items-center justify-between mb-3">
@@ -328,6 +340,9 @@ export default function App() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <button onClick={() => loadData()} aria-label="Actualizar" disabled={refreshing} style={{ color: C.textFaint }}>
+              <RefreshCw size={19} className={refreshing ? "animate-spin" : ""} />
+            </button>
             <button onClick={() => setCalculatorOpen(true)} aria-label="Calculadora" style={{ color: C.textFaint }}>
               <CalculatorIcon size={20} />
             </button>
@@ -527,5 +542,6 @@ export default function App() {
         />
       )}
     </div>
+    </PullToRefresh>
   );
 }
