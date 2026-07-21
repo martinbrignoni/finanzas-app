@@ -58,6 +58,29 @@ export interface Account {
   holderName?: string;
   /** Número de cuenta, para poder compartir los datos bancarios cuando te piden hacerte una transferencia. */
   accountNumber?: string;
+  /** Si está activo, se recuerda mensualmente adjuntar el estado de cuenta (PDF y Excel) de esta caja. */
+  statementReminders?: boolean;
+  /**
+   * Mes (YYYY-MM) desde el que se empiezan a pedir estados de cuenta. Se fija
+   * al activar el recordatorio (no al crear la caja), para no reclamar
+   * retroactivamente meses de antes de haberlo prendido.
+   */
+  statementRemindersSince?: string;
+}
+
+/**
+ * Estado de cuenta bancario de una caja para un mes puntual, en PDF y/o
+ * Excel. Es un respaldo a nivel de cuenta (no de un movimiento puntual), por
+ * eso vive separado de los comprobantes de Transaction/Transfer/CardPayment.
+ */
+export interface AccountStatement {
+  id: string;
+  accountId: string;
+  month: string; // YYYY-MM
+  /** Ruta (no URL) en el bucket "receipts" de Supabase Storage. */
+  pdfPath?: string;
+  /** Ruta (no URL) en el bucket "receipts" de Supabase Storage. */
+  excelPath?: string;
 }
 
 /**
@@ -255,6 +278,7 @@ export interface FinanceData {
   accounts: Account[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  accountStatements: AccountStatement[];
   categories: Category[];
   notes: Note[];
   appLock: AppLock;
@@ -264,7 +288,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -307,6 +331,7 @@ export function emptyFinanceData(): FinanceData {
     accounts: [],
     transfers: [],
     cardPayments: [],
+    accountStatements: [],
     categories: defaultCategories(),
     notes: [],
     appLock: { enabled: false, pinHash: null },

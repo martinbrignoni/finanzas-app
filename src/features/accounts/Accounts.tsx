@@ -1,15 +1,16 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, FileText, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, Upload, Loader2, X } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
-import { receiptPathsOf } from "../../lib/receipts";
+import { receiptPathsOf, uploadReceipt, getReceiptUrl, deleteReceipt } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText } from "../../lib/accounts";
 import { orderItems, moveWithinGroup } from "../../lib/order";
+import { pendingStatementMonths, getStatement } from "../../lib/accountStatements";
 import { exportBankToExcel } from "../../lib/excelExport";
-import { formatDateDMY } from "../../lib/dates";
-import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders } from "../../types";
+import { formatDateDMY, currentMonthKey, addMonths, monthLabel, capitalize } from "../../lib/dates";
+import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders, AccountStatement } from "../../types";
 
 export function Accounts({
   banks,
@@ -24,6 +25,8 @@ export function Accounts({
   onReorderBanks,
   onReorderAccountsByBank,
   onReorderAccountsByCurrency,
+  accountStatements,
+  onSaveAccountStatement,
   onAddBank,
   onEditBank,
   onDeleteBank,
@@ -49,6 +52,8 @@ export function Accounts({
   onReorderBanks: (order: string[]) => void;
   onReorderAccountsByBank: (order: string[]) => void;
   onReorderAccountsByCurrency: (order: string[]) => void;
+  accountStatements: AccountStatement[];
+  onSaveAccountStatement: (s: AccountStatement) => void;
   onAddBank: () => void;
   onEditBank: (b: Bank) => void;
   onDeleteBank: (id: string) => void;
@@ -140,6 +145,30 @@ export function Accounts({
         </div>
       )}
 
+      {(() => {
+        const pendingByAccount = accounts
+          .map((a) => ({ account: a, months: pendingStatementMonths(a, accountStatements) }))
+          .filter((x) => x.months.length > 0);
+        if (pendingByAccount.length === 0) return null;
+        return (
+          <div className="rounded-xl p-3 mb-4 text-xs" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
+            <div className="flex items-center gap-1.5 font-semibold mb-1.5">
+              <AlertTriangle size={14} /> Estados de cuenta pendientes
+            </div>
+            <ul className="space-y-1">
+              {pendingByAccount.map(({ account, months }) => (
+                <li key={account.id}>
+                  <button onClick={() => setViewAccountId(account.id)} className="underline text-left">
+                    {accountLabel(account, banks)}
+                  </button>
+                  : {months.map((m) => capitalize(monthLabel(m))).join(", ")}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
       {banks.length > 0 && (
         <div className="flex items-center gap-2 mb-4">
           <Segment value={sortBy} onChange={setSortBy} options={[{ value: "banco", label: "Por banco" }, { value: "moneda", label: "Por moneda" }]} />
@@ -228,6 +257,9 @@ export function Accounts({
                               <Wallet size={13} color={C.textFaint} />
                               <span style={{ color: C.text }}>{acc.name}</span>
                               <CurrencyPill currency={acc.currency} />
+                              {pendingStatementMonths(acc, accountStatements).length > 0 && (
+                                <AlertTriangle size={12} color={C.negative} aria-label="Estado de cuenta pendiente" />
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               {reordering && canEdit ? (
@@ -311,6 +343,9 @@ export function Accounts({
                           <div className="flex items-center gap-2">
                             <Wallet size={13} color={C.textFaint} />
                             <span style={{ color: C.text }}>{accountLabel(acc, banks)}</span>
+                            {pendingStatementMonths(acc, accountStatements).length > 0 && (
+                              <AlertTriangle size={12} color={C.negative} aria-label="Estado de cuenta pendiente" />
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {reordering && canEdit ? (
@@ -369,6 +404,8 @@ export function Accounts({
           cardPayments={cardPayments}
           cards={cards}
           canEdit={canEditMovements}
+          accountStatements={accountStatements}
+          onSaveAccountStatement={onSaveAccountStatement}
           onEditTransaction={onEditTransaction}
           onDeleteTransaction={onDeleteTransaction}
           onEditTransfer={onEditTransfer}
@@ -391,6 +428,8 @@ function AccountLedgerModal({
   cardPayments,
   cards,
   canEdit,
+  accountStatements,
+  onSaveAccountStatement,
   onEditTransaction,
   onDeleteTransaction,
   onEditTransfer,
@@ -407,6 +446,8 @@ function AccountLedgerModal({
   cardPayments: CardPayment[];
   cards: Card[];
   canEdit: boolean;
+  accountStatements: AccountStatement[];
+  onSaveAccountStatement: (s: AccountStatement) => void;
   onEditTransaction: (t: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   onEditTransfer: (t: Transfer) => void;
@@ -418,6 +459,48 @@ function AccountLedgerModal({
   const entries = accountLedger(account, transactions, transfers, cardPayments);
   const balance = accountBalance(account, transactions, transfers, cardPayments);
   const [copied, setCopied] = useState(false);
+
+  const pendingMonths = pendingStatementMonths(account, accountStatements);
+  const [statementMonth, setStatementMonth] = useState<string>(() => pendingMonths[0] ?? currentMonthKey());
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [uploadingExcel, setUploadingExcel] = useState(false);
+  const [statementError, setStatementError] = useState<string | null>(null);
+  const currentStatement = getStatement(accountStatements, account.id, statementMonth);
+  const statementMonthOptions = Array.from({ length: 25 }, (_, i) => addMonths(currentMonthKey(), -i));
+
+  const handleStatementUpload = async (file: File, kind: "pdf" | "excel") => {
+    const setBusy = kind === "pdf" ? setUploadingPdf : setUploadingExcel;
+    setBusy(true);
+    setStatementError(null);
+    try {
+      const path = await uploadReceipt(file, `stmt-${account.id}-${statementMonth}-${kind}`);
+      const base = currentStatement ?? { id: crypto.randomUUID(), accountId: account.id, month: statementMonth };
+      onSaveAccountStatement({ ...base, [kind === "pdf" ? "pdfPath" : "excelPath"]: path });
+    } catch (err) {
+      console.error(err);
+      setStatementError("No se pudo subir el archivo. Probá de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStatementView = async (path: string) => {
+    setStatementError(null);
+    try {
+      const url = await getReceiptUrl(path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error(err);
+      setStatementError("No se pudo abrir el archivo.");
+    }
+  };
+
+  const handleStatementRemove = (kind: "pdf" | "excel") => {
+    if (!currentStatement) return;
+    const path = kind === "pdf" ? currentStatement.pdfPath : currentStatement.excelPath;
+    if (path) deleteReceipt(path);
+    onSaveAccountStatement({ ...currentStatement, [kind === "pdf" ? "pdfPath" : "excelPath"]: undefined });
+  };
 
   const handleShare = async () => {
     const text = shareableAccountText(account, banks);
@@ -456,6 +539,48 @@ function AccountLedgerModal({
         {copied ? <Check size={13} /> : <Share2 size={13} />}
         {copied ? "Copiado" : "Compartir datos bancarios"}
       </button>
+
+      <div className="rounded-xl p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+        <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>Estados de cuenta</h3>
+
+        {pendingMonths.length > 0 && (
+          <div className="rounded-lg p-2.5 mb-2 text-xs flex items-start gap-1.5" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
+            <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+            <span>Falta cargar el estado de cuenta de: {pendingMonths.map((m) => capitalize(monthLabel(m))).join(", ")}.</span>
+          </div>
+        )}
+
+        <div className="mb-2">
+          <Select aria-label="Mes del estado de cuenta" value={statementMonth} onChange={(e) => setStatementMonth(e.target.value)}>
+            {statementMonthOptions.map((m) => (
+              <option key={m} value={m}>
+                {capitalize(monthLabel(m))}{pendingMonths.includes(m) ? " · pendiente" : ""}
+              </option>
+            ))}
+          </Select>
+        </div>
+
+        <StatementFileRow
+          label="PDF"
+          accept=".pdf,application/pdf"
+          path={currentStatement?.pdfPath}
+          uploading={uploadingPdf}
+          onUpload={(f) => handleStatementUpload(f, "pdf")}
+          onView={handleStatementView}
+          onRemove={() => handleStatementRemove("pdf")}
+        />
+        <StatementFileRow
+          label="Excel"
+          accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          path={currentStatement?.excelPath}
+          uploading={uploadingExcel}
+          onUpload={(f) => handleStatementUpload(f, "excel")}
+          onView={handleStatementView}
+          onRemove={() => handleStatementRemove("excel")}
+        />
+
+        {statementError && <p className="text-xs" style={{ color: C.negative }}>{statementError}</p>}
+      </div>
 
       {entries.length === 0 ? (
         <p className="text-sm text-center py-6" style={{ color: C.textMuted }}>Sin movimientos en esta cuenta todavía.</p>
@@ -555,6 +680,59 @@ function AccountLedgerModal({
   );
 }
 
+/** Fila de un slot de archivo (PDF o Excel) para el estado de cuenta de un mes: adjuntar, ver o quitar. */
+function StatementFileRow({
+  label,
+  accept,
+  path,
+  uploading,
+  onUpload,
+  onView,
+  onRemove,
+}: {
+  label: string;
+  accept: string;
+  path?: string;
+  uploading: boolean;
+  onUpload: (file: File) => void;
+  onView: (path: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+      <div className="flex items-center gap-2 text-xs" style={{ color: C.text }}>
+        {label === "PDF" ? <FileText size={14} color={C.textMuted} /> : <FileSpreadsheet size={14} color={C.textMuted} />}
+        {label}
+      </div>
+      {path ? (
+        <div className="flex items-center gap-1">
+          <IconBtn label={`Ver ${label}`} onClick={() => onView(path)}><Check size={13} color={C.positive} /></IconBtn>
+          <IconBtn label={`Quitar ${label}`} danger onClick={onRemove}><X size={13} /></IconBtn>
+        </div>
+      ) : (
+        <label
+          className="text-xs font-semibold flex items-center gap-1"
+          style={{ color: uploading ? C.textFaint : C.usd, cursor: uploading ? "default" : "pointer" }}
+        >
+          {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+          {uploading ? "Subiendo..." : "Adjuntar"}
+          <input
+            type="file"
+            accept={accept}
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) onUpload(file);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      )}
+    </div>
+  );
+}
+
 export function BankModal({ initial, onSave, onClose }: { initial?: Bank; onSave: (b: Bank) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -586,6 +764,7 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
   const [initialBalance, setInitialBalance] = useState(initial ? String(fromMinor(initial.initialBalanceMinor)) : "0");
   const [holderName, setHolderName] = useState(initial?.holderName ?? "");
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? "");
+  const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
   const [error, setError] = useState<string | null>(null);
 
   const holderSuggestions = Array.from(new Set(accounts.map((a) => a.holderName).filter((h): h is string => !!h)));
@@ -595,6 +774,14 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
     if (!name.trim()) return setError("Ingresá un nombre para la caja (ej. Caja de ahorro).");
     const minor = parseAmountInput(initialBalance || "0");
     if (minor === null) return setError("El saldo inicial no es un número válido.");
+    // Si se prende el recordatorio (y antes estaba apagado), empieza a contar desde el mes
+    // actual: no reclama retroactivamente estados de cuenta de antes de haberlo activado.
+    const wasOn = initial?.statementReminders ?? false;
+    const statementRemindersSince = statementReminders
+      ? initial?.statementRemindersSince && wasOn
+        ? initial.statementRemindersSince
+        : currentMonthKey()
+      : initial?.statementRemindersSince;
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
       bankId: selectedBankId,
@@ -603,6 +790,8 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       initialBalanceMinor: minor,
       holderName: holderName.trim() || undefined,
       accountNumber: accountNumber.trim() || undefined,
+      statementReminders,
+      statementRemindersSince,
     });
   };
 
@@ -637,6 +826,18 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       <Field label="Número de cuenta (opcional)">
         {(id) => <TextInput id={id} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Para compartir cuando te pidan transferirte" />}
       </Field>
+      <Field label="Recordatorio de estado de cuenta">
+        {() => (
+          <Segment
+            value={statementReminders ? "on" : "off"}
+            onChange={(v) => setStatementReminders(v === "on")}
+            options={[{ value: "off", label: "No" }, { value: "on", label: "Sí, avisame" }]}
+          />
+        )}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        Con esto activado, cada mes que cierre te avisamos acá hasta que subas el PDF y el Excel del estado de cuenta de esa caja.
+      </p>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>

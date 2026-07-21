@@ -8,7 +8,7 @@ import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
-  Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock,
+  Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -299,6 +299,18 @@ export default function App() {
         : d
     );
   }, []);
+  const saveAccountStatement = useCallback((s: AccountStatement) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            accountStatements: d.accountStatements.some((x) => x.id === s.id)
+              ? d.accountStatements.map((x) => (x.id === s.id ? s : x))
+              : [...d.accountStatements, s],
+          }
+        : d
+    );
+  }, []);
 
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
@@ -468,6 +480,8 @@ export default function App() {
                 onReorderBanks={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, banks: order } } : d))}
                 onReorderAccountsByBank={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByBank: order } } : d))}
                 onReorderAccountsByCurrency={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByCurrency: order } } : d))}
+                accountStatements={data.accountStatements}
+                onSaveAccountStatement={saveAccountStatement}
                 onAddBank={() => setModal({ type: "bank" })}
                 onEditBank={(b) => setModal({ type: "bank", payload: b })}
                 onDeleteBank={confirmDeleteBank}
