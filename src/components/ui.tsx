@@ -1,4 +1,4 @@
-import React, { useEffect, useId } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import type { Currency } from "../types";
@@ -69,6 +69,126 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 export function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select {...props} style={inputStyle}>{children}</select>;
+}
+
+export interface ComboboxOption {
+  value: string;
+  label: string;
+  /** Encabezado de grupo (opcional), para agrupar visualmente como un <optgroup>. */
+  group?: string;
+}
+
+/**
+ * Selector "combo": igual que un `<select>` en lo que hace (elegís de una
+ * lista cerrada de opciones), pero además dejás escribir para filtrarla en
+ * vivo, útil cuando la lista es larga (categorías, cuentas, tarjetas). No
+ * acepta valores libres: si no se elige una opción de la lista, al perder el
+ * foco vuelve a mostrar la selección anterior.
+ */
+export function Combobox({
+  id,
+  options,
+  value,
+  onChange,
+  placeholder,
+  emptyText = "Sin resultados",
+}: {
+  id?: string;
+  options: ComboboxOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  emptyText?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const filtered = query.trim()
+    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : options;
+
+  // Agrupa manteniendo el orden original, uniendo opciones consecutivas del mismo grupo.
+  const groups: { group: string | undefined; items: ComboboxOption[] }[] = [];
+  for (const opt of filtered) {
+    const last = groups[groups.length - 1];
+    if (last && last.group === opt.group) last.items.push(opt);
+    else groups.push({ group: opt.group, items: [opt] });
+  }
+
+  const selectOption = (opt: ComboboxOption) => {
+    onChange(opt.value);
+    setOpen(false);
+    setQuery("");
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <input
+        id={id}
+        type="text"
+        value={open ? query : selected?.label ?? ""}
+        placeholder={placeholder ?? selected?.label ?? "Escribí para buscar..."}
+        autoComplete="off"
+        style={inputStyle}
+        onFocus={(e) => { setOpen(true); setQuery(""); e.currentTarget.style.borderColor = C.usd; }}
+        onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { setOpen(false); setQuery(""); (e.target as HTMLInputElement).blur(); }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            if (filtered.length > 0) selectOption(filtered[0]);
+          }
+        }}
+      />
+      {open && (
+        <div
+          className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg overflow-hidden max-h-56 overflow-y-auto"
+          style={{ background: C.surface, border: `1px solid ${C.border}` }}
+        >
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2.5 text-xs" style={{ color: C.textFaint }}>{emptyText}</div>
+          ) : (
+            groups.map((g, gi) => (
+              <div key={gi}>
+                {g.group && (
+                  <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: C.textFaint }}>
+                    {g.group}
+                  </div>
+                )}
+                {g.items.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => selectOption(opt)}
+                    className="w-full text-left px-3 py-2 text-sm"
+                    style={{ color: opt.value === value ? C.usd : C.text, background: opt.value === value ? C.surface2 : "transparent" }}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {

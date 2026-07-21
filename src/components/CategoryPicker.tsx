@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { theme as C } from "../styles/theme";
-import { Field, Select } from "./ui";
+import { Field, Combobox } from "./ui";
+import type { ComboboxOption } from "./ui";
 import type { Category, TransactionType } from "../types";
 
 interface LeafInfo {
@@ -66,32 +67,27 @@ export function CategoryPicker({
     );
   }
 
+  const options: ComboboxOption[] = roots.flatMap((root) => {
+    const leaves = allLeaves.filter((x) => x.root.id === root.id);
+    if (leaves.length === 1 && leaves[0].leaf.id === root.id) {
+      return [{ value: root.id, label: root.name }];
+    }
+    return leaves.map(({ leaf, path }) => ({ value: leaf.id, label: path.join(" > "), group: root.name }));
+  });
+
   return (
     <Field label="Categoría">
       {(id) => (
-        <Select
+        <Combobox
           id={id}
+          options={options}
           value={current?.leaf.id ?? ""}
-          onChange={(e) => {
-            const found = allLeaves.find((x) => x.leaf.id === e.target.value);
+          placeholder="Escribí o elegí una categoría..."
+          onChange={(id) => {
+            const found = allLeaves.find((x) => x.leaf.id === id);
             if (found) onChange(found.leaf.name);
           }}
-        >
-          {!current && <option value="" disabled>Elegí una categoría</option>}
-          {roots.map((root) => {
-            const leaves = allLeaves.filter((x) => x.root.id === root.id);
-            if (leaves.length === 1 && leaves[0].leaf.id === root.id) {
-              return <option key={root.id} value={root.id}>{root.name}</option>;
-            }
-            return (
-              <optgroup key={root.id} label={root.name}>
-                {leaves.map(({ leaf, path }) => (
-                  <option key={leaf.id} value={leaf.id}>{path.join(" > ")}</option>
-                ))}
-              </optgroup>
-            );
-          })}
-        </Select>
+        />
       )}
     </Field>
   );

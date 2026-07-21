@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
@@ -728,12 +728,13 @@ export function MovementModal({
           {form.kind === "ingreso" ? (
             <Field label="Cuenta (opcional)">
               {(id) => (
-                <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
-                  <option value="">Sin cuenta asignada</option>
-                  {eligibleAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>
-                  ))}
-                </Select>
+                <Combobox
+                  id={id}
+                  value={form.accountId}
+                  placeholder={form.accountId ? undefined : "Sin cuenta asignada"}
+                  onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
+                  options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                />
               )}
             </Field>
           ) : (
@@ -757,12 +758,13 @@ export function MovementModal({
                     eligibleAccounts.length === 0 ? (
                       <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}. Creá una en Cuentas.</p>
                     ) : (
-                      <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
-                        <option value="">Elegí una cuenta</option>
-                        {eligibleAccounts.map((a) => (
-                          <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>
-                        ))}
-                      </Select>
+                      <Combobox
+                        id={id}
+                        value={form.accountId}
+                        placeholder="Elegí una cuenta"
+                        onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
+                        options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                      />
                     )
                   }
                 </Field>
@@ -773,10 +775,13 @@ export function MovementModal({
                     cards.length === 0 ? (
                       <p className="text-xs" style={{ color: C.textFaint }}>No tenés tarjetas creadas. Creá una en Tarjetas.</p>
                     ) : (
-                      <Select id={id} value={form.cardId} onChange={(e) => setForm((f) => ({ ...f, cardId: e.target.value }))}>
-                        <option value="">Elegí una tarjeta</option>
-                        {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </Select>
+                      <Combobox
+                        id={id}
+                        value={form.cardId}
+                        placeholder="Elegí una tarjeta"
+                        onChange={(cardId) => setForm((f) => ({ ...f, cardId }))}
+                        options={cards.map((c) => ({ value: c.id, label: c.name }))}
+                      />
                     )
                   }
                 </Field>
