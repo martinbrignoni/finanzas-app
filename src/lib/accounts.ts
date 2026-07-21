@@ -1,28 +1,34 @@
 import type { Account, Bank, Transaction, Transfer, CardPayment } from "../types";
 
 /**
- * Saldo actual de una cuenta: saldo inicial + ingresos - gastos asignados a
- * esa cuenta, +/- transferencias donde la cuenta es origen o destino,
- * - pagos de tarjeta hechos desde esa cuenta.
+ * Saldo de una cuenta: saldo inicial + ingresos - gastos asignados a esa
+ * cuenta, +/- transferencias donde la cuenta es origen o destino, - pagos de
+ * tarjeta hechos desde esa cuenta. Si se pasa `asOfDate` (YYYY-MM-DD), solo
+ * se consideran movimientos con fecha hasta ese día (saldo "a esa fecha");
+ * sin `asOfDate` se consideran todos, incluidos los de fecha futura.
  */
 export function accountBalance(
   account: Account,
   transactions: Transaction[],
   transfers: Transfer[] = [],
-  cardPayments: CardPayment[] = []
+  cardPayments: CardPayment[] = [],
+  asOfDate?: string
 ): number {
+  const inRange = (d: string) => !asOfDate || d <= asOfDate;
+
   const movement = transactions
-    .filter((t) => t.accountId === account.id)
+    .filter((t) => t.accountId === account.id && inRange(t.date))
     .reduce((sum, t) => sum + (t.type === "ingreso" ? t.amountMinor : -t.amountMinor), 0);
 
   const transferMovement = transfers.reduce((sum, tr) => {
+    if (!inRange(tr.date)) return sum;
     if (tr.fromAccountId === account.id) sum -= tr.fromAmountMinor;
     if (tr.toAccountId === account.id) sum += tr.toAmountMinor;
     return sum;
   }, 0);
 
   const cardPaymentsMovement = cardPayments
-    .filter((p) => p.accountId === account.id)
+    .filter((p) => p.accountId === account.id && inRange(p.date))
     .reduce((sum, p) => sum - p.amountMinor, 0);
 
   return account.initialBalanceMinor + movement + transferMovement + cardPaymentsMovement;
@@ -74,13 +80,15 @@ export interface AccountLedgerEntry {
  * Historial completo de una cuenta (movimientos propios, ambas patas de
  * transferencias donde participa, y pagos de tarjeta hechos desde ella), con
  * saldo corriendo, del más reciente al más antiguo. Pensado para la vista
- * "Movimientos de esta cuenta".
+ * "Movimientos de esta cuenta". Si se pasa `asOfDate`, no incluye movimientos
+ * con fecha posterior (ver `accountBalance`).
  */
 export function accountLedger(
   account: Account,
   transactions: Transaction[],
   transfers: Transfer[],
-  cardPayments: CardPayment[] = []
+  cardPayments: CardPayment[] = [],
+  asOfDate?: string
 ): AccountLedgerEntry[] {
   type Raw = {
     date: string;
@@ -92,18 +100,20 @@ export function accountLedger(
     cardPayment?: CardPayment;
   };
 
+  const inRange = (d: string) => !asOfDate || d <= asOfDate;
+
   const raw: Raw[] = [
     ...transactions
-      .filter((t) => t.accountId === account.id)
+      .filter((t) => t.accountId === account.id && inRange(t.date))
       .map((t): Raw => ({ date: t.date, id: t.id, amountMinor: t.type === "ingreso" ? t.amountMinor : -t.amountMinor, kind: "transaction", transaction: t })),
     ...transfers
-      .filter((tr) => tr.fromAccountId === account.id)
+      .filter((tr) => tr.fromAccountId === account.id && inRange(tr.date))
       .map((tr): Raw => ({ date: tr.date, id: `${tr.id}-out`, amountMinor: -tr.fromAmountMinor, kind: "transfer-out", transfer: tr })),
     ...transfers
-      .filter((tr) => tr.toAccountId === account.id)
+      .filter((tr) => tr.toAccountId === account.id && inRange(tr.date))
       .map((tr): Raw => ({ date: tr.date, id: `${tr.id}-in`, amountMinor: tr.toAmountMinor, kind: "transfer-in", transfer: tr })),
     ...cardPayments
-      .filter((p) => p.accountId === account.id)
+      .filter((p) => p.accountId === account.id && inRange(p.date))
       .map((p): Raw => ({ date: p.date, id: `${p.id}-pay`, amountMinor: -p.amountMinor, kind: "card-payment", cardPayment: p })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 

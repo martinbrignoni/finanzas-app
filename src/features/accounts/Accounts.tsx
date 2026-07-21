@@ -9,7 +9,7 @@ import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableA
 import { orderItems, moveWithinGroup } from "../../lib/order";
 import { pendingStatementMonths, getStatement } from "../../lib/accountStatements";
 import { exportBankToExcel } from "../../lib/excelExport";
-import { formatDateDMY, currentMonthKey, addMonths, monthLabel, capitalize } from "../../lib/dates";
+import { formatDateDMY, currentMonthKey, addMonths, monthLabel, capitalize, todayISO } from "../../lib/dates";
 import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders, AccountStatement } from "../../types";
 
 export function Accounts({
@@ -71,6 +71,8 @@ export function Accounts({
   const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
   const [sortBy, setSortBy] = useState<"banco" | "moneda">("banco");
   const [reordering, setReordering] = useState(false);
+  const [asOfDate, setAsOfDate] = useState(todayISO());
+  const isToday = asOfDate === todayISO();
   const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const allBankIds = banks.map((b) => b.id);
@@ -144,6 +146,24 @@ export function Accounts({
           Todavía no agregaste bancos. Un banco puede tener varias cajas, en distinta moneda.
         </div>
       )}
+
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs shrink-0" style={{ color: C.textMuted }}>Saldos al:</span>
+        <input
+          type="date"
+          aria-label="Ver saldos a una fecha"
+          value={asOfDate}
+          max={todayISO()}
+          onChange={(e) => setAsOfDate(e.target.value || todayISO())}
+          className="text-sm rounded-lg px-2.5 py-1.5"
+          style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+        />
+        {!isToday && (
+          <button onClick={() => setAsOfDate(todayISO())} className="text-xs font-semibold shrink-0" style={{ color: C.usd }}>
+            Hoy
+          </button>
+        )}
+      </div>
 
       {(() => {
         const pendingByAccount = accounts
@@ -245,7 +265,7 @@ export function Accounts({
                   ) : (
                     <div className="space-y-1.5 mb-2">
                       {bankAccounts.map((acc, accIdx) => {
-                        const balance = accountBalance(acc, transactions, transfers, cardPayments);
+                        const balance = accountBalance(acc, transactions, transfers, cardPayments, asOfDate);
                         return (
                           <button
                             key={acc.id}
@@ -320,7 +340,7 @@ export function Accounts({
                 sortOrders.accountsByCurrency
               );
               if (currencyAccounts.length === 0) return null;
-              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers, cardPayments), 0);
+              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers, cardPayments, asOfDate), 0);
               return (
                 <div key={currency} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                   <div className="flex items-center justify-between mb-3">
@@ -404,6 +424,7 @@ export function Accounts({
           cardPayments={cardPayments}
           cards={cards}
           canEdit={canEditMovements}
+          asOfDate={asOfDate}
           accountStatements={accountStatements}
           onSaveAccountStatement={onSaveAccountStatement}
           onEditTransaction={onEditTransaction}
@@ -428,6 +449,7 @@ function AccountLedgerModal({
   cardPayments,
   cards,
   canEdit,
+  asOfDate,
   accountStatements,
   onSaveAccountStatement,
   onEditTransaction,
@@ -446,6 +468,8 @@ function AccountLedgerModal({
   cardPayments: CardPayment[];
   cards: Card[];
   canEdit: boolean;
+  /** Fecha (YYYY-MM-DD) hasta la que se muestran saldo y movimientos; hoy por defecto. */
+  asOfDate: string;
   accountStatements: AccountStatement[];
   onSaveAccountStatement: (s: AccountStatement) => void;
   onEditTransaction: (t: Transaction) => void;
@@ -456,8 +480,9 @@ function AccountLedgerModal({
   onDeleteCardPayment: (id: string) => void;
   onClose: () => void;
 }) {
-  const entries = accountLedger(account, transactions, transfers, cardPayments);
-  const balance = accountBalance(account, transactions, transfers, cardPayments);
+  const entries = accountLedger(account, transactions, transfers, cardPayments, asOfDate);
+  const balance = accountBalance(account, transactions, transfers, cardPayments, asOfDate);
+  const isToday = asOfDate === todayISO();
   const [copied, setCopied] = useState(false);
 
   const pendingMonths = pendingStatementMonths(account, accountStatements);
@@ -524,7 +549,7 @@ function AccountLedgerModal({
   return (
     <Modal title={accountLabel(account, banks)} onClose={onClose}>
       <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-2" style={{ background: C.surface2 }}>
-        <span className="text-xs" style={{ color: C.textMuted }}>Saldo actual</span>
+        <span className="text-xs" style={{ color: C.textMuted }}>{isToday ? "Saldo actual" : `Saldo al ${formatDateDMY(asOfDate)}`}</span>
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, account.currency)}</span>
           <CurrencyPill currency={account.currency} />
