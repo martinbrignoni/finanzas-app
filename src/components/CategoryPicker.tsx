@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { theme as C } from "../styles/theme";
 import { Field, Combobox } from "./ui";
 import type { ComboboxOption } from "./ui";
+import { categoryFullPath } from "../lib/categories";
 import type { Category, TransactionType } from "../types";
 
 interface LeafInfo {
@@ -48,13 +49,13 @@ export function CategoryPicker({
     collectLeaves(categories, type, root, []).map(({ leaf, path }) => ({ leaf, path, root }))
   );
 
-  const current = allLeaves.find((x) => x.leaf.name === value);
+  const current = allLeaves.find((x) => categoryFullPath(x.leaf, categories) === value);
 
   // Si el valor actual no corresponde a ninguna hoja válida (ej. le agregaron
   // subcategorías después a una que ya estaba en uso), corregimos a la primera disponible.
   useEffect(() => {
     if (!current && allLeaves.length > 0) {
-      onChange(allLeaves[0].leaf.name);
+      onChange(categoryFullPath(allLeaves[0].leaf, categories));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.leaf.id, allLeaves.length]);
@@ -85,7 +86,7 @@ export function CategoryPicker({
           placeholder="Escribí o elegí una categoría..."
           onChange={(id) => {
             const found = allLeaves.find((x) => x.leaf.id === id);
-            if (found) onChange(found.leaf.name);
+            if (found) onChange(categoryFullPath(found.leaf, categories));
           }}
         />
       )}
@@ -93,9 +94,9 @@ export function CategoryPicker({
   );
 }
 
-/** Nombre de la primera hoja (categoría sin hijas) de un tipo, para usar como default al abrir un formulario. */
-export function defaultLeafCategoryName(categories: Category[], type: TransactionType): string {
+/** Path completo (identificador) de la primera hoja (categoría sin hijas) de un tipo, para usar como default al abrir un formulario. */
+export function defaultLeafCategoryValue(categories: Category[], type: TransactionType): string {
   const root = categories.find((c) => c.type === type && !c.parentId);
   if (!root) return "";
-  return firstLeafUnder(categories, type, root).name;
+  return categoryFullPath(firstLeafUnder(categories, type, root), categories);
 }

@@ -23,7 +23,7 @@ describe("LocalStorageRepository migration", () => {
     const repo = new LocalStorageRepository();
     const migrated = await repo.load();
 
-    expect(migrated.schemaVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe(6);
     expect(migrated.transactions).toHaveLength(1);
     expect(migrated.categories.some((c) => c.name === "Mascotas")).toBe(true);
     expect(migrated.categories.some((c) => c.name === "Alimentación")).toBe(true);
@@ -37,7 +37,7 @@ describe("LocalStorageRepository migration", () => {
   it("no rompe con datos vacíos (primera vez que se abre la app)", async () => {
     const repo = new LocalStorageRepository();
     const data = await repo.load();
-    expect(data.schemaVersion).toBe(5);
+    expect(data.schemaVersion).toBe(6);
     expect(data.users).toHaveLength(1);
     expect(data.categories.length).toBeGreaterThan(0);
     expect(data.transfers).toEqual([]);

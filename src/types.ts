@@ -11,6 +11,12 @@ export interface Transaction {
   type: TransactionType;
   amountMinor: number;
   currency: Currency;
+  /**
+   * Identifica la categoría por su "path" completo (ej. "Gastos domésticos >
+   * Transporte"), no solo el nombre de la hoja: dos categorías en ramas
+   * distintas pueden llamarse igual y no son la misma. Ver
+   * `lib/categories.ts#categoryFullPath`.
+   */
   category: string;
   date: string; // YYYY-MM-DD
   note?: string;
@@ -131,6 +137,7 @@ export interface CardPayment {
 
 export interface Budget {
   id: string;
+  /** Path completo de la categoría (ver `Transaction.category`). */
   category: string;
   currency: Currency;
   limitMinor: number;
@@ -257,7 +264,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [

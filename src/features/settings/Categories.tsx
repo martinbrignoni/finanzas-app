@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Plus, Trash2, ArrowRightLeft } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
-import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
+import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
+import { categoryFullPath } from "../../lib/categories";
 import type { Category, Transaction, Installment, Budget, TransactionType } from "../../types";
 
 export function CategoriesSettings({
@@ -33,8 +34,10 @@ export function CategoriesSettings({
   const [moveTarget, setMoveTarget] = useState<Category | null>(null);
 
   const hasChildren = (cat: Category) => categories.some((c) => c.parentId === cat.id);
-  const countMovements = (cat: Category) =>
-    transactions.filter((t) => t.category === cat.name).length + installments.filter((i) => i.category === cat.name).length;
+  const countMovements = (cat: Category) => {
+    const fullPath = categoryFullPath(cat, categories);
+    return transactions.filter((t) => t.category === fullPath).length + installments.filter((i) => i.category === fullPath).length;
+  };
 
   const handleDelete = (cat: Category) => {
     if (hasChildren(cat)) {
@@ -47,7 +50,7 @@ export function CategoriesSettings({
       setReclassifyTarget(cat);
       return;
     }
-    if (budgets.some((b) => b.category === cat.name)) {
+    if (budgets.some((b) => b.category === categoryFullPath(cat, categories))) {
       setBlockedMsg(`"${cat.name}" está en uso en un presupuesto. Borrá o recreá ese presupuesto con otra categoría antes de eliminar esta.`);
       return;
     }
@@ -141,7 +144,7 @@ export function CategoriesSettings({
           categories={categories}
           movementCount={countMovements(reclassifyTarget)}
           onConfirm={(toName) => {
-            onReclassify(reclassifyTarget.name, toName);
+            onReclassify(categoryFullPath(reclassifyTarget, categories), toName);
             setReclassifyTarget(null);
             onDelete(reclassifyTarget.id);
           }}
@@ -179,7 +182,7 @@ function ReclassifyModal({
   onClose: () => void;
 }) {
   const otherCategories = categories.filter((c) => c.id !== category.id);
-  const [toName, setToName] = useState(() => defaultLeafCategoryName(otherCategories, category.type));
+  const [toName, setToName] = useState(() => defaultLeafCategoryValue(otherCategories, category.type));
   const [error, setError] = useState<string | null>(null);
 
   const handleConfirm = () => {

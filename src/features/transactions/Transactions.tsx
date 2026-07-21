@@ -4,7 +4,8 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
-import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
+import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
+import { categoryFullPath } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
@@ -449,7 +450,7 @@ export function MovementModal({
     kind: initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
     amount: initialInstallment ? String(fromMinor(initialInstallment.totalAmountMinor)) : initial ? String(fromMinor(initial.amountMinor)) : "",
     currency: initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
-    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category : defaultLeafCategoryName(categories, "gasto"),
+    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category : defaultLeafCategoryValue(categories, "gasto"),
     date: initialTransfer ? initialTransfer.date : initial ? initial.date : initialInstallment ? initialInstallment.date ?? `${initialInstallment.startMonth}-01` : todayISO(),
     note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
     accountId: initial?.accountId ?? "",
@@ -602,7 +603,7 @@ export function MovementModal({
           {() => (
             <Segment
               value={form.kind}
-              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : defaultLeafCategoryName(categories, v) }))}
+              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : defaultLeafCategoryValue(categories, v) }))}
               options={kindOptions}
             />
           )}
@@ -827,7 +828,7 @@ export function MovementModal({
           defaultType={form.kind === "ingreso" ? "ingreso" : "gasto"}
           onSave={(c) => {
             onSaveCategory(c);
-            setForm((f) => ({ ...f, category: c.name }));
+            setForm((f) => ({ ...f, category: categoryFullPath(c, [...categories, c]) }));
             setShowCategoryModal(false);
           }}
           onClose={() => setShowCategoryModal(false)}

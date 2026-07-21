@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Trash2, Plus } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
-import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
+import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
 import { formatMoney, parseAmountInput } from "../../lib/money";
 import { currentMonthKey, monthKeyOf } from "../../lib/dates";
 import type { Budget, Transaction, Currency, Category } from "../../types";
@@ -67,7 +67,7 @@ export function Budgets({ budgets, transactions, canEdit, onAdd, onDelete }: {
 }
 
 export function BudgetModal({ categories, onSave, onClose }: { categories: Category[]; onSave: (b: Budget) => void; onClose: () => void }) {
-  const [category, setCategory] = useState<string>(() => defaultLeafCategoryName(categories, "gasto"));
+  const [category, setCategory] = useState<string>(() => defaultLeafCategoryValue(categories, "gasto"));
   const [currency, setCurrency] = useState<Currency>("UYU");
   const [limit, setLimit] = useState("");
   const [error, setError] = useState<string | null>(null);

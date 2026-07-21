@@ -1,4 +1,5 @@
 import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermissions, type FinanceData, type Category, type AppUser } from "../types";
+import { categoryFullPath } from "./categories";
 import { supabase } from "./supabaseClient";
 
 export interface FinanceRepository {
@@ -66,6 +67,40 @@ function migrate(raw: any): FinanceData {
   if (data.schemaVersion === 4) {
     // v5: pagos reales de tarjeta de crédito, que descuentan saldo de una cuenta.
     data = { ...data, schemaVersion: 5, cardPayments: [] };
+  }
+
+  if (data.schemaVersion === 5) {
+    // v6: en movimientos/cuotas/presupuestos, `category` pasa de guardar solo
+    // el nombre de la hoja (ej. "Transporte") a guardar el path completo
+    // (ej. "Gastos domésticos > Transporte"). Esto evita que dos categorías
+    // con el mismo nombre en ramas distintas (ej. "Transporte" bajo "Gastos
+    // domésticos" y bajo "Servicio doméstico") se traten como si fueran la
+    // misma. Reescribimos lo ya guardado usando el árbol de categorías
+    // actual: si el nombre identifica una única categoría de ese tipo, se
+    // reemplaza por su path completo; si es ambiguo (ya había dos categorías
+    // con ese nombre) o no se encuentra, se deja como estaba, para no
+    // reasignar mal algo que no podemos saber con certeza a qué rama
+    // pertenecía.
+    const categories = data.categories ?? [];
+    const pathsByKey = new Map<string, string[]>();
+    for (const cat of categories) {
+      const key = `${cat.type}::${cat.name}`;
+      const list = pathsByKey.get(key) ?? [];
+      list.push(categoryFullPath(cat, categories));
+      pathsByKey.set(key, list);
+    }
+    const resolve = (name: string | undefined, type: "ingreso" | "gasto"): string | undefined => {
+      if (!name) return name;
+      const candidates = pathsByKey.get(`${type}::${name}`);
+      return candidates && candidates.length === 1 ? candidates[0] : name;
+    };
+    data = {
+      ...data,
+      schemaVersion: 6,
+      transactions: (data.transactions ?? []).map((t: any) => ({ ...t, category: resolve(t.category, t.type) })),
+      installments: (data.installments ?? []).map((i: any) => (i.category ? { ...i, category: resolve(i.category, "gasto") } : i)),
+      budgets: (data.budgets ?? []).map((b: any) => ({ ...b, category: resolve(b.category, "gasto") ?? b.category })),
+    };
   }
 
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
