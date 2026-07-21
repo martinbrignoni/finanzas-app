@@ -270,51 +270,58 @@ export function Accounts({
                           <button
                             key={acc.id}
                             onClick={() => !reordering && setViewAccountId(acc.id)}
-                            className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
+                            className="w-full rounded-lg px-2.5 py-2 text-left"
                             style={{ background: C.surface2 }}
                           >
-                            <div className="flex items-center gap-2">
-                              <Wallet size={13} color={C.textFaint} />
-                              <span style={{ color: C.text }}>{acc.name}</span>
-                              <CurrencyPill currency={acc.currency} />
-                              {pendingStatementMonths(acc, accountStatements).length > 0 && (
-                                <AlertTriangle size={12} color={C.negative} aria-label="Estado de cuenta pendiente" />
-                              )}
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2">
+                                <Wallet size={13} color={C.textFaint} />
+                                <span style={{ color: C.text }}>{acc.name}</span>
+                                <CurrencyPill currency={acc.currency} />
+                                {pendingStatementMonths(acc, accountStatements).length > 0 && (
+                                  <AlertTriangle size={12} color={C.negative} aria-label="Estado de cuenta pendiente" />
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {reordering && canEdit ? (
+                                  <>
+                                    <IconBtn
+                                      label="Subir caja"
+                                      onClick={(e) => { e.stopPropagation(); onReorderAccountsByBank(moveWithinGroup(bankAccounts, allAccountIds, sortOrders.accountsByBank, acc.id, "up")); }}
+                                    >
+                                      <ChevronUp size={13} style={{ opacity: accIdx === 0 ? 0.3 : 1 }} />
+                                    </IconBtn>
+                                    <IconBtn
+                                      label="Bajar caja"
+                                      onClick={(e) => { e.stopPropagation(); onReorderAccountsByBank(moveWithinGroup(bankAccounts, allAccountIds, sortOrders.accountsByBank, acc.id, "down")); }}
+                                    >
+                                      <ChevronDown size={13} style={{ opacity: accIdx === bankAccounts.length - 1 ? 0.3 : 1 }} />
+                                    </IconBtn>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                                    <IconBtn
+                                      label="Compartir datos bancarios"
+                                      onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
+                                    >
+                                      {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
+                                    </IconBtn>
+                                    {canEdit && (
+                                      <>
+                                        <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
+                                        <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
+                                      </>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              {reordering && canEdit ? (
-                                <>
-                                  <IconBtn
-                                    label="Subir caja"
-                                    onClick={(e) => { e.stopPropagation(); onReorderAccountsByBank(moveWithinGroup(bankAccounts, allAccountIds, sortOrders.accountsByBank, acc.id, "up")); }}
-                                  >
-                                    <ChevronUp size={13} style={{ opacity: accIdx === 0 ? 0.3 : 1 }} />
-                                  </IconBtn>
-                                  <IconBtn
-                                    label="Bajar caja"
-                                    onClick={(e) => { e.stopPropagation(); onReorderAccountsByBank(moveWithinGroup(bankAccounts, allAccountIds, sortOrders.accountsByBank, acc.id, "down")); }}
-                                  >
-                                    <ChevronDown size={13} style={{ opacity: accIdx === bankAccounts.length - 1 ? 0.3 : 1 }} />
-                                  </IconBtn>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
-                                  <IconBtn
-                                    label="Compartir datos bancarios"
-                                    onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
-                                  >
-                                    {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
-                                  </IconBtn>
-                                  {canEdit && (
-                                    <>
-                                      <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
-                                      <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
-                                    </>
-                                  )}
-                                </>
-                              )}
-                            </div>
+                            {(acc.holderName || acc.accountNumber) && (
+                              <div className="text-[10px] mt-0.5 pl-[21px]" style={{ color: C.textFaint }}>
+                                {[acc.holderName, acc.accountNumber].filter(Boolean).join(" · ")}
+                              </div>
+                            )}
                           </button>
                         );
                       })}
@@ -352,55 +359,62 @@ export function Accounts({
                   </div>
                   <div className="space-y-1.5">
                     {currencyAccounts.map((acc, accIdx) => {
-                      const balance = accountBalance(acc, transactions, transfers, cardPayments);
+                      const balance = accountBalance(acc, transactions, transfers, cardPayments, asOfDate);
                       return (
                         <button
                           key={acc.id}
                           onClick={() => !reordering && setViewAccountId(acc.id)}
-                          className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
+                          className="w-full rounded-lg px-2.5 py-2 text-left"
                           style={{ background: C.surface2 }}
                         >
-                          <div className="flex items-center gap-2">
-                            <Wallet size={13} color={C.textFaint} />
-                            <span style={{ color: C.text }}>{accountLabel(acc, banks)}</span>
-                            {pendingStatementMonths(acc, accountStatements).length > 0 && (
-                              <AlertTriangle size={12} color={C.negative} aria-label="Estado de cuenta pendiente" />
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {reordering && canEdit ? (
+                          <div className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <Wallet size={13} color={C.textFaint} />
+                              <span style={{ color: C.text }}>{accountLabel(acc, banks)}</span>
+                              {pendingStatementMonths(acc, accountStatements).length > 0 && (
+                                <AlertTriangle size={12} color={C.negative} aria-label="Estado de cuenta pendiente" />
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {reordering && canEdit ? (
+                                <>
+                                  <IconBtn
+                                    label="Subir caja"
+                                    onClick={(e) => { e.stopPropagation(); onReorderAccountsByCurrency(moveWithinGroup(currencyAccounts, allAccountIds, sortOrders.accountsByCurrency, acc.id, "up")); }}
+                                  >
+                                    <ChevronUp size={13} style={{ opacity: accIdx === 0 ? 0.3 : 1 }} />
+                                  </IconBtn>
+                                  <IconBtn
+                                    label="Bajar caja"
+                                    onClick={(e) => { e.stopPropagation(); onReorderAccountsByCurrency(moveWithinGroup(currencyAccounts, allAccountIds, sortOrders.accountsByCurrency, acc.id, "down")); }}
+                                  >
+                                    <ChevronDown size={13} style={{ opacity: accIdx === currencyAccounts.length - 1 ? 0.3 : 1 }} />
+                                  </IconBtn>
+                                </>
+                              ) : (
                               <>
-                                <IconBtn
-                                  label="Subir caja"
-                                  onClick={(e) => { e.stopPropagation(); onReorderAccountsByCurrency(moveWithinGroup(currencyAccounts, allAccountIds, sortOrders.accountsByCurrency, acc.id, "up")); }}
-                                >
-                                  <ChevronUp size={13} style={{ opacity: accIdx === 0 ? 0.3 : 1 }} />
-                                </IconBtn>
-                                <IconBtn
-                                  label="Bajar caja"
-                                  onClick={(e) => { e.stopPropagation(); onReorderAccountsByCurrency(moveWithinGroup(currencyAccounts, allAccountIds, sortOrders.accountsByCurrency, acc.id, "down")); }}
-                                >
-                                  <ChevronDown size={13} style={{ opacity: accIdx === currencyAccounts.length - 1 ? 0.3 : 1 }} />
-                                </IconBtn>
+                              <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                              <IconBtn
+                                label="Compartir datos bancarios"
+                                onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
+                              >
+                                {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
+                              </IconBtn>
+                              {canEdit && (
+                                <>
+                                  <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
+                                  <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
+                                </>
+                              )}
                               </>
-                            ) : (
-                            <>
-                            <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
-                            <IconBtn
-                              label="Compartir datos bancarios"
-                              onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
-                            >
-                              {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
-                            </IconBtn>
-                            {canEdit && (
-                              <>
-                                <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
-                                <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
-                              </>
-                            )}
-                            </>
-                            )}
+                              )}
+                            </div>
                           </div>
+                          {(acc.holderName || acc.accountNumber) && (
+                            <div className="text-[10px] mt-0.5 pl-[21px]" style={{ color: C.textFaint }}>
+                              {[acc.holderName, acc.accountNumber].filter(Boolean).join(" · ")}
+                            </div>
+                          )}
                         </button>
                       );
                     })}
