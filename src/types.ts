@@ -46,6 +46,8 @@ export interface Transaction {
 export interface Bank {
   id: string;
   name: string;
+  /** Si está activo, las cajas de este banco piden número de sucursal (ej. Santander). Configurable en Configuración → Bancos. */
+  usesBranch?: boolean;
 }
 
 export interface Account {
@@ -58,6 +60,28 @@ export interface Account {
   holderName?: string;
   /** Número de cuenta, para poder compartir los datos bancarios cuando te piden hacerte una transferencia. */
   accountNumber?: string;
+  /** Sucursal (solo tiene sentido si el banco tiene `usesBranch` activo). */
+  branch?: string;
+  /**
+   * Si es `false`, la caja queda oculta en el menú Cuentas y no aparece para
+   * elegir al registrar un movimiento nuevo (pero sigue existiendo: sirve
+   * para "mapear" cuentas que casi no usás sin que ensucien la vista).
+   * `undefined` se trata como activa, para no requerir migración.
+   */
+  active?: boolean;
+  /**
+   * Fecha (YYYY-MM-DD) en la que se desactivó la caja por última vez. Se fija
+   * automáticamente al pasar de activa a inactiva, para poder seguir viendo
+   * la caja en Cuentas cuando se consulta el saldo a una fecha anterior a la
+   * desactivación (aunque hoy esté inactiva). No se usa si `active` es `true`.
+   */
+  inactiveSince?: string;
+  /**
+   * Mensaje literal a usar al tocar "Compartir datos bancarios" en vez del
+   * texto armado automáticamente (banco, cuenta, moneda, sucursal, número,
+   * titular). Se edita en Configuración → Bancos.
+   */
+  shareMessage?: string;
   /** Si está activo, se recuerda mensualmente adjuntar el estado de cuenta (PDF y Excel) de esta caja. */
   statementReminders?: boolean;
   /**

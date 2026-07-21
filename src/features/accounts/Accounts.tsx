@@ -5,7 +5,7 @@ import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, Curre
 import { ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf, uploadReceipt, getReceiptUrl, deleteReceipt } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText } from "../../lib/accounts";
+import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText, isAccountVisibleAt } from "../../lib/accounts";
 import { orderItems, moveWithinGroup } from "../../lib/order";
 import { pendingStatementMonths, getStatement } from "../../lib/accountStatements";
 import { exportBankToExcel } from "../../lib/excelExport";
@@ -77,6 +77,9 @@ export function Accounts({
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const allBankIds = banks.map((b) => b.id);
   const allAccountIds = accounts.map((a) => a.id);
+  // Las cajas marcadas inactivas (Configuración → Bancos) quedan "mapeadas" pero fuera de esta
+  // vista, salvo que se esté consultando una fecha en la que todavía estaban activas.
+  const visibleAccounts = accounts.filter((a) => isAccountVisibleAt(a, asOfDate));
 
   /** Comparte (o, si el navegador no soporta compartir, copia al portapapeles) los datos bancarios de una cuenta. */
   const handleShare = async (account: Account) => {
@@ -166,7 +169,7 @@ export function Accounts({
       </div>
 
       {(() => {
-        const pendingByAccount = accounts
+        const pendingByAccount = visibleAccounts
           .map((a) => ({ account: a, months: pendingStatementMonths(a, accountStatements) }))
           .filter((x) => x.months.length > 0);
         if (pendingByAccount.length === 0) return null;
@@ -211,7 +214,7 @@ export function Accounts({
       {sortBy === "banco" ? (
         <div className="space-y-3 mb-4">
           {orderItems(banks, allBankIds, sortOrders.banks).map((bank, bankIdx, orderedBanks) => {
-              const bankAccounts = orderItems(accountsByBank(accounts, bank.id), allAccountIds, sortOrders.accountsByBank);
+              const bankAccounts = orderItems(accountsByBank(visibleAccounts, bank.id), allAccountIds, sortOrders.accountsByBank);
               const hasMovements =
                 transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
                 transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId)) ||
@@ -317,9 +320,9 @@ export function Accounts({
                                 )}
                               </div>
                             </div>
-                            {(acc.holderName || acc.accountNumber) && (
+                            {(acc.holderName || acc.accountNumber || acc.branch) && (
                               <div className="text-[10px] mt-0.5 pl-[21px]" style={{ color: C.textFaint }}>
-                                {[acc.holderName, acc.accountNumber].filter(Boolean).join(" · ")}
+                                {[acc.holderName, acc.branch ? `Suc. ${acc.branch}` : null, acc.accountNumber].filter(Boolean).join(" · ")}
                               </div>
                             )}
                           </button>
@@ -342,7 +345,7 @@ export function Accounts({
           {(["UYU", "USD"] as Currency[])
             .map((currency) => {
               const currencyAccounts = orderItems(
-                accounts.filter((a) => a.currency === currency),
+                visibleAccounts.filter((a) => a.currency === currency),
                 allAccountIds,
                 sortOrders.accountsByCurrency
               );
@@ -410,9 +413,9 @@ export function Accounts({
                               )}
                             </div>
                           </div>
-                          {(acc.holderName || acc.accountNumber) && (
+                          {(acc.holderName || acc.accountNumber || acc.branch) && (
                             <div className="text-[10px] mt-0.5 pl-[21px]" style={{ color: C.textFaint }}>
-                              {[acc.holderName, acc.accountNumber].filter(Boolean).join(" · ")}
+                              {[acc.holderName, acc.branch ? `Suc. ${acc.branch}` : null, acc.accountNumber].filter(Boolean).join(" · ")}
                             </div>
                           )}
                         </button>
@@ -422,8 +425,10 @@ export function Accounts({
                 </div>
               );
             })}
-          {accounts.length === 0 && (
-            <p className="text-xs text-center py-4" style={{ color: C.textFaint }}>Todavía no agregaste cajas.</p>
+          {visibleAccounts.length === 0 && (
+            <p className="text-xs text-center py-4" style={{ color: C.textFaint }}>
+              {accounts.length === 0 ? "Todavía no agregaste cajas." : "No tenés cajas activas. Activalas en Configuración → Bancos."}
+            </p>
           )}
         </div>
       )}
@@ -803,10 +808,13 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
   const [initialBalance, setInitialBalance] = useState(initial ? String(fromMinor(initial.initialBalanceMinor)) : "0");
   const [holderName, setHolderName] = useState(initial?.holderName ?? "");
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? "");
+  const [branch, setBranch] = useState(initial?.branch ?? "");
   const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
   const [error, setError] = useState<string | null>(null);
 
   const holderSuggestions = Array.from(new Set(accounts.map((a) => a.holderName).filter((h): h is string => !!h)));
+  // La sucursal solo se pide para bancos que la usan (configurable en Configuración → Bancos, ej. Santander).
+  const bankUsesBranch = banks.find((b) => b.id === selectedBankId)?.usesBranch ?? false;
 
   const handleSave = () => {
     if (!selectedBankId) return setError("Elegí un banco.");
@@ -829,6 +837,7 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       initialBalanceMinor: minor,
       holderName: holderName.trim() || undefined,
       accountNumber: accountNumber.trim() || undefined,
+      branch: bankUsesBranch ? branch.trim() || undefined : initial?.branch,
       statementReminders,
       statementRemindersSince,
     });
@@ -865,6 +874,11 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       <Field label="Número de cuenta (opcional)">
         {(id) => <TextInput id={id} value={accountNumber} onChange={(e) => setAccountNumber(e.target.value)} placeholder="Para compartir cuando te pidan transferirte" />}
       </Field>
+      {bankUsesBranch && (
+        <Field label="Sucursal">
+          {(id) => <TextInput id={id} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="Ej. 001" />}
+        </Field>
+      )}
       <Field label="Recordatorio de estado de cuenta">
         {() => (
           <Segment

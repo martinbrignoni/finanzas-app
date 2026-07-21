@@ -311,6 +311,12 @@ export default function App() {
         : d
     );
   }, []);
+  const updateBankFields = useCallback((id: string, partial: Partial<Bank>) => {
+    setData((d) => (d ? { ...d, banks: d.banks.map((b) => (b.id === id ? { ...b, ...partial } : b)) } : d));
+  }, []);
+  const updateAccountFields = useCallback((id: string, partial: Partial<Account>) => {
+    setData((d) => (d ? { ...d, accounts: d.accounts.map((a) => (a.id === id ? { ...a, ...partial } : a)) } : d));
+  }, []);
 
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
@@ -542,9 +548,13 @@ export default function App() {
                 activeUserId={data.activeUserId}
                 categories={data.categories}
                 transactions={data.transactions}
+                transfers={data.transfers}
+                cardPayments={data.cardPayments}
                 installments={data.installments}
                 budgets={data.budgets}
                 appLock={data.appLock}
+                banks={data.banks}
+                accounts={data.accounts}
                 canEdit={has("configuracion", "edit")}
                 onSetActiveUser={setActiveUser}
                 onAddUser={() => setModal({ type: "user" })}
@@ -555,6 +565,8 @@ export default function App() {
                 onMoveCategory={moveCategory}
                 onReclassifyCategory={reclassifyCategory}
                 onUpdateAppLock={updateAppLock}
+                onUpdateBank={updateBankFields}
+                onUpdateAccount={updateAccountFields}
               />
             )}
           </>

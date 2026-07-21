@@ -71,6 +71,18 @@ export function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSe
   return <select {...props} style={inputStyle}>{children}</select>;
 }
 
+export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      rows={4}
+      {...props}
+      style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit", ...(props.style || {}) }}
+      onFocus={(e) => { e.currentTarget.style.borderColor = C.usd; props.onFocus?.(e); }}
+      onBlur={(e) => { e.currentTarget.style.borderColor = C.border; props.onBlur?.(e); }}
+    />
+  );
+}
+
 export interface ComboboxOption {
   value: string;
   label: string;

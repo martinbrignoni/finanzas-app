@@ -6,7 +6,7 @@ import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, todayISO, formatDateDMY } from "../../lib/dates";
-import { accountLabel, accountSelectLabel } from "../../lib/accounts";
+import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction } from "../../types";
 
 /**
@@ -313,7 +313,7 @@ export function CardPaymentModal({
   const [receiptPaths, setReceiptPaths] = useState<string[]>(receiptPathsOf(initial));
   const [error, setError] = useState<string | null>(null);
 
-  const eligibleAccounts = accounts.filter((a) => a.currency === currency);
+  const eligibleAccounts = accounts.filter((a) => a.currency === currency && (isAccountActive(a) || a.id === accountId));
   const dueThisMonth = dueForCardInMonth(selectedCardId, installments, currentMonthKey());
   const card = cards.find((c) => c.id === selectedCardId);
 

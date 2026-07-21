@@ -4,16 +4,21 @@ import { Segment } from "../../components/ui";
 import { CategoriesSettings } from "./Categories";
 import { UsersSettings } from "./Users";
 import { SecuritySettings } from "./Security";
-import type { AppUser, Category, Transaction, Installment, Budget, AppLock } from "../../types";
+import { BanksSettings } from "./Banks";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, Installment, Budget, AppLock, Bank, Account } from "../../types";
 
 export function Settings({
   users,
   activeUserId,
   categories,
   transactions,
+  transfers,
+  cardPayments,
   installments,
   budgets,
   appLock,
+  banks,
+  accounts,
   canEdit,
   onSetActiveUser,
   onAddUser,
@@ -24,14 +29,20 @@ export function Settings({
   onMoveCategory,
   onReclassifyCategory,
   onUpdateAppLock,
+  onUpdateBank,
+  onUpdateAccount,
 }: {
   users: AppUser[];
   activeUserId: string | null;
   categories: Category[];
   transactions: Transaction[];
+  transfers: Transfer[];
+  cardPayments: CardPayment[];
   installments: Installment[];
   budgets: Budget[];
   appLock: AppLock;
+  banks: Bank[];
+  accounts: Account[];
   canEdit: boolean;
   onSetActiveUser: (id: string) => void;
   onAddUser: () => void;
@@ -42,8 +53,10 @@ export function Settings({
   onMoveCategory: (id: string, newParentId: string) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
   onUpdateAppLock: (partial: Partial<AppLock>) => void;
+  onUpdateBank: (id: string, partial: Partial<Bank>) => void;
+  onUpdateAccount: (id: string, partial: Partial<Account>) => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "seguridad">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "seguridad">("usuarios");
 
   return (
     <div className="pb-24">
@@ -56,6 +69,7 @@ export function Settings({
           options={[
             { value: "usuarios", label: "Usuarios y permisos" },
             { value: "categorias", label: "Categorías" },
+            { value: "bancos", label: "Bancos" },
             { value: "seguridad", label: "Seguridad" },
           ]}
         />
@@ -83,6 +97,18 @@ export function Settings({
           onDelete={onDeleteCategory}
           onMove={onMoveCategory}
           onReclassify={onReclassifyCategory}
+        />
+      )}
+      {section === "bancos" && (
+        <BanksSettings
+          banks={banks}
+          accounts={accounts}
+          transactions={transactions}
+          transfers={transfers}
+          cardPayments={cardPayments}
+          canEdit={canEdit}
+          onUpdateBank={onUpdateBank}
+          onUpdateAccount={onUpdateAccount}
         />
       )}
       {section === "seguridad" && <SecuritySettings appLock={appLock} canEdit={canEdit} onUpdateAppLock={onUpdateAppLock} />}

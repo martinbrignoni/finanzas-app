@@ -38,6 +38,24 @@ export function accountsByBank(accounts: Account[], bankId: string): Account[] {
   return accounts.filter((a) => a.bankId === bankId);
 }
 
+/** `false` solo si la caja se marcó explícitamente como inactiva; `undefined` (cajas viejas) cuenta como activa. */
+export function isAccountActive(account: Account): boolean {
+  return account.active !== false;
+}
+
+/**
+ * Visibilidad de una caja en la vista Cuentas para una fecha puntual
+ * (`asOfDate`, YYYY-MM-DD). Si la caja está activa hoy, siempre es visible.
+ * Si está inactiva, solo es visible al consultar una fecha anterior a que se
+ * haya desactivado (`inactiveSince`), para poder ver saldos históricos de
+ * cuando todavía estaba activa.
+ */
+export function isAccountVisibleAt(account: Account, asOfDate: string): boolean {
+  if (isAccountActive(account)) return true;
+  if (!account.inactiveSince) return false;
+  return asOfDate < account.inactiveSince;
+}
+
 /** "Banco · Caja", o solo el nombre de la caja si no se encuentra el banco (o la cuenta fue eliminada). */
 export function accountLabel(account: Account | undefined, banks: Bank[]): string {
   if (!account) return "cuenta eliminada";
@@ -51,8 +69,13 @@ export function accountSelectLabel(account: Account | undefined, banks: Bank[]):
   return `${accountLabel(account, banks)} · ${account.currency}`;
 }
 
-/** Texto listo para compartir (WhatsApp, etc.) cuando te piden los datos para transferirte. */
+/**
+ * Texto listo para compartir (WhatsApp, etc.) cuando te piden los datos para
+ * transferirte. Si la caja tiene `shareMessage` cargado (Configuración →
+ * Bancos), se usa tal cual en vez de armarlo automáticamente.
+ */
 export function shareableAccountText(account: Account, banks: Bank[]): string {
+  if (account.shareMessage && account.shareMessage.trim()) return account.shareMessage;
   const bank = banks.find((b) => b.id === account.bankId);
   const lines = [
     "Datos para transferencia:",
@@ -60,6 +83,7 @@ export function shareableAccountText(account: Account, banks: Bank[]): string {
     `Cuenta: ${account.name}`,
     `Moneda: ${account.currency}`,
     account.accountNumber ? `Número de cuenta: ${account.accountNumber}` : null,
+    account.branch ? `Sucursal: ${account.branch}` : null,
     account.holderName ? `Titular: ${account.holderName}` : null,
   ].filter((l): l is string => l !== null);
   return lines.join("\n");
