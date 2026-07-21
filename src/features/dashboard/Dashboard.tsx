@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarClock, Plus, RotateCcw } from "lucide-react";
+import { CalendarClock, RotateCcw } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Select } from "../../components/ui";
 import { formatMoney } from "../../lib/money";
@@ -12,7 +12,7 @@ function selectableMonths(): string[] {
   return Array.from({ length: 25 }, (_, i) => addMonths(mk, 12 - i));
 }
 
-export function Dashboard({ data, canAddTransaction, onAdd }: { data: FinanceData; canAddTransaction: boolean; onAdd: () => void }) {
+export function Dashboard({ data }: { data: FinanceData }) {
   const thisMonth = currentMonthKey();
   const [mk, setMk] = useState(thisMonth);
   const isCurrent = mk === thisMonth;
@@ -105,16 +105,6 @@ export function Dashboard({ data, canAddTransaction, onAdd }: { data: FinanceDat
             </div>
           ))}
         </div>
-      )}
-
-      {canAddTransaction && (
-        <button
-          onClick={onAdd}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Registrar movimiento
-        </button>
       )}
     </div>
   );

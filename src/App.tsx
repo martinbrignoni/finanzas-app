@@ -363,7 +363,7 @@ export default function App() {
   }
 
   const visibleTabs = TABS.filter((t) => has(t.id, "view"));
-  const showFab = (tab === "inicio" || tab === "movimientos") && has("movimientos", "edit");
+  const showFab = has("movimientos", "edit");
 
   return (
     <PullToRefresh onRefresh={() => loadData()} refreshing={refreshing}>
@@ -433,7 +433,7 @@ export default function App() {
           </div>
         ) : (
           <>
-            {tab === "inicio" && <Dashboard data={data} canAddTransaction={has("movimientos", "edit")} onAdd={() => setModal({ type: "movement", payload: {} })} />}
+            {tab === "inicio" && <Dashboard data={data} />}
             {tab === "movimientos" && (
               <Transactions
                 transactions={data.transactions}
