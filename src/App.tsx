@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote } from "lucide-react";
 import { theme as C } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
@@ -53,10 +53,12 @@ export default function App() {
   const [tab, setTab] = useState<TabId>("inicio");
   const [modal, setModal] = useState<ModalState>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
+  const pendingSaves = useRef(0);
 
   const loadData = useCallback(() => {
     setRefreshing(true);
@@ -73,8 +75,29 @@ export default function App() {
 
   useEffect(() => {
     if (!data) return;
-    repo.save(data).catch(() => setSaveError("No se pudieron guardar los cambios. Revisá el espacio disponible del navegador."));
+    pendingSaves.current += 1;
+    setSaving(true);
+    repo
+      .save(data)
+      .catch(() => setSaveError("No se pudieron guardar los cambios. Revisá el espacio disponible del navegador."))
+      .finally(() => {
+        pendingSaves.current -= 1;
+        if (pendingSaves.current <= 0) setSaving(false);
+      });
   }, [data]);
+
+  // Avisa antes de cerrar/recargar la pestaña si todavía hay un guardado en
+  // curso, para no perder el último cambio (ej. una nota recién escrita) si
+  // cerrás la app enseguida después de guardar.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!saving) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [saving]);
 
   const closeModal = () => setModal(null);
 
@@ -371,6 +394,11 @@ export default function App() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            {saving && (
+              <span className="text-[10px]" style={{ color: C.textFaint }}>
+                Guardando...
+              </span>
+            )}
             <button onClick={() => loadData()} aria-label="Actualizar" disabled={refreshing} style={{ color: C.textFaint }}>
               <RefreshCw size={19} className={refreshing ? "animate-spin" : ""} />
             </button>
