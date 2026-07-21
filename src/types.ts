@@ -28,8 +28,13 @@ export interface Transaction {
    * Ruta (no URL) del comprobante adjunto en el bucket "receipts" de Supabase
    * Storage, con forma `${userId}/${archivo}`. Se resuelve a una URL firmada
    * (temporal) recién al momento de mostrarla, porque el bucket es privado.
+   * @deprecated usar `receiptPaths` (varios comprobantes). Se mantiene para
+   * leer movimientos guardados antes de permitir más de uno; ver
+   * `lib/receipts.ts#receiptPathsOf`.
    */
   receiptPath?: string;
+  /** Rutas de los comprobantes adjuntos (0 o más). Reemplaza a `receiptPath`. */
+  receiptPaths?: string[];
 }
 
 export interface Bank {
@@ -68,8 +73,10 @@ export interface Transfer {
   toAmountMinor: number;
   exchangeRate?: number;
   note?: string;
-  /** Ruta del comprobante adjunto en Supabase Storage (ver Transaction.receiptPath). */
+  /** @deprecated ver Transaction.receiptPath. */
   receiptPath?: string;
+  /** Rutas de los comprobantes adjuntos (0 o más). */
+  receiptPaths?: string[];
 }
 
 export interface Card {
@@ -96,7 +103,10 @@ export interface Installment {
   date?: string; // YYYY-MM-DD
   category?: string;
   note?: string;
+  /** @deprecated ver Transaction.receiptPath. */
   receiptPath?: string;
+  /** Rutas de los comprobantes adjuntos (0 o más). */
+  receiptPaths?: string[];
 }
 
 /**
@@ -113,8 +123,10 @@ export interface CardPayment {
   amountMinor: number;
   currency: Currency;
   note?: string;
-  /** Ruta del comprobante adjunto en Supabase Storage (ver Transaction.receiptPath). */
+  /** @deprecated ver Transaction.receiptPath. */
   receiptPath?: string;
+  /** Rutas de los comprobantes adjuntos (0 o más). */
+  receiptPaths?: string[];
 }
 
 export interface Budget {

@@ -3,6 +3,7 @@ import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCar
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
+import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker, defaultLeafCategoryName } from "../../components/CategoryPicker";
 import { CategoryModal } from "../settings/Categories";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
@@ -232,7 +233,7 @@ export function Transactions({
                     </div>
                     <CurrencyPill currency={t.currency} />
                   </div>
-                  <ReceiptButton path={t.receiptPath} />
+                  <ReceiptButton paths={receiptPathsOf(t)} />
                   {canEdit && (
                     <>
                       <IconBtn label="Editar movimiento" onClick={() => onEdit(t)}><Pencil size={15} /></IconBtn>
@@ -276,7 +277,7 @@ export function Transactions({
                       </div>
                     )}
                   </div>
-                  <ReceiptButton path={tr.receiptPath} />
+                  <ReceiptButton paths={receiptPathsOf(tr)} />
                   {canEdit && (
                     <>
                       <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
@@ -316,7 +317,7 @@ export function Transactions({
                     <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(inst.totalAmountMinor, inst.currency)}</div>
                     <CurrencyPill currency={inst.currency} />
                   </div>
-                  <ReceiptButton path={inst.receiptPath} />
+                  <ReceiptButton paths={receiptPathsOf(inst)} />
                   {canEdit && (
                     <>
                       <IconBtn label="Editar compra en cuotas" onClick={() => onEditInstallment(inst)}><Pencil size={15} /></IconBtn>
@@ -353,7 +354,7 @@ export function Transactions({
                   <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</div>
                   <CurrencyPill currency={p.currency} />
                 </div>
-                <ReceiptButton path={p.receiptPath} />
+                <ReceiptButton paths={receiptPathsOf(p)} />
                 {canEdit && (
                   <>
                     <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={15} /></IconBtn>
@@ -393,8 +394,8 @@ interface FormState {
   exchangeRate: string;
   // cuotas (solo gasto con tarjeta)
   numInstallments: string;
-  // comprobante
-  receiptPath: string | undefined;
+  // comprobantes
+  receiptPaths: string[];
 }
 
 /**
@@ -460,7 +461,7 @@ export function MovementModal({
     toAmount: initialTransfer ? String(fromMinor(initialTransfer.toAmountMinor)) : "",
     exchangeRate: initialTransfer?.exchangeRate ? String(initialTransfer.exchangeRate) : "",
     numInstallments: initialInstallment ? String(initialInstallment.numInstallments) : "1",
-    receiptPath: initialTransfer?.receiptPath ?? initial?.receiptPath ?? initialInstallment?.receiptPath,
+    receiptPaths: receiptPathsOf(initialTransfer ?? initial ?? initialInstallment),
   }));
   const [error, setError] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -531,7 +532,7 @@ export function MovementModal({
         toAmountMinor,
         exchangeRate,
         note: form.note.trim() || undefined,
-        receiptPath: form.receiptPath,
+        receiptPaths: form.receiptPaths,
       });
       return;
     }
@@ -557,7 +558,7 @@ export function MovementModal({
           startMonth: form.date.slice(0, 7),
           installmentAmountMinor: Math.round(amountMinor / numCuotas),
           date: form.date,
-          receiptPath: form.receiptPath,
+          receiptPaths: form.receiptPaths,
         });
         return;
       }
@@ -573,7 +574,7 @@ export function MovementModal({
       note: form.note.trim() || undefined,
       accountId: form.kind === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
       cardId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
-      receiptPath: form.receiptPath,
+      receiptPaths: form.receiptPaths,
     });
   };
 
@@ -810,7 +811,7 @@ export function MovementModal({
         </>
       )}
 
-      <ReceiptField movementId={movementId} path={form.receiptPath} onChange={(p) => setForm((f) => ({ ...f, receiptPath: p }))} />
+      <ReceiptField movementId={movementId} paths={form.receiptPaths} onChange={(paths) => setForm((f) => ({ ...f, receiptPaths: paths }))} />
 
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>

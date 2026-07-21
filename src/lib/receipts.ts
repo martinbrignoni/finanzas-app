@@ -55,10 +55,27 @@ export async function uploadReceipt(file: File, movementId: string): Promise<str
     // Si el navegador no puede comprimir (formato raro, etc.), subimos el archivo tal cual.
   }
 
-  const path = `${userId}/${movementId}-${Date.now()}.${ext}`;
+  // Sufijo random además del timestamp: si se suben varios archivos juntos
+  // (en paralelo) para el mismo movimiento, Date.now() solo no alcanza para
+  // garantizar rutas distintas.
+  const suffix = Math.random().toString(36).slice(2, 8);
+  const path = `${userId}/${movementId}-${Date.now()}-${suffix}.${ext}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType, upsert: true });
   if (error) throw error;
   return path;
+}
+
+/**
+ * Junta las rutas de comprobantes de un movimiento, sea que use el campo
+ * viejo de un solo archivo (`receiptPath`) o el nuevo de varios
+ * (`receiptPaths`). Todo lo que se guarda de acá en adelante usa
+ * `receiptPaths`; `receiptPath` queda solo por compatibilidad con
+ * movimientos guardados antes de permitir más de un comprobante.
+ */
+export function receiptPathsOf(entity: { receiptPath?: string; receiptPaths?: string[] } | undefined | null): string[] {
+  if (!entity) return [];
+  if (entity.receiptPaths && entity.receiptPaths.length > 0) return entity.receiptPaths;
+  return entity.receiptPath ? [entity.receiptPath] : [];
 }
 
 /** Genera una URL firmada y temporal (10 minutos) para ver un comprobante. */

@@ -3,6 +3,7 @@ import { CreditCard, Pencil, Trash2, Plus, Landmark, ShoppingBag } from "lucide-
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
+import { receiptPathsOf } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, todayISO, formatDateDMY } from "../../lib/dates";
 import { accountLabel } from "../../lib/accounts";
@@ -172,7 +173,7 @@ export function Cards({
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(t.amountMinor, t.currency)}</span>
-                        <ReceiptButton path={t.receiptPath} />
+                        <ReceiptButton paths={receiptPathsOf(t)} />
                         {canEditMovements && (
                           <>
                             <IconBtn label="Editar gasto" onClick={() => onEditTransaction(t)}><Pencil size={13} /></IconBtn>
@@ -214,7 +215,7 @@ export function Cards({
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</span>
-                          <ReceiptButton path={p.receiptPath} />
+                          <ReceiptButton paths={receiptPathsOf(p)} />
                           {canEdit && (
                             <>
                               <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={13} /></IconBtn>
@@ -309,7 +310,7 @@ export function CardPaymentModal({
   const [amount, setAmount] = useState(initial ? String(fromMinor(initial.amountMinor)) : "");
   const [date, setDate] = useState(initial?.date ?? todayISO());
   const [note, setNote] = useState(initial?.note ?? "");
-  const [receiptPath, setReceiptPath] = useState<string | undefined>(initial?.receiptPath);
+  const [receiptPaths, setReceiptPaths] = useState<string[]>(receiptPathsOf(initial));
   const [error, setError] = useState<string | null>(null);
 
   const eligibleAccounts = accounts.filter((a) => a.currency === currency);
@@ -331,7 +332,7 @@ export function CardPaymentModal({
       amountMinor,
       currency,
       note: note.trim() || undefined,
-      receiptPath,
+      receiptPaths,
     });
   };
 
@@ -379,7 +380,7 @@ export function CardPaymentModal({
       <Field label="Nota (opcional)">
         {(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Pago mínimo, pago total..." />}
       </Field>
-      <ReceiptField movementId={movementId} path={receiptPath} onChange={setReceiptPath} />
+      <ReceiptField movementId={movementId} paths={receiptPaths} onChange={setReceiptPaths} />
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
