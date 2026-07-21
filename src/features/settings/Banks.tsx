@@ -155,12 +155,19 @@ function AccountSettingsRow({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1.5 text-xs flex-1 text-left min-w-0"
+          className="flex-1 text-left min-w-0"
         >
-          <Wallet size={13} color={C.textFaint} className="shrink-0" />
-          <span className="truncate" style={{ color: C.text }}>{account.name}</span>
-          <CurrencyPill currency={account.currency} />
-          {expanded ? <ChevronUp size={13} color={C.textFaint} /> : <ChevronDown size={13} color={C.textFaint} />}
+          <span className="flex items-center gap-1.5 text-xs">
+            <Wallet size={13} color={C.textFaint} className="shrink-0" />
+            <span className="truncate" style={{ color: C.text }}>{account.name}</span>
+            <CurrencyPill currency={account.currency} />
+            {expanded ? <ChevronUp size={13} color={C.textFaint} /> : <ChevronDown size={13} color={C.textFaint} />}
+          </span>
+          {(account.holderName || account.accountNumber || account.branch) && (
+            <span className="block text-[10px] mt-0.5 pl-[19px] truncate" style={{ color: C.textFaint }}>
+              {[account.holderName, account.branch ? `Suc. ${account.branch}` : null, account.accountNumber].filter(Boolean).join(" · ")}
+            </span>
+          )}
         </button>
         {canEdit && (
           <Segment

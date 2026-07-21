@@ -69,7 +69,7 @@ export function Settings({
           options={[
             { value: "usuarios", label: "Usuarios y permisos" },
             { value: "categorias", label: "Categorías" },
-            { value: "bancos", label: "Bancos" },
+            { value: "bancos", label: "Cajas y Bancos" },
             { value: "seguridad", label: "Seguridad" },
           ]}
         />
