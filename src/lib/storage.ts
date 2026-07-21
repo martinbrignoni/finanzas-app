@@ -92,6 +92,7 @@ function migrate(raw: any): FinanceData {
     categories: data.categories ?? [],
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },
+    sortOrders: data.sortOrders ?? { banks: [], accountsByBank: [], accountsByCurrency: [] },
     users: usersConNotas,
     activeUserId: data.activeUserId ?? null,
   };

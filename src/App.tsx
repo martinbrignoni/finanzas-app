@@ -464,6 +464,10 @@ export default function App() {
                 cards={data.cards}
                 canEdit={has("cuentas", "edit")}
                 canEditMovements={has("movimientos", "edit")}
+                sortOrders={data.sortOrders}
+                onReorderBanks={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, banks: order } } : d))}
+                onReorderAccountsByBank={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByBank: order } } : d))}
+                onReorderAccountsByCurrency={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByCurrency: order } } : d))}
                 onAddBank={() => setModal({ type: "bank" })}
                 onEditBank={(b) => setModal({ type: "bank", payload: b })}
                 onDeleteBank={confirmDeleteBank}

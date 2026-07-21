@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText } from "../../lib/accounts";
+import { orderItems, moveWithinGroup } from "../../lib/order";
 import { exportBankToExcel } from "../../lib/excelExport";
 import { formatDateDMY } from "../../lib/dates";
-import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card } from "../../types";
+import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders } from "../../types";
 
 export function Accounts({
   banks,
@@ -19,6 +20,10 @@ export function Accounts({
   cards,
   canEdit,
   canEditMovements,
+  sortOrders,
+  onReorderBanks,
+  onReorderAccountsByBank,
+  onReorderAccountsByCurrency,
   onAddBank,
   onEditBank,
   onDeleteBank,
@@ -40,6 +45,10 @@ export function Accounts({
   cards: Card[];
   canEdit: boolean;
   canEditMovements: boolean;
+  sortOrders: SortOrders;
+  onReorderBanks: (order: string[]) => void;
+  onReorderAccountsByBank: (order: string[]) => void;
+  onReorderAccountsByCurrency: (order: string[]) => void;
   onAddBank: () => void;
   onEditBank: (b: Bank) => void;
   onDeleteBank: (id: string) => void;
@@ -56,10 +65,11 @@ export function Accounts({
   const [viewAccountId, setViewAccountId] = useState<string | null>(null);
   const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
   const [sortBy, setSortBy] = useState<"banco" | "moneda">("banco");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const dirMul = sortDir === "asc" ? 1 : -1;
+  const [reordering, setReordering] = useState(false);
   const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const allBankIds = banks.map((b) => b.id);
+  const allAccountIds = accounts.map((a) => a.id);
 
   /** Comparte (o, si el navegador no soporta compartir, copia al portapapeles) los datos bancarios de una cuenta. */
   const handleShare = async (account: Account) => {
@@ -133,16 +143,26 @@ export function Accounts({
       {banks.length > 0 && (
         <div className="flex items-center gap-2 mb-4">
           <Segment value={sortBy} onChange={setSortBy} options={[{ value: "banco", label: "Por banco" }, { value: "moneda", label: "Por moneda" }]} />
-          <Segment value={sortDir} onChange={setSortDir} options={[{ value: "asc", label: "A-Z" }, { value: "desc", label: "Z-A" }]} />
+          {canEdit && (
+            <button
+              onClick={() => setReordering((v) => !v)}
+              className="h-9 px-3 rounded-full flex items-center gap-1.5 text-xs font-semibold shrink-0"
+              style={{
+                background: reordering ? C.usd : C.surface2,
+                border: `1px solid ${reordering ? C.usd : C.border}`,
+                color: reordering ? "#0A1413" : C.text,
+              }}
+            >
+              <ArrowUpDown size={13} /> {reordering ? "Listo" : "Ordenar"}
+            </button>
+          )}
         </div>
       )}
 
       {sortBy === "banco" ? (
         <div className="space-y-3 mb-4">
-          {[...banks]
-            .sort((a, b) => dirMul * a.name.localeCompare(b.name))
-            .map((bank) => {
-              const bankAccounts = [...accountsByBank(accounts, bank.id)].sort((a, b) => dirMul * a.name.localeCompare(b.name));
+          {orderItems(banks, allBankIds, sortOrders.banks).map((bank, bankIdx, orderedBanks) => {
+              const bankAccounts = orderItems(accountsByBank(accounts, bank.id), allAccountIds, sortOrders.accountsByBank);
               const hasMovements =
                 transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
                 transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId)) ||
@@ -157,16 +177,35 @@ export function Accounts({
                       <div className="text-sm font-semibold" style={{ color: C.text }}>{bank.name}</div>
                     </div>
                     <div className="flex gap-1">
-                      <IconBtn
-                        label="Exportar a Excel"
-                        onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers, cardPayments)}
-                      >
-                        <FileSpreadsheet size={15} />
-                      </IconBtn>
-                      {canEdit && (
+                      {reordering && canEdit ? (
                         <>
-                          <IconBtn label="Editar banco" onClick={() => onEditBank(bank)}><Pencil size={15} /></IconBtn>
-                          <IconBtn label="Eliminar banco" danger onClick={() => onDeleteBank(bank.id)}><Trash2 size={15} /></IconBtn>
+                          <IconBtn
+                            label="Subir banco"
+                            onClick={() => onReorderBanks(moveWithinGroup(banks, allBankIds, sortOrders.banks, bank.id, "up"))}
+                          >
+                            <ChevronUp size={15} style={{ opacity: bankIdx === 0 ? 0.3 : 1 }} />
+                          </IconBtn>
+                          <IconBtn
+                            label="Bajar banco"
+                            onClick={() => onReorderBanks(moveWithinGroup(banks, allBankIds, sortOrders.banks, bank.id, "down"))}
+                          >
+                            <ChevronDown size={15} style={{ opacity: bankIdx === orderedBanks.length - 1 ? 0.3 : 1 }} />
+                          </IconBtn>
+                        </>
+                      ) : (
+                        <>
+                          <IconBtn
+                            label="Exportar a Excel"
+                            onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers, cardPayments)}
+                          >
+                            <FileSpreadsheet size={15} />
+                          </IconBtn>
+                          {canEdit && (
+                            <>
+                              <IconBtn label="Editar banco" onClick={() => onEditBank(bank)}><Pencil size={15} /></IconBtn>
+                              <IconBtn label="Eliminar banco" danger onClick={() => onDeleteBank(bank.id)}><Trash2 size={15} /></IconBtn>
+                            </>
+                          )}
                         </>
                       )}
                     </div>
@@ -176,12 +215,12 @@ export function Accounts({
                     <p className="text-xs mb-2" style={{ color: C.textFaint }}>Sin cajas todavía.</p>
                   ) : (
                     <div className="space-y-1.5 mb-2">
-                      {bankAccounts.map((acc) => {
+                      {bankAccounts.map((acc, accIdx) => {
                         const balance = accountBalance(acc, transactions, transfers, cardPayments);
                         return (
                           <button
                             key={acc.id}
-                            onClick={() => setViewAccountId(acc.id)}
+                            onClick={() => !reordering && setViewAccountId(acc.id)}
                             className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
                             style={{ background: C.surface2 }}
                           >
@@ -191,17 +230,36 @@ export function Accounts({
                               <CurrencyPill currency={acc.currency} />
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
-                              <IconBtn
-                                label="Compartir datos bancarios"
-                                onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
-                              >
-                                {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
-                              </IconBtn>
-                              {canEdit && (
+                              {reordering && canEdit ? (
                                 <>
-                                  <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
-                                  <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
+                                  <IconBtn
+                                    label="Subir caja"
+                                    onClick={(e) => { e.stopPropagation(); onReorderAccountsByBank(moveWithinGroup(bankAccounts, allAccountIds, sortOrders.accountsByBank, acc.id, "up")); }}
+                                  >
+                                    <ChevronUp size={13} style={{ opacity: accIdx === 0 ? 0.3 : 1 }} />
+                                  </IconBtn>
+                                  <IconBtn
+                                    label="Bajar caja"
+                                    onClick={(e) => { e.stopPropagation(); onReorderAccountsByBank(moveWithinGroup(bankAccounts, allAccountIds, sortOrders.accountsByBank, acc.id, "down")); }}
+                                  >
+                                    <ChevronDown size={13} style={{ opacity: accIdx === bankAccounts.length - 1 ? 0.3 : 1 }} />
+                                  </IconBtn>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
+                                  <IconBtn
+                                    label="Compartir datos bancarios"
+                                    onClick={(e) => { e.stopPropagation(); handleShare(acc); }}
+                                  >
+                                    {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
+                                  </IconBtn>
+                                  {canEdit && (
+                                    <>
+                                      <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
+                                      <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
+                                    </>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -223,11 +281,12 @@ export function Accounts({
       ) : (
         <div className="space-y-3 mb-4">
           {(["UYU", "USD"] as Currency[])
-            .sort((a, b) => dirMul * a.localeCompare(b))
             .map((currency) => {
-              const currencyAccounts = accounts
-                .filter((a) => a.currency === currency)
-                .sort((a, b) => dirMul * accountLabel(a, banks).localeCompare(accountLabel(b, banks)));
+              const currencyAccounts = orderItems(
+                accounts.filter((a) => a.currency === currency),
+                allAccountIds,
+                sortOrders.accountsByCurrency
+              );
               if (currencyAccounts.length === 0) return null;
               const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers, cardPayments), 0);
               return (
@@ -240,12 +299,12 @@ export function Accounts({
                     <span className="font-mono text-sm" style={{ color: total >= 0 ? C.positive : C.negative }}>{formatMoney(total, currency)}</span>
                   </div>
                   <div className="space-y-1.5">
-                    {currencyAccounts.map((acc) => {
+                    {currencyAccounts.map((acc, accIdx) => {
                       const balance = accountBalance(acc, transactions, transfers, cardPayments);
                       return (
                         <button
                           key={acc.id}
-                          onClick={() => setViewAccountId(acc.id)}
+                          onClick={() => !reordering && setViewAccountId(acc.id)}
                           className="w-full flex items-center justify-between text-xs rounded-lg px-2.5 py-2 text-left"
                           style={{ background: C.surface2 }}
                         >
@@ -254,6 +313,23 @@ export function Accounts({
                             <span style={{ color: C.text }}>{accountLabel(acc, banks)}</span>
                           </div>
                           <div className="flex items-center gap-2">
+                            {reordering && canEdit ? (
+                              <>
+                                <IconBtn
+                                  label="Subir caja"
+                                  onClick={(e) => { e.stopPropagation(); onReorderAccountsByCurrency(moveWithinGroup(currencyAccounts, allAccountIds, sortOrders.accountsByCurrency, acc.id, "up")); }}
+                                >
+                                  <ChevronUp size={13} style={{ opacity: accIdx === 0 ? 0.3 : 1 }} />
+                                </IconBtn>
+                                <IconBtn
+                                  label="Bajar caja"
+                                  onClick={(e) => { e.stopPropagation(); onReorderAccountsByCurrency(moveWithinGroup(currencyAccounts, allAccountIds, sortOrders.accountsByCurrency, acc.id, "down")); }}
+                                >
+                                  <ChevronDown size={13} style={{ opacity: accIdx === currencyAccounts.length - 1 ? 0.3 : 1 }} />
+                                </IconBtn>
+                              </>
+                            ) : (
+                            <>
                             <span className="font-mono" style={{ color: balance >= 0 ? C.positive : C.negative }}>{formatMoney(balance, acc.currency)}</span>
                             <IconBtn
                               label="Compartir datos bancarios"
@@ -266,6 +342,8 @@ export function Accounts({
                                 <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
                                 <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
                               </>
+                            )}
+                            </>
                             )}
                           </div>
                         </button>

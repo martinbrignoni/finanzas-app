@@ -222,6 +222,22 @@ export interface AppLock {
   pinHash: string | null;
 }
 
+/**
+ * Orden manual (persistente hasta que el usuario lo cambie) de bancos y
+ * cajas en la sección Cuentas. Guarda arrays de ids; los elementos que no
+ * aparecen todavía en el array (bancos/cajas nuevos) se ubican al final, en
+ * el orden en que ya venían. El orden de "Por banco" y el de "Por moneda"
+ * son independientes entre sí.
+ */
+export interface SortOrders {
+  /** Orden de los bancos en la vista "Por banco". */
+  banks: string[];
+  /** Orden de las cajas dentro de cada banco, en la vista "Por banco". */
+  accountsByBank: string[];
+  /** Orden de las cajas dentro de cada moneda, en la vista "Por moneda". */
+  accountsByCurrency: string[];
+}
+
 export interface FinanceData {
   schemaVersion: number;
   transactions: Transaction[];
@@ -235,6 +251,7 @@ export interface FinanceData {
   categories: Category[];
   notes: Note[];
   appLock: AppLock;
+  sortOrders: SortOrders;
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
@@ -286,6 +303,7 @@ export function emptyFinanceData(): FinanceData {
     categories: defaultCategories(),
     notes: [],
     appLock: { enabled: false, pinHash: null },
+    sortOrders: { banks: [], accountsByBank: [], accountsByCurrency: [] },
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };
