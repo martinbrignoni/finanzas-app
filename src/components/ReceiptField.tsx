@@ -13,6 +13,12 @@ import { uploadReceipt, getReceiptUrl, deleteReceipt } from "../lib/receipts";
 const RECEIPT_ACCEPT =
   "image/*,.pdf,application/pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** Etiqueta legible para un comprobante, con el tipo de archivo al final (ej. "Comprobante 1 PDF"). */
+function receiptLabel(path: string, index: number): string {
+  const ext = path.split(".").pop()?.toUpperCase();
+  return ext ? `Comprobante ${index + 1} ${ext}` : `Comprobante ${index + 1}`;
+}
+
 /**
  * Selector de comprobantes de un movimiento (gasto, ingreso, transferencia o
  * pago de tarjeta): fotos, PDF o Excel, uno o varios. Sube cada archivo a
@@ -73,7 +79,7 @@ export function ReceiptField({
           {paths.map((path, i) => (
             <div key={path} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
               <button type="button" onClick={() => handleView(path)} className="flex-1 flex items-center gap-2 text-xs text-left" style={{ color: C.text }}>
-                <Paperclip size={14} color={C.textMuted} /> Comprobante {i + 1}
+                <Paperclip size={14} color={C.textMuted} /> {receiptLabel(path, i)}
               </button>
               <button type="button" onClick={() => handleRemove(path)} aria-label={`Quitar comprobante ${i + 1}`} className="shrink-0" style={{ color: C.negative }}>
                 <X size={14} />
@@ -161,7 +167,7 @@ export function ReceiptButton({ paths }: { paths?: string[] }) {
               className="w-full text-left px-3 py-2 text-xs"
               style={{ color: C.text }}
             >
-              Comprobante {i + 1}
+              {receiptLabel(path, i)}
             </button>
           ))}
         </div>
