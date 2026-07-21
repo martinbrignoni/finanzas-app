@@ -6,7 +6,7 @@ import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, todayISO, formatDateDMY } from "../../lib/dates";
-import { accountLabel } from "../../lib/accounts";
+import { accountLabel, accountSelectLabel } from "../../lib/accounts";
 import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction } from "../../types";
 
 /**
@@ -369,7 +369,7 @@ export function CardPaymentModal({
           ) : (
             <Select id={id} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
               <option value="">Elegí una cuenta</option>
-              {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{accountLabel(a, banks)}</option>)}
+              {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
             </Select>
           )
         }

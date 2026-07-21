@@ -8,7 +8,7 @@ import { CategoryPicker, defaultLeafCategoryName } from "../../components/Catego
 import { CategoryModal } from "../settings/Categories";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
-import { accountLabel } from "../../lib/accounts";
+import { accountLabel, accountSelectLabel } from "../../lib/accounts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment } from "../../types";
 
@@ -731,7 +731,7 @@ export function MovementModal({
                 <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
                   <option value="">Sin cuenta asignada</option>
                   {eligibleAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>{accountLabel(a, banks)}</option>
+                    <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>
                   ))}
                 </Select>
               )}
@@ -760,7 +760,7 @@ export function MovementModal({
                       <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
                         <option value="">Elegí una cuenta</option>
                         {eligibleAccounts.map((a) => (
-                          <option key={a.id} value={a.id}>{accountLabel(a, banks)}</option>
+                          <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>
                         ))}
                       </Select>
                     )

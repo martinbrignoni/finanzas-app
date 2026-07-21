@@ -39,6 +39,12 @@ export function accountLabel(account: Account | undefined, banks: Bank[]): strin
   return bank ? `${bank.name} · ${account.name}` : account.name;
 }
 
+/** "Banco · Caja · Moneda", para selects donde conviene ver la moneda junto al nombre (ej. elegir cuenta al cargar un movimiento). */
+export function accountSelectLabel(account: Account | undefined, banks: Bank[]): string {
+  if (!account) return "cuenta eliminada";
+  return `${accountLabel(account, banks)} · ${account.currency}`;
+}
+
 /** Texto listo para compartir (WhatsApp, etc.) cuando te piden los datos para transferirte. */
 export function shareableAccountText(account: Account, banks: Bank[]): string {
   const bank = banks.find((b) => b.id === account.bankId);
