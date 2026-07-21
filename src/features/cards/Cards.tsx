@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { CreditCard, Pencil, Trash2, Plus, Landmark, ShoppingBag } from "lucide-react";
+import { CreditCard, Pencil, Trash2, Plus, Landmark, ShoppingBag, AlertTriangle, ChevronRight } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
-import { receiptPathsOf } from "../../lib/receipts";
+import { StatementFileRow } from "../../components/StatementFileRow";
+import { receiptPathsOf, uploadReceipt, getReceiptUrl, deleteReceipt } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { currentMonthKey, monthsBetween, todayISO, formatDateDMY } from "../../lib/dates";
+import { currentMonthKey, monthsBetween, monthKeyOf, addMonths, monthLabel, capitalize, todayISO, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
-import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction } from "../../types";
+import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
+import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement } from "../../types";
 
 /**
  * Deuda real de la tarjeta: cuotas restantes (proyección) + gastos de pago
@@ -46,6 +48,26 @@ function dueForCardInMonth(cardId: string, installments: Installment[], mk: stri
   return due;
 }
 
+/**
+ * Consumo total de un período puntual (mes) para una tarjeta: cuotas que
+ * vencen ese mes + gastos de pago único fechados ese mes. Es lo que
+ * debería figurar en el estado de cuenta de ese período.
+ */
+function cardConsumptionForMonth(
+  cardId: string,
+  installments: Installment[],
+  transactions: Transaction[],
+  mk: string
+): Record<Currency, number> {
+  const total = dueForCardInMonth(cardId, installments, mk);
+  transactions
+    .filter((t) => t.type === "gasto" && t.cardId === cardId && monthKeyOf(t.date) === mk)
+    .forEach((t) => {
+      total[t.currency] += t.amountMinor;
+    });
+  return total;
+}
+
 export function Cards({
   data,
   canEdit,
@@ -61,6 +83,7 @@ export function Cards({
   onAddCardExpense,
   onEditTransaction,
   onDeleteTransaction,
+  onSaveCardStatement,
 }: {
   data: FinanceData;
   canEdit: boolean;
@@ -77,8 +100,12 @@ export function Cards({
   onAddCardExpense: (cardId: string) => void;
   onEditTransaction: (t: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
+  onSaveCardStatement: (s: CardStatement) => void;
 }) {
   const mk = currentMonthKey();
+  const [viewCardId, setViewCardId] = useState<string | null>(null);
+  const viewCard = data.cards.find((c) => c.id === viewCardId) ?? null;
+
   return (
     <div className="pb-24">
       <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Tarjetas y cuotas</h1>
@@ -92,13 +119,9 @@ export function Cards({
       <div className="space-y-3 mb-4">
         {data.cards.map((card) => {
           const debt = cardDebt(card.id, data.installments, data.transactions, data.cardPayments, mk);
-          const purchases = data.installments.filter((i) => i.cardId === card.id);
-          const expenses = data.transactions
-            .filter((t) => t.type === "gasto" && t.cardId === card.id)
-            .sort((a, b) => b.date.localeCompare(a.date));
-          const payments = data.cardPayments
-            .filter((p) => p.cardId === card.id)
-            .sort((a, b) => b.date.localeCompare(a.date));
+          const consumption = cardConsumptionForMonth(card.id, data.installments, data.transactions, mk);
+          const pendingMonths = pendingCardStatementMonths(card, data.cardStatements);
+          const currentStatement = getCardStatement(data.cardStatements, card.id, mk);
           return (
             <div key={card.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
               <div className="flex items-center justify-between mb-3">
@@ -108,7 +131,9 @@ export function Cards({
                   </div>
                   <div>
                     <div className="text-sm font-semibold" style={{ color: C.text }}>{card.name}</div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>Cierre {card.closingDay} · Vence {card.dueDay}</div>
+                    <div className="text-xs" style={{ color: C.textFaint }}>
+                      Cierre día {card.closingDay} · Vence {currentStatement?.dueDate ? formatDateDMY(currentStatement.dueDate) : `día ${card.dueDay}`}
+                    </div>
                   </div>
                 </div>
                 {canEdit && (
@@ -119,125 +144,60 @@ export function Cards({
                 )}
               </div>
 
-              <div className="flex gap-4 mb-3 text-xs font-mono" style={{ color: C.textMuted }}>
+              <div className="rounded-lg p-2.5 mb-2" style={{ background: C.surface2 }}>
+                <div className="text-[11px] font-semibold mb-1" style={{ color: C.textMuted }}>Consumo de este mes</div>
+                <div className="flex gap-4 text-xs font-mono">
+                  {consumption.UYU === 0 && consumption.USD === 0 ? (
+                    <span style={{ color: C.textFaint }}>Sin consumo cargado todavía</span>
+                  ) : (
+                    <>
+                      {consumption.UYU !== 0 && <span style={{ color: C.uyu }}>{formatMoney(consumption.UYU, "UYU")}</span>}
+                      {consumption.USD !== 0 && <span style={{ color: C.usd }}>{formatMoney(consumption.USD, "USD")}</span>}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-4 mb-2 text-xs font-mono" style={{ color: C.textMuted }}>
                 <span>Deuda pendiente:</span>
                 <span style={{ color: C.uyu }}>{formatMoney(Math.max(0, debt.UYU), "UYU")}</span>
                 <span style={{ color: C.usd }}>{formatMoney(Math.max(0, debt.USD), "USD")}</span>
               </div>
 
-              <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Compras en cuotas</div>
-              {purchases.length === 0 ? (
-                <p className="text-xs mb-2" style={{ color: C.textFaint }}>
-                  Todavía no tenés compras en cuotas. Para agregar una, usá "Agregar gasto con tarjeta" más abajo y elegí más de 1 cuota.
-                </p>
-              ) : (
-                <div className="space-y-1.5 mb-3">
-                  {purchases.map((p) => {
-                    const passed = monthsBetween(p.startMonth, mk);
-                    const cuotaActual = Math.min(Math.max(passed + 1, 1), p.numInstallments);
-                    const finished = passed >= p.numInstallments;
-                    return (
-                      <div key={p.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
-                        <div>
-                          <div style={{ color: C.text }}>{p.category ? `${p.category} · ${p.description}` : p.description}</div>
-                          <div style={{ color: C.textFaint }}>{finished ? "Pagada" : `Cuota ${cuotaActual}/${p.numInstallments}`}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono" style={{ color: C.textMuted }}>{formatMoney(p.installmentAmountMinor, p.currency)}</span>
-                          {canEditMovements && (
-                            <>
-                              <IconBtn label="Editar cuota" onClick={() => onEditInstallment(p)}><Pencil size={13} /></IconBtn>
-                              <IconBtn label="Eliminar cuota" danger onClick={() => onDeleteInstallment(p.id)}><Trash2 size={13} /></IconBtn>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+              {pendingMonths.length > 0 && (
+                <div className="rounded-lg p-2.5 mb-3 text-xs flex items-start gap-1.5" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
+                  <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                  <span>Falta el estado de cuenta de: {pendingMonths.map((m) => capitalize(monthLabel(m))).join(", ")}.</span>
                 </div>
               )}
 
-              <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Gastos con tarjeta</div>
-              {expenses.length === 0 ? (
-                <p className="text-xs mb-2" style={{ color: C.textFaint }}>Todavía no cargaste gastos de pago único con esta tarjeta.</p>
-              ) : (
-                <div className="space-y-1.5 mb-2">
-                  {expenses.map((t) => (
-                    <div key={t.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
-                      <div className="flex items-center gap-2">
-                        <ShoppingBag size={13} color={C.textFaint} />
-                        <div>
-                          <div style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
-                          <div style={{ color: C.textFaint }}>{formatDateDMY(t.date)}</div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(t.amountMinor, t.currency)}</span>
-                        <ReceiptButton paths={receiptPathsOf(t)} />
-                        {canEditMovements && (
-                          <>
-                            <IconBtn label="Editar gasto" onClick={() => onEditTransaction(t)}><Pencil size={13} /></IconBtn>
-                            <IconBtn label="Eliminar gasto" danger onClick={() => onDeleteTransaction(t.id)}><Trash2 size={13} /></IconBtn>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {canEditMovements && (
+              <div className="flex gap-2">
+                {canEditMovements && (
+                  <button
+                    onClick={() => onAddCardExpense(card.id)}
+                    className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+                    style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+                  >
+                    <Plus size={13} /> Gasto
+                  </button>
+                )}
+                {canEdit && (
+                  <button
+                    onClick={() => onAddCardPayment(card.id)}
+                    className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+                    style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+                  >
+                    <Plus size={13} /> Pago
+                  </button>
+                )}
                 <button
-                  onClick={() => onAddCardExpense(card.id)}
-                  className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-3"
-                  style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+                  onClick={() => setViewCardId(card.id)}
+                  className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+                  style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
                 >
-                  <Plus size={13} /> Agregar gasto con tarjeta
+                  Ver detalle <ChevronRight size={13} />
                 </button>
-              )}
-              {/* El mismo modal de arriba permite elegir "Cantidad de cuotas" para cargar compras financiadas. */}
-
-              <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Pagos registrados</div>
-              {payments.length === 0 ? (
-                <p className="text-xs mb-2" style={{ color: C.textFaint }}>Todavía no registraste pagos de esta tarjeta.</p>
-              ) : (
-                <div className="space-y-1.5 mb-2">
-                  {payments.map((p) => {
-                    const account = data.accounts.find((a) => a.id === p.accountId);
-                    return (
-                      <div key={p.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
-                        <div className="flex items-center gap-2">
-                          <Landmark size={13} color={C.textFaint} />
-                          <div>
-                            <div style={{ color: C.text }}>{accountLabel(account, data.banks)}{p.note ? ` · ${p.note}` : ""}</div>
-                            <div style={{ color: C.textFaint }}>{formatDateDMY(p.date)}</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</span>
-                          <ReceiptButton paths={receiptPathsOf(p)} />
-                          {canEdit && (
-                            <>
-                              <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={13} /></IconBtn>
-                              <IconBtn label="Eliminar pago" danger onClick={() => onDeleteCardPayment(p.id)}><Trash2 size={13} /></IconBtn>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {canEdit && (
-                <button
-                  onClick={() => onAddCardPayment(card.id)}
-                  className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                  style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-                >
-                  <Plus size={13} /> Registrar pago
-                </button>
-              )}
+              </div>
             </div>
           );
         })}
@@ -252,7 +212,312 @@ export function Cards({
           <Plus size={16} /> Agregar tarjeta
         </button>
       )}
+
+      {viewCard && (
+        <CardDetailModal
+          card={viewCard}
+          installments={data.installments.filter((i) => i.cardId === viewCard.id)}
+          expenses={data.transactions.filter((t) => t.type === "gasto" && t.cardId === viewCard.id)}
+          payments={data.cardPayments.filter((p) => p.cardId === viewCard.id)}
+          accounts={data.accounts}
+          banks={data.banks}
+          cardStatements={data.cardStatements}
+          canEdit={canEdit}
+          canEditMovements={canEditMovements}
+          onSaveCardStatement={onSaveCardStatement}
+          onAddCardExpense={onAddCardExpense}
+          onAddCardPayment={onAddCardPayment}
+          onEditInstallment={onEditInstallment}
+          onDeleteInstallment={onDeleteInstallment}
+          onEditTransaction={onEditTransaction}
+          onDeleteTransaction={onDeleteTransaction}
+          onEditCardPayment={onEditCardPayment}
+          onDeleteCardPayment={onDeleteCardPayment}
+          onClose={() => setViewCardId(null)}
+        />
+      )}
     </div>
+  );
+}
+
+function CardDetailModal({
+  card,
+  installments,
+  expenses,
+  payments,
+  accounts,
+  banks,
+  cardStatements,
+  canEdit,
+  canEditMovements,
+  onSaveCardStatement,
+  onAddCardExpense,
+  onAddCardPayment,
+  onEditInstallment,
+  onDeleteInstallment,
+  onEditTransaction,
+  onDeleteTransaction,
+  onEditCardPayment,
+  onDeleteCardPayment,
+  onClose,
+}: {
+  card: Card;
+  installments: Installment[];
+  expenses: Transaction[];
+  payments: CardPayment[];
+  accounts: Account[];
+  banks: Bank[];
+  cardStatements: CardStatement[];
+  canEdit: boolean;
+  canEditMovements: boolean;
+  onSaveCardStatement: (s: CardStatement) => void;
+  onAddCardExpense: (cardId: string) => void;
+  onAddCardPayment: (cardId: string) => void;
+  onEditInstallment: (i: Installment) => void;
+  onDeleteInstallment: (id: string) => void;
+  onEditTransaction: (t: Transaction) => void;
+  onDeleteTransaction: (id: string) => void;
+  onEditCardPayment: (p: CardPayment) => void;
+  onDeleteCardPayment: (id: string) => void;
+  onClose: () => void;
+}) {
+  const mk = currentMonthKey();
+  const pendingMonths = pendingCardStatementMonths(card, cardStatements);
+  const [statementMonth, setStatementMonth] = useState<string>(() => pendingMonths[0] ?? mk);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [uploadingExcel, setUploadingExcel] = useState(false);
+  const [statementError, setStatementError] = useState<string | null>(null);
+  const currentStatement = getCardStatement(cardStatements, card.id, statementMonth);
+  const [dueDate, setDueDate] = useState(currentStatement?.dueDate ?? "");
+  const statementMonthOptions = Array.from({ length: 25 }, (_, i) => addMonths(mk, -i));
+  const consumption = cardConsumptionForMonth(card.id, installments, expenses, statementMonth);
+  const hasAnyFile = !!(currentStatement?.pdfPath || currentStatement?.excelPath);
+
+  const handleMonthChange = (m: string) => {
+    setStatementMonth(m);
+    setDueDate(getCardStatement(cardStatements, card.id, m)?.dueDate ?? "");
+    setStatementError(null);
+  };
+
+  const handleDueDateBlur = () => {
+    const base = currentStatement ?? { id: crypto.randomUUID(), cardId: card.id, month: statementMonth };
+    if ((base.dueDate ?? "") === dueDate) return;
+    onSaveCardStatement({ ...base, dueDate: dueDate || undefined });
+  };
+
+  const handleStatementUpload = async (file: File, kind: "pdf" | "excel") => {
+    const setBusy = kind === "pdf" ? setUploadingPdf : setUploadingExcel;
+    setBusy(true);
+    setStatementError(null);
+    try {
+      const path = await uploadReceipt(file, `stmt-card-${card.id}-${statementMonth}-${kind}`);
+      const base = currentStatement ?? { id: crypto.randomUUID(), cardId: card.id, month: statementMonth, dueDate: dueDate || undefined };
+      onSaveCardStatement({ ...base, [kind === "pdf" ? "pdfPath" : "excelPath"]: path });
+    } catch (err) {
+      console.error(err);
+      setStatementError("No se pudo subir el archivo. Probá de nuevo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStatementView = async (path: string) => {
+    setStatementError(null);
+    try {
+      const url = await getReceiptUrl(path);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error(err);
+      setStatementError("No se pudo abrir el archivo.");
+    }
+  };
+
+  const handleStatementRemove = (kind: "pdf" | "excel") => {
+    if (!currentStatement) return;
+    const path = kind === "pdf" ? currentStatement.pdfPath : currentStatement.excelPath;
+    if (path) deleteReceipt(path);
+    onSaveCardStatement({ ...currentStatement, [kind === "pdf" ? "pdfPath" : "excelPath"]: undefined });
+  };
+
+  const purchases = [...installments].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+  const sortedExpenses = [...expenses].sort((a, b) => b.date.localeCompare(a.date));
+  const sortedPayments = [...payments].sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <Modal title={card.name} onClose={onClose}>
+      <div className="rounded-xl p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+        <div className="mb-2">
+          <Select aria-label="Período" value={statementMonth} onChange={(e) => handleMonthChange(e.target.value)}>
+            {statementMonthOptions.map((m) => (
+              <option key={m} value={m}>
+                {capitalize(monthLabel(m))}{pendingMonths.includes(m) ? " · pendiente" : ""}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono" style={{ color: C.textMuted }}>
+          <span>Consumo del período:</span>
+          {consumption.UYU === 0 && consumption.USD === 0 ? (
+            <span style={{ color: C.textFaint }}>Sin consumo</span>
+          ) : (
+            <>
+              {consumption.UYU !== 0 && <span style={{ color: C.uyu }}>{formatMoney(consumption.UYU, "UYU")}</span>}
+              {consumption.USD !== 0 && <span style={{ color: C.usd }}>{formatMoney(consumption.USD, "USD")}</span>}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+        <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>Estado de cuenta</h3>
+
+        <StatementFileRow
+          label="PDF"
+          accept=".pdf,application/pdf"
+          path={currentStatement?.pdfPath}
+          uploading={uploadingPdf}
+          onUpload={(f) => handleStatementUpload(f, "pdf")}
+          onView={handleStatementView}
+          onRemove={() => handleStatementRemove("pdf")}
+        />
+        <StatementFileRow
+          label="Excel"
+          accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          path={currentStatement?.excelPath}
+          uploading={uploadingExcel}
+          onUpload={(f) => handleStatementUpload(f, "excel")}
+          onView={handleStatementView}
+          onRemove={() => handleStatementRemove("excel")}
+        />
+
+        <Field label="Fecha de vencimiento de este período">
+          {(id) => (
+            <TextInput id={id} type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} onBlur={handleDueDateBlur} disabled={!canEdit} />
+          )}
+        </Field>
+        {hasAnyFile && !dueDate && (
+          <p className="text-[11px] -mt-2 mb-2" style={{ color: C.negative }}>
+            Con el estado de cuenta cargado, no te olvides de completar la fecha de vencimiento.
+          </p>
+        )}
+
+        {statementError && <p className="text-xs" style={{ color: C.negative }}>{statementError}</p>}
+      </div>
+
+      <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Compras en cuotas</div>
+      {purchases.length === 0 ? (
+        <p className="text-xs mb-2" style={{ color: C.textFaint }}>
+          Todavía no tenés compras en cuotas. Para agregar una, usá "Agregar gasto con tarjeta" más abajo y elegí más de 1 cuota.
+        </p>
+      ) : (
+        <div className="space-y-1.5 mb-3">
+          {purchases.map((p) => {
+            const passed = monthsBetween(p.startMonth, mk);
+            const cuotaActual = Math.min(Math.max(passed + 1, 1), p.numInstallments);
+            const finished = passed >= p.numInstallments;
+            return (
+              <div key={p.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
+                <div>
+                  <div style={{ color: C.text }}>{p.category ? `${p.category} · ${p.description}` : p.description}</div>
+                  <div style={{ color: C.textFaint }}>{finished ? "Pagada" : `Cuota ${cuotaActual}/${p.numInstallments}`}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono" style={{ color: C.textMuted }}>{formatMoney(p.installmentAmountMinor, p.currency)}</span>
+                  {canEditMovements && (
+                    <>
+                      <IconBtn label="Editar cuota" onClick={() => onEditInstallment(p)}><Pencil size={13} /></IconBtn>
+                      <IconBtn label="Eliminar cuota" danger onClick={() => onDeleteInstallment(p.id)}><Trash2 size={13} /></IconBtn>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Gastos con tarjeta</div>
+      {sortedExpenses.length === 0 ? (
+        <p className="text-xs mb-2" style={{ color: C.textFaint }}>Todavía no cargaste gastos de pago único con esta tarjeta.</p>
+      ) : (
+        <div className="space-y-1.5 mb-2">
+          {sortedExpenses.map((t) => (
+            <div key={t.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
+              <div className="flex items-center gap-2">
+                <ShoppingBag size={13} color={C.textFaint} />
+                <div>
+                  <div style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
+                  <div style={{ color: C.textFaint }}>{formatDateDMY(t.date)}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(t.amountMinor, t.currency)}</span>
+                <ReceiptButton paths={receiptPathsOf(t)} />
+                {canEditMovements && (
+                  <>
+                    <IconBtn label="Editar gasto" onClick={() => onEditTransaction(t)}><Pencil size={13} /></IconBtn>
+                    <IconBtn label="Eliminar gasto" danger onClick={() => onDeleteTransaction(t.id)}><Trash2 size={13} /></IconBtn>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canEditMovements && (
+        <button
+          onClick={() => onAddCardExpense(card.id)}
+          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-3"
+          style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+        >
+          <Plus size={13} /> Agregar gasto con tarjeta
+        </button>
+      )}
+      {/* El mismo modal de arriba permite elegir "Cantidad de cuotas" para cargar compras financiadas. */}
+
+      <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Pagos registrados</div>
+      {sortedPayments.length === 0 ? (
+        <p className="text-xs mb-2" style={{ color: C.textFaint }}>Todavía no registraste pagos de esta tarjeta.</p>
+      ) : (
+        <div className="space-y-1.5 mb-2">
+          {sortedPayments.map((p) => {
+            const account = accounts.find((a) => a.id === p.accountId);
+            return (
+              <div key={p.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
+                <div className="flex items-center gap-2">
+                  <Landmark size={13} color={C.textFaint} />
+                  <div>
+                    <div style={{ color: C.text }}>{accountLabel(account, banks)}{p.note ? ` · ${p.note}` : ""}</div>
+                    <div style={{ color: C.textFaint }}>{formatDateDMY(p.date)}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</span>
+                  <ReceiptButton paths={receiptPathsOf(p)} />
+                  {canEdit && (
+                    <>
+                      <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={13} /></IconBtn>
+                      <IconBtn label="Eliminar pago" danger onClick={() => onDeleteCardPayment(p.id)}><Trash2 size={13} /></IconBtn>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {canEdit && (
+        <button
+          onClick={() => onAddCardPayment(card.id)}
+          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+          style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+        >
+          <Plus size={13} /> Registrar pago
+        </button>
+      )}
+    </Modal>
   );
 }
 
@@ -260,6 +525,7 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
   const [name, setName] = useState(initial?.name ?? "");
   const [closingDay, setClosingDay] = useState(String(initial?.closingDay ?? 20));
   const [dueDay, setDueDay] = useState(String(initial?.dueDay ?? 5));
+  const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = () => {
@@ -268,7 +534,22 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
     if (!Number.isInteger(cd) || cd < 1 || cd > 31 || !Number.isInteger(dd) || dd < 1 || dd > 31) {
       return setError("Los días deben estar entre 1 y 31.");
     }
-    onSave({ id: initial?.id ?? crypto.randomUUID(), name: name.trim(), closingDay: cd, dueDay: dd });
+    // Si se prende el recordatorio (y antes estaba apagado), empieza a contar desde el mes
+    // actual: no reclama retroactivamente estados de cuenta de antes de haberlo activado.
+    const wasOn = initial?.statementReminders ?? false;
+    const statementRemindersSince = statementReminders
+      ? initial?.statementRemindersSince && wasOn
+        ? initial.statementRemindersSince
+        : currentMonthKey()
+      : initial?.statementRemindersSince;
+    onSave({
+      id: initial?.id ?? crypto.randomUUID(),
+      name: name.trim(),
+      closingDay: cd,
+      dueDay: dd,
+      statementReminders,
+      statementRemindersSince,
+    });
   };
 
   return (
@@ -278,6 +559,18 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
         <Field label="Día de cierre">{(id) => <TextInput id={id} type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />}</Field>
         <Field label="Día de vencimiento">{(id) => <TextInput id={id} type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}</Field>
       </div>
+      <Field label="Recordatorio de estado de cuenta">
+        {() => (
+          <Segment
+            value={statementReminders ? "on" : "off"}
+            onChange={(v) => setStatementReminders(v === "on")}
+            options={[{ value: "off", label: "No" }, { value: "on", label: "Sí, avisame" }]}
+          />
+        )}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        Con esto activado, cada mes que cierre te avisamos en Tarjetas hasta que subas el PDF y el Excel del estado de cuenta de esta tarjeta.
+      </p>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>

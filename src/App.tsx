@@ -8,7 +8,7 @@ import { getRepository } from "./lib/storage";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
-  Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement,
+  Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -311,6 +311,18 @@ export default function App() {
         : d
     );
   }, []);
+  const saveCardStatement = useCallback((s: CardStatement) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            cardStatements: d.cardStatements.some((x) => x.id === s.id)
+              ? d.cardStatements.map((x) => (x.id === s.id ? s : x))
+              : [...d.cardStatements, s],
+          }
+        : d
+    );
+  }, []);
   const updateBankFields = useCallback((id: string, partial: Partial<Bank>) => {
     setData((d) => (d ? { ...d, banks: d.banks.map((b) => (b.id === id ? { ...b, ...partial } : b)) } : d));
   }, []);
@@ -518,6 +530,7 @@ export default function App() {
                 onAddCardExpense={(cardId) => setModal({ type: "movement", payload: { presetCardId: cardId } })}
                 onEditTransaction={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDeleteTransaction={confirmDeleteTransaction}
+                onSaveCardStatement={saveCardStatement}
               />
             )}
             {tab === "presupuestos" && (

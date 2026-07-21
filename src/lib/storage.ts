@@ -108,6 +108,11 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 7, accountStatements: [] };
   }
 
+  if (data.schemaVersion === 7) {
+    // v8: recordatorio mensual de estado de cuenta (PDF + Excel + fecha de vencimiento) por tarjeta.
+    data = { ...data, schemaVersion: 8, cardStatements: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -130,6 +135,7 @@ function migrate(raw: any): FinanceData {
     transfers: data.transfers ?? [],
     cardPayments: data.cardPayments ?? [],
     accountStatements: data.accountStatements ?? [],
+    cardStatements: data.cardStatements ?? [],
     categories: data.categories ?? [],
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },

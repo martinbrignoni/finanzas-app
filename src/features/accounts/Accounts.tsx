@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, FileText, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, Upload, Loader2, X } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
+import { StatementFileRow } from "../../components/StatementFileRow";
 import { receiptPathsOf, uploadReceipt, getReceiptUrl, deleteReceipt } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText, isAccountVisibleAt } from "../../lib/accounts";
@@ -721,59 +722,6 @@ function AccountLedgerModal({
         </div>
       )}
     </Modal>
-  );
-}
-
-/** Fila de un slot de archivo (PDF o Excel) para el estado de cuenta de un mes: adjuntar, ver o quitar. */
-function StatementFileRow({
-  label,
-  accept,
-  path,
-  uploading,
-  onUpload,
-  onView,
-  onRemove,
-}: {
-  label: string;
-  accept: string;
-  path?: string;
-  uploading: boolean;
-  onUpload: (file: File) => void;
-  onView: (path: string) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-      <div className="flex items-center gap-2 text-xs" style={{ color: C.text }}>
-        {label === "PDF" ? <FileText size={14} color={C.textMuted} /> : <FileSpreadsheet size={14} color={C.textMuted} />}
-        {label}
-      </div>
-      {path ? (
-        <div className="flex items-center gap-1">
-          <IconBtn label={`Ver ${label}`} onClick={() => onView(path)}><Check size={13} color={C.positive} /></IconBtn>
-          <IconBtn label={`Quitar ${label}`} danger onClick={onRemove}><X size={13} /></IconBtn>
-        </div>
-      ) : (
-        <label
-          className="text-xs font-semibold flex items-center gap-1"
-          style={{ color: uploading ? C.textFaint : C.usd, cursor: uploading ? "default" : "pointer" }}
-        >
-          {uploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
-          {uploading ? "Subiendo..." : "Adjuntar"}
-          <input
-            type="file"
-            accept={accept}
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onUpload(file);
-              e.target.value = "";
-            }}
-          />
-        </label>
-      )}
-    </div>
   );
 }
 

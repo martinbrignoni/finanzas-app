@@ -137,6 +137,32 @@ export interface Card {
   name: string;
   closingDay: number; // 1-31
   dueDay: number; // 1-31
+  /** Si está activo, se recuerda mensualmente adjuntar el estado de cuenta (PDF y Excel) de esta tarjeta. */
+  statementReminders?: boolean;
+  /**
+   * Mes (YYYY-MM) desde el que se empiezan a pedir estados de cuenta. Se fija
+   * al activar el recordatorio (no al crear la tarjeta), para no reclamar
+   * retroactivamente meses de antes de haberlo prendido.
+   */
+  statementRemindersSince?: string;
+}
+
+/**
+ * Estado de cuenta de una tarjeta de crédito para un período puntual (mes en
+ * que cierra), en PDF y/o Excel. Al cargarlo se pide también la fecha real de
+ * vencimiento de ese período (puede correrse por fin de semana o feriado
+ * respecto al día fijo `Card.dueDay`).
+ */
+export interface CardStatement {
+  id: string;
+  cardId: string;
+  month: string; // YYYY-MM (período que cierra ese mes)
+  /** Ruta (no URL) en el bucket "receipts" de Supabase Storage. */
+  pdfPath?: string;
+  /** Ruta (no URL) en el bucket "receipts" de Supabase Storage. */
+  excelPath?: string;
+  /** Fecha real (YYYY-MM-DD) de vencimiento de este período. */
+  dueDate?: string;
 }
 
 export interface Installment {
@@ -303,6 +329,7 @@ export interface FinanceData {
   transfers: Transfer[];
   cardPayments: CardPayment[];
   accountStatements: AccountStatement[];
+  cardStatements: CardStatement[];
   categories: Category[];
   notes: Note[];
   appLock: AppLock;
@@ -312,7 +339,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -356,6 +383,7 @@ export function emptyFinanceData(): FinanceData {
     transfers: [],
     cardPayments: [],
     accountStatements: [],
+    cardStatements: [],
     categories: defaultCategories(),
     notes: [],
     appLock: { enabled: false, pinHash: null },
