@@ -627,7 +627,7 @@ export function MovementModal({
                   value={form.fromAccountId}
                   onChange={(e) => setForm((f) => ({ ...f, fromAccountId: e.target.value, toAmount: applyRate(f.fromAmount, f.exchangeRate, accounts.find((a) => a.id === e.target.value), toAcc) }))}
                 >
-                  {transferAccountOptions(form.fromAccountId).map((a) => <option key={a.id} value={a.id}>{accountLabel(a, banks)} ({a.currency})</option>)}
+                  {transferAccountOptions(form.fromAccountId).map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
                 </Select>
               )}
             </Field>
@@ -638,7 +638,7 @@ export function MovementModal({
                   value={form.toAccountId}
                   onChange={(e) => setForm((f) => ({ ...f, toAccountId: e.target.value, toAmount: applyRate(f.fromAmount, f.exchangeRate, fromAcc, accounts.find((a) => a.id === e.target.value)) }))}
                 >
-                  {transferAccountOptions(form.toAccountId).map((a) => <option key={a.id} value={a.id}>{accountLabel(a, banks)} ({a.currency})</option>)}
+                  {transferAccountOptions(form.toAccountId).map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
                 </Select>
               )}
             </Field>

@@ -63,10 +63,27 @@ export function accountLabel(account: Account | undefined, banks: Bank[]): strin
   return bank ? `${bank.name} · ${account.name}` : account.name;
 }
 
-/** "Banco · Caja · Moneda", para selects donde conviene ver la moneda junto al nombre (ej. elegir cuenta al cargar un movimiento). */
+/**
+ * Iniciales del titular de la cuenta (ej. "Martín Brignoni" -> "MB"), para
+ * poder distinguir de un vistazo de quién es la caja al elegirla en un
+ * movimiento. `undefined` si la caja no tiene titular cargado.
+ */
+export function holderInitials(account: Account): string | undefined {
+  const name = account.holderName?.trim();
+  if (!name) return undefined;
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return undefined;
+  const first = parts[0][0];
+  const last = parts[parts.length - 1][0];
+  return (parts.length > 1 ? first + last : first).toUpperCase();
+}
+
+/** "MB · Banco · Caja · Moneda" (iniciales del titular solo si está cargado), para selects donde conviene ver la moneda y de quién es la cuenta junto al nombre (ej. elegir cuenta al cargar un movimiento). */
 export function accountSelectLabel(account: Account | undefined, banks: Bank[]): string {
   if (!account) return "cuenta eliminada";
-  return `${accountLabel(account, banks)} · ${account.currency}`;
+  const base = `${accountLabel(account, banks)} · ${account.currency}`;
+  const initials = holderInitials(account);
+  return initials ? `${initials} · ${base}` : base;
 }
 
 /**
