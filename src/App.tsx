@@ -5,6 +5,7 @@ import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
 import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
+import { supabase } from "./lib/supabaseClient";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
@@ -63,7 +64,12 @@ export default function App() {
   const [calculatorOpen, setCalculatorOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const pendingSaves = useRef(0);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setSessionEmail(data.user?.email ?? null));
+  }, []);
 
   const loadData = useCallback(() => {
     setRefreshing(true);
@@ -114,6 +120,24 @@ export default function App() {
     return data.users.find((u) => u.id === data.activeUserId) ?? null;
   }, [data]);
   const has = useCallback((key: PermissionKey, mode: "view" | "edit") => (mode === "view" ? checkView(activeUser, key) : checkEdit(activeUser, key)), [activeUser]);
+
+  // Login separado (ej. tu pareja): si el email con el que entró coincide con
+  // el `authEmail` de un perfil que no es superusuario, la app la fija en ese
+  // perfil siempre y le oculta el selector, sin importar qué perfil haya
+  // quedado activo la última vez (compartido entre dispositivos).
+  const matchedUser = useMemo(() => {
+    if (!data || !sessionEmail) return null;
+    return data.users.find((u) => u.authEmail && u.authEmail.trim().toLowerCase() === sessionEmail.trim().toLowerCase()) ?? null;
+  }, [data, sessionEmail]);
+  const lockedToNonAdmin = !!matchedUser && !matchedUser.isAdmin;
+
+  useEffect(() => {
+    if (!data || !lockedToNonAdmin || !matchedUser) return;
+    if (data.activeUserId !== matchedUser.id) {
+      setData((d) => (d ? { ...d, activeUserId: matchedUser.id } : d));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.activeUserId, lockedToNonAdmin, matchedUser?.id]);
 
   // --- transactions ---
   const upsertTransaction = useCallback((t: Transaction) => {
@@ -475,14 +499,20 @@ export default function App() {
       <div className="max-w-md mx-auto px-4 pt-4">
         <div className="flex items-center justify-between mb-3">
           <div className="relative">
-            <button
-              onClick={() => setUserMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full"
-              style={{ background: C.surface2, color: C.textMuted }}
-            >
-              {activeUser?.name ?? "Sin perfil"} <ChevronDown size={12} />
-            </button>
-            {userMenuOpen && (
+            {lockedToNonAdmin ? (
+              <span className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full" style={{ background: C.surface2, color: C.textMuted }}>
+                {activeUser?.name ?? "Sin perfil"}
+              </span>
+            ) : (
+              <button
+                onClick={() => setUserMenuOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full"
+                style={{ background: C.surface2, color: C.textMuted }}
+              >
+                {activeUser?.name ?? "Sin perfil"} <ChevronDown size={12} />
+              </button>
+            )}
+            {!lockedToNonAdmin && userMenuOpen && (
               <div className="absolute left-0 top-9 z-40 rounded-lg overflow-hidden w-40" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 {data.users.map((u) => (
                   <button
@@ -668,6 +698,7 @@ export default function App() {
                 banks={data.banks}
                 accounts={data.accounts}
                 canEdit={has("configuracion", "edit")}
+                canSwitchUser={!lockedToNonAdmin}
                 onSetActiveUser={setActiveUser}
                 onAddUser={() => setModal({ type: "user" })}
                 onEditUser={(u) => setModal({ type: "user", payload: u })}

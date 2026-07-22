@@ -8,6 +8,7 @@ export function UsersSettings({
   users,
   activeUserId,
   canEdit,
+  canSwitch = true,
   onSetActive,
   onAdd,
   onEdit,
@@ -16,6 +17,8 @@ export function UsersSettings({
   users: AppUser[];
   activeUserId: string | null;
   canEdit: boolean;
+  /** false cuando este login está atado a un perfil fijo (usuario no superadmin con authEmail propio). */
+  canSwitch?: boolean;
   onSetActive: (id: string) => void;
   onAdd: () => void;
   onEdit: (u: AppUser) => void;
@@ -29,19 +32,28 @@ export function UsersSettings({
       </div>
 
       <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.textFaint }}>Perfil activo</h3>
-      <div className="rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${C.border}` }}>
-        {users.map((u, i) => (
-          <button
-            key={u.id}
-            onClick={() => onSetActive(u.id)}
-            className="w-full p-3 flex items-center justify-between text-sm text-left"
-            style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
-          >
-            <span style={{ color: C.text }}>{u.name}</span>
-            {activeUserId === u.id && <Check size={16} color={C.usd} />}
-          </button>
-        ))}
-      </div>
+      {canSwitch ? (
+        <div className="rounded-xl overflow-hidden mb-4" style={{ border: `1px solid ${C.border}` }}>
+          {users.map((u, i) => (
+            <button
+              key={u.id}
+              onClick={() => onSetActive(u.id)}
+              className="w-full p-3 flex items-center justify-between text-sm text-left"
+              style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
+            >
+              <span style={{ color: C.text }}>{u.name}</span>
+              {activeUserId === u.id && <Check size={16} color={C.usd} />}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl p-3 mb-4 text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.text }}>
+          {users.find((u) => u.id === activeUserId)?.name ?? "Sin perfil"}
+          <span className="block text-xs mt-0.5" style={{ color: C.textFaint }}>
+            Tu login está fijado a este perfil.
+          </span>
+        </div>
+      )}
 
       <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.textFaint }}>Usuarios y permisos</h3>
       <div className="space-y-2 mb-4">
@@ -58,7 +70,7 @@ export function UsersSettings({
                 </div>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 mb-2">
               {PERMISSION_MODULES.filter((m) => u.permissions[m.key]?.view).map((m) => (
                 <span key={m.key} className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: C.surface2, color: u.permissions[m.key].edit ? C.usd : C.textMuted }}>
                   {m.label}{u.permissions[m.key].edit ? "" : " (solo ver)"}
@@ -68,6 +80,20 @@ export function UsersSettings({
                 <span className="text-[10px]" style={{ color: C.textFaint }}>Sin acceso a ningún módulo</span>
               )}
             </div>
+            {(u.authEmail || u.isAdmin) && (
+              <div className="flex flex-wrap gap-1.5">
+                {u.authEmail && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: C.surface2, color: C.textMuted }}>
+                    Login: {u.authEmail}
+                  </span>
+                )}
+                {u.isAdmin && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: C.surface2, color: C.usd }}>
+                    Superusuario
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -88,6 +114,8 @@ export function UsersSettings({
 export function UserModal({ initial, onSave, onClose }: { initial?: AppUser; onSave: (u: AppUser) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [permissions, setPermissions] = useState<PermissionSet>(initial?.permissions ?? fullPermissions(false));
+  const [authEmail, setAuthEmail] = useState(initial?.authEmail ?? "");
+  const [isAdmin, setIsAdmin] = useState(initial?.isAdmin ?? false);
   const [error, setError] = useState<string | null>(null);
 
   const toggle = (key: PermissionKey, field: "view" | "edit") => {
@@ -105,12 +133,39 @@ export function UserModal({ initial, onSave, onClose }: { initial?: AppUser; onS
 
   const handleSave = () => {
     if (!name.trim()) return setError("Ingresá un nombre.");
-    onSave({ id: initial?.id ?? crypto.randomUUID(), name: name.trim(), permissions });
+    onSave({
+      id: initial?.id ?? crypto.randomUUID(),
+      name: name.trim(),
+      permissions,
+      authEmail: authEmail.trim() || undefined,
+      isAdmin: isAdmin || undefined,
+    });
   };
 
   return (
     <Modal title={initial ? "Editar usuario" : "Nuevo usuario"} onClose={onClose}>
       <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre de la persona" />}</Field>
+
+      <Field label="Email de login (opcional)">
+        {(id) => (
+          <TextInput
+            id={id}
+            type="email"
+            value={authEmail}
+            onChange={(e) => setAuthEmail(e.target.value)}
+            placeholder="ej. lucia@gmail.com"
+          />
+        )}
+      </Field>
+      <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+        Si esta persona tiene su propio login de Supabase (no el tuyo), poné acá ese email exactamente igual. Al
+        entrar con ese usuario, la app la va a fijar automáticamente en este perfil.
+      </p>
+
+      <label className="flex items-center gap-2 mb-3 text-sm" style={{ color: C.text }}>
+        <input type="checkbox" checked={isAdmin} onChange={() => setIsAdmin((v) => !v)} />
+        Superusuario (puede ver y cambiar entre todos los perfiles)
+      </label>
 
       <span className="block text-xs mb-1.5" style={{ color: C.textMuted }}>Permisos por módulo</span>
       <div className="rounded-lg overflow-hidden mb-3" style={{ border: `1px solid ${C.border}` }}>

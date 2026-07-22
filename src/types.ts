@@ -319,6 +319,18 @@ export interface AppUser {
   id: string;
   name: string;
   permissions: PermissionSet;
+  /**
+   * Email de un login de Supabase Auth separado (ej. el de tu pareja) que
+   * queda "atado" a este perfil: cuando esa persona inicia sesión con su
+   * propio usuario, la app la fija automáticamente en este perfil y le
+   * oculta el selector de perfiles, salvo que `isAdmin` sea true.
+   */
+  authEmail?: string;
+  /**
+   * Superusuario: puede ver y cambiar entre todos los perfiles, sin importar
+   * con qué login de Supabase Auth haya entrado.
+   */
+  isAdmin?: boolean;
 }
 
 /** Nota de texto libre dejada por un perfil, visible para todos los perfiles que comparten la app. */

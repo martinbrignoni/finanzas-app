@@ -21,6 +21,7 @@ export function Settings({
   banks,
   accounts,
   canEdit,
+  canSwitchUser = true,
   onSetActiveUser,
   onAddUser,
   onEditUser,
@@ -46,6 +47,7 @@ export function Settings({
   banks: Bank[];
   accounts: Account[];
   canEdit: boolean;
+  canSwitchUser?: boolean;
   onSetActiveUser: (id: string) => void;
   onAddUser: () => void;
   onEditUser: (u: AppUser) => void;
@@ -82,6 +84,7 @@ export function Settings({
           users={users}
           activeUserId={activeUserId}
           canEdit={canEdit}
+          canSwitch={canSwitchUser}
           onSetActive={onSetActiveUser}
           onAdd={onAddUser}
           onEdit={onEditUser}

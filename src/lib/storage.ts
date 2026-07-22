@@ -1,6 +1,7 @@
 import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermissions, type FinanceData, type Category, type AppUser } from "../types";
 import { categoryFullPath } from "./categories";
 import { supabase } from "./supabaseClient";
+import { resolveOwnerId } from "./household";
 
 export interface FinanceRepository {
   load(): Promise<FinanceData>;
@@ -189,8 +190,9 @@ export class LocalStorageRepository implements FinanceRepository {
 export class SupabaseRepository implements FinanceRepository {
   async load(): Promise<FinanceData> {
     const { data: auth } = await supabase.auth.getUser();
-    const userId = auth.user?.id;
-    if (!userId) return emptyFinanceData();
+    const authUserId = auth.user?.id;
+    if (!authUserId) return emptyFinanceData();
+    const userId = await resolveOwnerId(authUserId);
 
     const { data, error } = await supabase
       .from("finance_data")
@@ -208,8 +210,9 @@ export class SupabaseRepository implements FinanceRepository {
 
   async save(data: FinanceData): Promise<void> {
     const { data: auth } = await supabase.auth.getUser();
-    const userId = auth.user?.id;
-    if (!userId) throw new Error("No hay sesión activa, no se puede guardar.");
+    const authUserId = auth.user?.id;
+    if (!authUserId) throw new Error("No hay sesión activa, no se puede guardar.");
+    const userId = await resolveOwnerId(authUserId);
 
     const { error } = await supabase
       .from("finance_data")

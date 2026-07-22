@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { resolveOwnerId } from "./household";
 
 /**
  * Bucket privado de Supabase Storage donde se guardan las fotos de
@@ -41,8 +42,9 @@ async function compressImage(file: File, maxDim = 1600, quality = 0.82): Promise
  */
 export async function uploadReceipt(file: File, movementId: string): Promise<string> {
   const { data: auth } = await supabase.auth.getUser();
-  const userId = auth.user?.id;
-  if (!userId) throw new Error("No hay sesión activa, no se puede subir el comprobante.");
+  const authUserId = auth.user?.id;
+  if (!authUserId) throw new Error("No hay sesión activa, no se puede subir el comprobante.");
+  const userId = await resolveOwnerId(authUserId);
 
   let blob: Blob = file;
   let contentType = file.type || "image/jpeg";
