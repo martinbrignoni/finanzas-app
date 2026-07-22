@@ -11,7 +11,8 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment } from "../../types";
+import { userInitials } from "../../lib/users";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser } from "../../types";
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
@@ -108,6 +109,7 @@ export function Transactions({
   cards,
   accounts,
   banks,
+  users,
   canEdit,
   onEdit,
   onDelete,
@@ -125,6 +127,8 @@ export function Transactions({
   cards: Card[];
   accounts: Account[];
   banks: Bank[];
+  /** Para mostrar de quién es cada movimiento (solo tiene sentido mostrarlo si hay más de un perfil). */
+  users: AppUser[];
   canEdit: boolean;
   onEdit: (t: Transaction) => void;
   onDelete: (id: string) => void;
@@ -137,6 +141,8 @@ export function Transactions({
 }) {
   const [filterMonth, setFilterMonth] = useState<string>("all");
   const [search, setSearch] = useState("");
+  // Solo tiene sentido marcar de quién es cada movimiento si hay más de un perfil cargando datos.
+  const showAuthor = users.length > 1;
 
   const allItems: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
@@ -224,6 +230,7 @@ export function Transactions({
                       {formatDateDMY(t.date)}
                       {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
                       {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
+                      {showAuthor && userInitials(users, t.createdByUserId) && ` · ${userInitials(users, t.createdByUserId)}`}
                     </div>
                   </div>
                 </div>
@@ -265,7 +272,10 @@ export function Transactions({
                       {accountLabel(fromAcc, banks)} → {accountLabel(toAcc, banks)}
                       {tr.note ? ` · ${tr.note}` : ""}
                     </div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(tr.date)} · Transferencia</div>
+                    <div className="text-xs" style={{ color: C.textFaint }}>
+                      {formatDateDMY(tr.date)} · Transferencia
+                      {showAuthor && userInitials(users, tr.createdByUserId) && ` · ${userInitials(users, tr.createdByUserId)}`}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -310,6 +320,7 @@ export function Transactions({
                       {formatDateDMY(instDate)}
                       {card && ` · ${card.name}`}
                       {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
+                      {showAuthor && userInitials(users, inst.createdByUserId) && ` · ${userInitials(users, inst.createdByUserId)}`}
                     </div>
                   </div>
                 </div>
@@ -347,7 +358,10 @@ export function Transactions({
                     Pago tarjeta {card?.name ?? "eliminada"} · {accountLabel(account, banks)}
                     {p.note ? ` · ${p.note}` : ""}
                   </div>
-                  <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(p.date)}</div>
+                  <div className="text-xs" style={{ color: C.textFaint }}>
+                  {formatDateDMY(p.date)}
+                  {showAuthor && userInitials(users, p.createdByUserId) && ` · ${userInitials(users, p.createdByUserId)}`}
+                </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -537,6 +551,7 @@ export function MovementModal({
         exchangeRate,
         note: form.note.trim() || undefined,
         receiptPaths: form.receiptPaths,
+        createdByUserId: initialTransfer?.createdByUserId,
       });
       return;
     }
@@ -563,6 +578,7 @@ export function MovementModal({
           installmentAmountMinor: Math.round(amountMinor / numCuotas),
           date: form.date,
           receiptPaths: form.receiptPaths,
+          createdByUserId: initialInstallment?.createdByUserId,
         });
         return;
       }
@@ -579,6 +595,7 @@ export function MovementModal({
       accountId: form.kind === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
       cardId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
       receiptPaths: form.receiptPaths,
+      createdByUserId: initial?.createdByUserId,
     });
   };
 

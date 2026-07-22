@@ -119,6 +119,21 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 9, contacts: [], contactEntries: [] };
   }
 
+  if (data.schemaVersion === 9) {
+    // v10: el bloqueo con clave/Face ID pasa de ser uno solo compartido por
+    // toda la app a uno por perfil (relevante ahora que dos logins distintos
+    // pueden compartir los mismos datos). El bloqueo global que ya tenías
+    // configurado se copia como punto de partida a cada perfil existente,
+    // para no desproteger ni volver a pedir setup a nadie; de ahí en más
+    // cada uno lo cambia de forma independiente en Configuración > Seguridad.
+    const fallbackLock = data.appLock ?? { enabled: false, pinHash: null };
+    data = {
+      ...data,
+      schemaVersion: 10,
+      users: (data.users ?? []).map((u: any) => (u.lock ? u : { ...u, lock: fallbackLock })),
+    };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.

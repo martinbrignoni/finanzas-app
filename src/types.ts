@@ -41,6 +41,8 @@ export interface Transaction {
   receiptPath?: string;
   /** Rutas de los comprobantes adjuntos (0 o más). Reemplaza a `receiptPath`. */
   receiptPaths?: string[];
+  /** Perfil (AppUser.id) que cargó este movimiento. `undefined` en movimientos guardados antes de este campo. */
+  createdByUserId?: string;
 }
 
 export interface Bank {
@@ -130,6 +132,8 @@ export interface Transfer {
   receiptPath?: string;
   /** Rutas de los comprobantes adjuntos (0 o más). */
   receiptPaths?: string[];
+  /** Perfil (AppUser.id) que cargó este movimiento. */
+  createdByUserId?: string;
 }
 
 export interface Card {
@@ -186,6 +190,8 @@ export interface Installment {
   receiptPath?: string;
   /** Rutas de los comprobantes adjuntos (0 o más). */
   receiptPaths?: string[];
+  /** Perfil (AppUser.id) que cargó este movimiento. */
+  createdByUserId?: string;
 }
 
 /**
@@ -206,6 +212,8 @@ export interface CardPayment {
   receiptPath?: string;
   /** Rutas de los comprobantes adjuntos (0 o más). */
   receiptPaths?: string[];
+  /** Perfil (AppUser.id) que cargó este movimiento. */
+  createdByUserId?: string;
 }
 
 export interface Budget {
@@ -331,6 +339,12 @@ export interface AppUser {
    * con qué login de Supabase Auth haya entrado.
    */
   isAdmin?: boolean;
+  /**
+   * Bloqueo con clave/Face ID-Touch ID propio de este perfil (independiente
+   * del de otros perfiles). Si no está definido, el perfil no pide nada al
+   * abrir la app.
+   */
+  lock?: AppLock;
 }
 
 /** Nota de texto libre dejada por un perfil, visible para todos los perfiles que comparten la app. */
@@ -397,7 +411,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 10;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [

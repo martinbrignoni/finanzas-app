@@ -4,17 +4,24 @@ import { theme as C } from "../../styles/theme";
 import { Field, TextInput, PrimaryButton } from "../../components/ui";
 import { sha256Hex } from "../../lib/crypto";
 import { forgetBiometric, hasBiometricCredential, isBiometricAvailable, registerBiometric } from "../../lib/biometric";
-import type { AppLock } from "../../types";
+import type { AppLock, AppUser } from "../../types";
 
+/**
+ * Seguridad es siempre "de uno mismo": cada perfil configura su propia clave
+ * y su propio Face ID/Touch ID, sin depender del permiso "configuracion"
+ * (que es para administrar categorías/bancos/usuarios de otros). Por eso no
+ * recibe `canEdit`: cualquiera que esté usando su propio perfil puede tocar
+ * su bloqueo.
+ */
 export function SecuritySettings({
-  appLock,
-  canEdit,
-  onUpdateAppLock,
+  user,
+  onUpdateUserLock,
 }: {
-  appLock: AppLock;
-  canEdit: boolean;
-  onUpdateAppLock: (partial: Partial<AppLock>) => void;
+  user: AppUser;
+  onUpdateUserLock: (partial: Partial<AppLock>) => void;
 }) {
+  const appLock: AppLock = user.lock ?? { enabled: false, pinHash: null };
+
   const [editingPin, setEditingPin] = useState(false);
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -22,7 +29,7 @@ export function SecuritySettings({
   const [saving, setSaving] = useState(false);
 
   const [biometricAvailable, setBiometricAvailable] = useState(false);
-  const [biometricRegistered, setBiometricRegistered] = useState(hasBiometricCredential());
+  const [biometricRegistered, setBiometricRegistered] = useState(hasBiometricCredential(user.id));
   const [biometricBusy, setBiometricBusy] = useState(false);
   const [biometricError, setBiometricError] = useState<string | null>(null);
 
@@ -30,12 +37,24 @@ export function SecuritySettings({
     isBiometricAvailable().then(setBiometricAvailable);
   }, []);
 
+  // Si se cambia de perfil (ej. admin que cambia entre el suyo y el de otro
+  // desde el selector), reflejamos el estado de Face ID de ESE perfil.
+  useEffect(() => {
+    setBiometricRegistered(hasBiometricCredential(user.id));
+    setEditingPin(false);
+    setNewPin("");
+    setConfirmPin("");
+    setPinError(null);
+    setBiometricError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
+
   const handleToggle = () => {
     if (!appLock.pinHash) {
       setEditingPin(true); // todavía no hay clave creada, hay que crear una primero
       return;
     }
-    onUpdateAppLock({ enabled: !appLock.enabled });
+    onUpdateUserLock({ enabled: !appLock.enabled });
   };
 
   const cancelEditPin = () => {
@@ -51,7 +70,7 @@ export function SecuritySettings({
     setSaving(true);
     const hash = await sha256Hex(newPin);
     setSaving(false);
-    onUpdateAppLock({ pinHash: hash, enabled: true });
+    onUpdateUserLock({ pinHash: hash, enabled: true });
     cancelEditPin();
   };
 
@@ -59,7 +78,7 @@ export function SecuritySettings({
     setBiometricError(null);
     setBiometricBusy(true);
     try {
-      await registerBiometric("Finanzas");
+      await registerBiometric(user.name || "Finanzas", user.id);
       setBiometricRegistered(true);
     } catch {
       setBiometricError("No se pudo registrar. Probá de nuevo, o revisá que el dispositivo tenga Face ID/Touch ID configurado.");
@@ -68,7 +87,7 @@ export function SecuritySettings({
   };
 
   const handleForgetBiometric = () => {
-    forgetBiometric();
+    forgetBiometric(user.id);
     setBiometricRegistered(false);
   };
 
@@ -80,27 +99,25 @@ export function SecuritySettings({
             <Lock size={16} color={C.usd} />
             <span className="text-sm font-semibold" style={{ color: C.text }}>Bloqueo con clave</span>
           </div>
-          {canEdit && (
-            <button
-              onClick={handleToggle}
-              className="text-xs font-semibold px-3 py-1.5 rounded-full"
-              style={{ background: appLock.enabled ? C.usd : C.surface2, color: appLock.enabled ? "#0A1413" : C.textMuted }}
-            >
-              {appLock.enabled ? "Activado" : "Desactivado"}
-            </button>
-          )}
+          <button
+            onClick={handleToggle}
+            className="text-xs font-semibold px-3 py-1.5 rounded-full"
+            style={{ background: appLock.enabled ? C.usd : C.surface2, color: appLock.enabled ? "#0A1413" : C.textMuted }}
+          >
+            {appLock.enabled ? "Activado" : "Desactivado"}
+          </button>
         </div>
         <p className="text-xs" style={{ color: C.textFaint }}>
-          Pide una clave (y, si está disponible, Face ID/Touch ID) cada vez que se abre la app en este dispositivo.
+          Pide una clave (y, si está disponible, Face ID/Touch ID) cada vez que {user.name || "este perfil"} abre la app en este dispositivo. Es propia de este perfil: no afecta el bloqueo de otros perfiles.
         </p>
 
-        {canEdit && appLock.pinHash && !editingPin && (
+        {appLock.pinHash && !editingPin && (
           <button onClick={() => setEditingPin(true)} className="text-xs font-semibold mt-3" style={{ color: C.usd }}>
             Cambiar clave
           </button>
         )}
 
-        {canEdit && editingPin && (
+        {editingPin && (
           <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
             <Field label="Clave nueva (4 a 8 números)">
               {(id) => (
@@ -161,21 +178,20 @@ export function SecuritySettings({
                 Se registra por dispositivo: si abrís la app en otro celular o compu, hay que registrarlo ahí también. La clave siempre sirve como respaldo.
               </p>
               {biometricError && <p className="text-xs mb-2" style={{ color: C.negative }}>{biometricError}</p>}
-              {canEdit &&
-                (biometricRegistered ? (
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs flex items-center gap-1" style={{ color: C.positive }}>
-                      <ShieldCheck size={13} /> Registrado en este dispositivo
-                    </span>
-                    <button onClick={handleForgetBiometric} className="text-xs font-semibold" style={{ color: C.negative }}>
-                      Quitar
-                    </button>
-                  </div>
-                ) : (
-                  <button onClick={handleRegisterBiometric} disabled={biometricBusy} className="text-xs font-semibold" style={{ color: C.usd }}>
-                    {biometricBusy ? "Registrando..." : "Registrar en este dispositivo"}
+              {biometricRegistered ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs flex items-center gap-1" style={{ color: C.positive }}>
+                    <ShieldCheck size={13} /> Registrado en este dispositivo
+                  </span>
+                  <button onClick={handleForgetBiometric} className="text-xs font-semibold" style={{ color: C.negative }}>
+                    Quitar
                   </button>
-                ))}
+                </div>
+              ) : (
+                <button onClick={handleRegisterBiometric} disabled={biometricBusy} className="text-xs font-semibold" style={{ color: C.usd }}>
+                  {biometricBusy ? "Registrando..." : "Registrar en este dispositivo"}
+                </button>
+              )}
             </>
           )}
         </div>

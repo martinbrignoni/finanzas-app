@@ -139,16 +139,29 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.activeUserId, lockedToNonAdmin, matchedUser?.id]);
 
+  // Si cambia el perfil activo (ej. el superusuario cambia al perfil de otra
+  // persona desde el selector), volvemos a pedir el bloqueo de ESE perfil en
+  // vez de seguir "desbloqueados" con el PIN del perfil anterior.
+  const prevActiveUserId = useRef<string | null>(null);
+  useEffect(() => {
+    const id = activeUser?.id ?? null;
+    if (prevActiveUserId.current !== null && prevActiveUserId.current !== id) {
+      setUnlocked(false);
+    }
+    prevActiveUserId.current = id;
+  }, [activeUser?.id]);
+
   // --- transactions ---
   const upsertTransaction = useCallback((t: Transaction) => {
     setData((d) => {
       if (!d) return d;
       const idx = d.transactions.findIndex((x) => x.id === t.id);
-      const transactions = idx >= 0 ? d.transactions.map((x) => (x.id === t.id ? t : x)) : [...d.transactions, t];
+      const withCreator = idx >= 0 ? t : { ...t, createdByUserId: t.createdByUserId ?? activeUser?.id };
+      const transactions = idx >= 0 ? d.transactions.map((x) => (x.id === t.id ? withCreator : x)) : [...d.transactions, withCreator];
       return { ...d, transactions };
     });
     closeModal();
-  }, []);
+  }, [activeUser]);
   const deleteTransaction = useCallback((id: string) => {
     setData((d) => (d ? { ...d, transactions: d.transactions.filter((x) => x.id !== id) } : d));
   }, []);
@@ -188,11 +201,12 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.installments.findIndex((x) => x.id === inst.id);
-      const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? inst : x)) : [...d.installments, inst];
+      const withCreator = idx >= 0 ? inst : { ...inst, createdByUserId: inst.createdByUserId ?? activeUser?.id };
+      const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? withCreator : x)) : [...d.installments, withCreator];
       return { ...d, installments };
     });
     closeModal();
-  }, []);
+  }, [activeUser]);
   const deleteInstallment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, installments: d.installments.filter((x) => x.id !== id) } : d));
   }, []);
@@ -204,11 +218,12 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.cardPayments.findIndex((x) => x.id === p.id);
-      const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? p : x)) : [...d.cardPayments, p];
+      const withCreator = idx >= 0 ? p : { ...p, createdByUserId: p.createdByUserId ?? activeUser?.id };
+      const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? withCreator : x)) : [...d.cardPayments, withCreator];
       return { ...d, cardPayments };
     });
     closeModal();
-  }, []);
+  }, [activeUser]);
   const deleteCardPayment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, cardPayments: d.cardPayments.filter((x) => x.id !== id) } : d));
   }, []);
@@ -291,11 +306,12 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.transfers.findIndex((x) => x.id === tr.id);
-      const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? tr : x)) : [...d.transfers, tr];
+      const withCreator = idx >= 0 ? tr : { ...tr, createdByUserId: tr.createdByUserId ?? activeUser?.id };
+      const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? withCreator : x)) : [...d.transfers, withCreator];
       return { ...d, transfers };
     });
     closeModal();
-  }, []);
+  }, [activeUser]);
   const deleteTransfer = useCallback((id: string) => {
     setData((d) => (d ? { ...d, transfers: d.transfers.filter((x) => x.id !== id) } : d));
   }, []);
@@ -446,11 +462,6 @@ export default function App() {
     [requestConfirm, deleteNote]
   );
 
-  // --- bloqueo de la app ---
-  const updateAppLock = useCallback((partial: Partial<AppLock>) => {
-    setData((d) => (d ? { ...d, appLock: { ...d.appLock, ...partial } } : d));
-  }, []);
-
   // --- users ---
   const upsertUser = useCallback((u: AppUser) => {
     setData((d) => {
@@ -477,6 +488,16 @@ export default function App() {
     setData((d) => (d ? { ...d, activeUserId: id } : d));
     setUserMenuOpen(false);
   }, []);
+  // Actualiza el bloqueo (clave/Face ID) del perfil actualmente activo, no de todos los perfiles.
+  const updateActiveUserLock = useCallback((partial: Partial<AppLock>) => {
+    setData((d) => {
+      if (!d || !d.activeUserId) return d;
+      const users = d.users.map((u) =>
+        u.id === d.activeUserId ? { ...u, lock: { ...(u.lock ?? { enabled: false, pinHash: null }), ...partial } } : u
+      );
+      return { ...d, users };
+    });
+  }, []);
 
   if (!data) {
     return (
@@ -486,8 +507,15 @@ export default function App() {
     );
   }
 
-  if (data.appLock?.enabled && !unlocked) {
-    return <LockScreen pinHash={data.appLock.pinHash} onUnlock={() => setUnlocked(true)} />;
+  if (activeUser?.lock?.enabled && !unlocked) {
+    return (
+      <LockScreen
+        userId={activeUser.id}
+        userName={activeUser.name}
+        pinHash={activeUser.lock.pinHash}
+        onUnlock={() => setUnlocked(true)}
+      />
+    );
   }
 
   const visibleTabs = TABS.filter((t) => has(t.id, "view"));
@@ -582,6 +610,7 @@ export default function App() {
                 cards={data.cards}
                 accounts={data.accounts}
                 banks={data.banks}
+                users={data.users}
                 canEdit={has("movimientos", "edit")}
                 onEdit={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDelete={confirmDeleteTransaction}
@@ -694,7 +723,7 @@ export default function App() {
                 contactEntries={data.contactEntries}
                 installments={data.installments}
                 budgets={data.budgets}
-                appLock={data.appLock}
+                activeUser={activeUser}
                 banks={data.banks}
                 accounts={data.accounts}
                 canEdit={has("configuracion", "edit")}
@@ -707,7 +736,7 @@ export default function App() {
                 onDeleteCategory={confirmDeleteCategory}
                 onMoveCategory={moveCategory}
                 onReclassifyCategory={reclassifyCategory}
-                onUpdateAppLock={updateAppLock}
+                onUpdateUserLock={updateActiveUserLock}
                 onUpdateBank={updateBankFields}
                 onUpdateAccount={updateAccountFields}
               />

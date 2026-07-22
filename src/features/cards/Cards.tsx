@@ -626,6 +626,7 @@ export function CardPaymentModal({
       currency,
       note: note.trim() || undefined,
       receiptPaths,
+      createdByUserId: initial?.createdByUserId,
     });
   };
 

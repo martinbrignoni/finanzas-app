@@ -8,11 +8,22 @@ import { supabase } from "../../lib/supabaseClient";
 
 /**
  * Pantalla de bloqueo de la app (además del login de Supabase). Se muestra
- * cuando `appLock.enabled` es true y todavía no se ingresó el PIN correcto
- * (o Face ID/Touch ID, si está configurado en este dispositivo) en esta
- * apertura de la app.
+ * cuando el bloqueo del perfil activo (`AppUser.lock`) está activado y
+ * todavía no se ingresó el PIN correcto (o Face ID/Touch ID, si está
+ * configurado en este dispositivo para ESE perfil) en esta apertura de la
+ * app. Cada perfil tiene su propio PIN/Face ID, independiente del de otros.
  */
-export function LockScreen({ pinHash, onUnlock }: { pinHash: string | null; onUnlock: () => void }) {
+export function LockScreen({
+  userId,
+  userName,
+  pinHash,
+  onUnlock,
+}: {
+  userId: string;
+  userName?: string;
+  pinHash: string | null;
+  onUnlock: () => void;
+}) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -21,17 +32,17 @@ export function LockScreen({ pinHash, onUnlock }: { pinHash: string | null; onUn
   useEffect(() => {
     let cancelado = false;
     isBiometricAvailable().then((available) => {
-      if (!cancelado) setBiometricReady(available && hasBiometricCredential());
+      if (!cancelado) setBiometricReady(available && hasBiometricCredential(userId));
     });
     return () => {
       cancelado = true;
     };
-  }, []);
+  }, [userId]);
 
   const tryBiometric = async () => {
     setError(null);
     setChecking(true);
-    const ok = await verifyBiometric();
+    const ok = await verifyBiometric(userId);
     setChecking(false);
     if (ok) onUnlock();
     else setError("No se pudo verificar. Probá con la clave.");
@@ -67,7 +78,9 @@ export function LockScreen({ pinHash, onUnlock }: { pinHash: string | null; onUn
             <Lock size={24} color={C.usd} />
           </div>
           <h1 className="text-lg font-display" style={{ color: C.text }}>Finanzas bloqueadas</h1>
-          <p className="text-xs text-center mt-1" style={{ color: C.textFaint }}>Ingresá tu clave para continuar</p>
+          <p className="text-xs text-center mt-1" style={{ color: C.textFaint }}>
+            {userName ? `Ingresá la clave de ${userName} para continuar` : "Ingresá tu clave para continuar"}
+          </p>
         </div>
 
         <TextInput

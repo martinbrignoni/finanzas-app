@@ -17,7 +17,7 @@ export function Settings({
   contactEntries,
   installments,
   budgets,
-  appLock,
+  activeUser,
   banks,
   accounts,
   canEdit,
@@ -30,7 +30,7 @@ export function Settings({
   onDeleteCategory,
   onMoveCategory,
   onReclassifyCategory,
-  onUpdateAppLock,
+  onUpdateUserLock,
   onUpdateBank,
   onUpdateAccount,
 }: {
@@ -43,7 +43,8 @@ export function Settings({
   contactEntries: ContactEntry[];
   installments: Installment[];
   budgets: Budget[];
-  appLock: AppLock;
+  /** Perfil actualmente activo: la sección Seguridad edita el bloqueo de este perfil, no el de otros. */
+  activeUser: AppUser | null;
   banks: Bank[];
   accounts: Account[];
   canEdit: boolean;
@@ -56,7 +57,7 @@ export function Settings({
   onDeleteCategory: (id: string) => void;
   onMoveCategory: (id: string, newParentId: string) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
-  onUpdateAppLock: (partial: Partial<AppLock>) => void;
+  onUpdateUserLock: (partial: Partial<AppLock>) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
 }) {
@@ -117,7 +118,9 @@ export function Settings({
           onUpdateAccount={onUpdateAccount}
         />
       )}
-      {section === "seguridad" && <SecuritySettings appLock={appLock} canEdit={canEdit} onUpdateAppLock={onUpdateAppLock} />}
+      {section === "seguridad" && activeUser && (
+        <SecuritySettings user={activeUser} onUpdateUserLock={onUpdateUserLock} />
+      )}
     </div>
   );
 }
