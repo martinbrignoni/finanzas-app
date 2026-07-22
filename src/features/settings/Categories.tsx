@@ -1,9 +1,12 @@
 import { useState } from "react";
-import { Plus, Trash2, ArrowRightLeft } from "lucide-react";
+import { Plus, Trash2, ArrowRightLeft, List, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
 import { categoryFullPath } from "../../lib/categories";
+import { formatMoney } from "../../lib/money";
+import { formatDateDMY, monthKeyOf, monthLabel, capitalize } from "../../lib/dates";
+import { exportCategoryToExcel } from "../../lib/excelExport";
 import type { Category, Transaction, Installment, Budget, TransactionType } from "../../types";
 
 export function CategoriesSettings({
@@ -32,6 +35,7 @@ export function CategoriesSettings({
   const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
   const [reclassifyTarget, setReclassifyTarget] = useState<Category | null>(null);
   const [moveTarget, setMoveTarget] = useState<Category | null>(null);
+  const [ledgerTarget, setLedgerTarget] = useState<Category | null>(null);
 
   const hasChildren = (cat: Category) => categories.some((c) => c.parentId === cat.id);
   const countMovements = (cat: Category) => {
@@ -85,7 +89,17 @@ export function CategoriesSettings({
                     style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
                   >
                     <span className="font-semibold" style={{ color: C.text }}>{madre.name}</span>
-                    {canEdit && <IconBtn label={`Eliminar ${madre.name}`} danger onClick={() => handleDelete(madre)}><Trash2 size={14} /></IconBtn>}
+                    <div className="flex items-center gap-1">
+                      {countMovements(madre) > 0 && (
+                        <>
+                          <span className="text-xs" style={{ color: C.textFaint }}>
+                            {countMovements(madre)} mov.
+                          </span>
+                          <IconBtn label={`Ver movimientos de ${madre.name}`} onClick={() => setLedgerTarget(madre)}><List size={14} /></IconBtn>
+                        </>
+                      )}
+                      {canEdit && <IconBtn label={`Eliminar ${madre.name}`} danger onClick={() => handleDelete(madre)}><Trash2 size={14} /></IconBtn>}
+                    </div>
                   </div>
                   {hijas.map((cat) => {
                     const nietas = categories.filter((c) => c.parentId === cat.id);
@@ -96,12 +110,22 @@ export function CategoriesSettings({
                           style={{ background: C.surface2, borderTop: `1px solid ${C.border}` }}
                         >
                           <span style={{ color: C.text }}>{cat.name}</span>
-                          {canEdit && (
-                            <div className="flex gap-1">
-                              <IconBtn label={`Mover ${cat.name}`} onClick={() => setMoveTarget(cat)}><ArrowRightLeft size={13} /></IconBtn>
-                              <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1">
+                            {countMovements(cat) > 0 && (
+                              <>
+                                <span className="text-xs" style={{ color: C.textFaint }}>
+                                  {countMovements(cat)} mov.
+                                </span>
+                                <IconBtn label={`Ver movimientos de ${cat.name}`} onClick={() => setLedgerTarget(cat)}><List size={13} /></IconBtn>
+                              </>
+                            )}
+                            {canEdit && (
+                              <>
+                                <IconBtn label={`Mover ${cat.name}`} onClick={() => setMoveTarget(cat)}><ArrowRightLeft size={13} /></IconBtn>
+                                <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>
+                              </>
+                            )}
+                          </div>
                         </div>
                         {nietas.map((sub) => (
                           <div
@@ -110,12 +134,22 @@ export function CategoriesSettings({
                             style={{ background: C.surface, borderTop: `1px solid ${C.border}` }}
                           >
                             <span style={{ color: C.textMuted }}>{sub.name}</span>
-                            {canEdit && (
-                              <div className="flex gap-1">
-                                <IconBtn label={`Mover ${sub.name}`} onClick={() => setMoveTarget(sub)}><ArrowRightLeft size={12} /></IconBtn>
-                                <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>
-                              </div>
-                            )}
+                            <div className="flex items-center gap-1">
+                              {countMovements(sub) > 0 && (
+                                <>
+                                  <span className="text-xs" style={{ color: C.textFaint }}>
+                                    {countMovements(sub)} mov.
+                                  </span>
+                                  <IconBtn label={`Ver movimientos de ${sub.name}`} onClick={() => setLedgerTarget(sub)}><List size={12} /></IconBtn>
+                                </>
+                              )}
+                              {canEdit && (
+                                <>
+                                  <IconBtn label={`Mover ${sub.name}`} onClick={() => setMoveTarget(sub)}><ArrowRightLeft size={12} /></IconBtn>
+                                  <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>
+                                </>
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -163,7 +197,111 @@ export function CategoriesSettings({
           onClose={() => setMoveTarget(null)}
         />
       )}
+
+      {ledgerTarget && (
+        <CategoryLedgerModal
+          category={ledgerTarget}
+          categories={categories}
+          transactions={transactions}
+          installments={installments}
+          onClose={() => setLedgerTarget(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Lista los movimientos (gastos/ingresos y compras en cuotas) de una categoría, con opción de exportarlos a Excel. */
+function CategoryLedgerModal({
+  category,
+  categories,
+  transactions,
+  installments,
+  onClose,
+}: {
+  category: Category;
+  categories: Category[];
+  transactions: Transaction[];
+  installments: Installment[];
+  onClose: () => void;
+}) {
+  const fullPath = categoryFullPath(category, categories);
+
+  const items = [
+    ...transactions
+      .filter((t) => t.category === fullPath)
+      .map((t) => ({
+        id: t.id,
+        date: t.date,
+        label: t.type === "ingreso" ? "Ingreso" : "Gasto",
+        note: t.note,
+        amountMinor: t.amountMinor,
+        sign: t.type === "ingreso" ? 1 : -1,
+        currency: t.currency,
+      })),
+    ...installments
+      .filter((i) => i.category === fullPath)
+      .map((i) => ({
+        id: i.id,
+        date: i.date ?? `${i.startMonth}-01`,
+        label: `Compra en cuotas (${i.numInstallments})`,
+        note: [i.description, i.note].filter(Boolean).join(" · "),
+        amountMinor: i.totalAmountMinor,
+        sign: -1 as const,
+        currency: i.currency,
+      })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  const grouped = new Map<string, typeof items>();
+  items.forEach((it) => {
+    const mk = monthKeyOf(it.date);
+    grouped.set(mk, [...(grouped.get(mk) ?? []), it]);
+  });
+
+  return (
+    <Modal title={`Movimientos: ${category.name}`} onClose={onClose}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-xs" style={{ color: C.textFaint }}>
+          {items.length} movimiento{items.length === 1 ? "" : "s"}
+        </span>
+        {items.length > 0 && (
+          <button
+            onClick={() => exportCategoryToExcel(category, categories, transactions, installments)}
+            className="text-xs font-semibold flex items-center gap-1"
+            style={{ color: C.usd }}
+          >
+            <Download size={13} /> Exportar a Excel
+          </button>
+        )}
+      </div>
+
+      {items.length === 0 ? (
+        <p className="text-xs" style={{ color: C.textFaint }}>Todavía no hay movimientos en esta categoría.</p>
+      ) : (
+        <div className="space-y-3 max-h-[55vh] overflow-y-auto">
+          {Array.from(grouped.entries()).map(([mk, monthItems]) => (
+            <div key={mk}>
+              <div className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: C.textFaint }}>
+                {capitalize(monthLabel(mk))}
+              </div>
+              <div className="space-y-1.5">
+                {monthItems.map((it) => (
+                  <div key={it.id} className="rounded-lg p-2.5 flex items-center justify-between text-sm" style={{ background: C.surface2 }}>
+                    <div>
+                      <div style={{ color: C.text }}>{it.label}{it.note ? ` · ${it.note}` : ""}</div>
+                      <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(it.date)}</div>
+                    </div>
+                    <span className="font-mono text-sm" style={{ color: it.sign > 0 ? C.positive : C.negative }}>
+                      {it.sign > 0 ? "+" : "-"}{formatMoney(it.amountMinor, it.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 }
 

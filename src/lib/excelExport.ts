@@ -1,7 +1,8 @@
 import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
 import { accountBalance } from "./accounts";
-import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry } from "../types";
+import { categoryFullPath } from "./categories";
+import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry, Category, Installment } from "../types";
 import type { ExchangeRateRow } from "./exchangeRates";
 import { contactEntryAccountImpact } from "./contacts";
 
@@ -103,6 +104,50 @@ export function exportBankToExcel(
   const today = new Date().toISOString().slice(0, 10);
   const filename = `${bank.name.replace(/[^a-zA-Z0-9-_ ]/g, "")}_${today}.xlsx`;
   XLSX.writeFile(wb, filename);
+}
+
+/**
+ * Exporta todos los movimientos (gastos/ingresos y compras en cuotas) de una
+ * categoría puntual a un Excel de una sola hoja, ordenados por fecha.
+ */
+export function exportCategoryToExcel(
+  category: Category,
+  categories: Category[],
+  transactions: Transaction[],
+  installments: Installment[]
+): void {
+  const fullPath = categoryFullPath(category, categories);
+
+  const txRows = transactions
+    .filter((t) => t.category === fullPath)
+    .map((t) => ({
+      Fecha: t.date,
+      Tipo: t.type === "ingreso" ? "Ingreso" : "Gasto",
+      Nota: t.note ?? "",
+      Monto: fromMinor(t.amountMinor) * (t.type === "gasto" ? -1 : 1),
+      Moneda: t.currency,
+    }));
+
+  const instRows = installments
+    .filter((i) => i.category === fullPath)
+    .map((i) => ({
+      Fecha: i.date ?? `${i.startMonth}-01`,
+      Tipo: `Compra en cuotas (${i.numInstallments})`,
+      Nota: [i.description, i.note].filter(Boolean).join(" · "),
+      Monto: -fromMinor(i.totalAmountMinor),
+      Moneda: i.currency,
+    }));
+
+  const rows = [...txRows, ...instRows].sort((a, b) => a.Fecha.localeCompare(b.Fecha));
+
+  const wb = XLSX.utils.book_new();
+  const sheet = XLSX.utils.json_to_sheet(
+    rows.length ? rows : [{ Fecha: "", Tipo: "", Nota: "Sin movimientos", Monto: "", Moneda: "" }]
+  );
+  XLSX.utils.book_append_sheet(wb, sheet, sheetName(category.name));
+
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `${category.name.replace(/[^a-zA-Z0-9-_ ]/g, "")}_movimientos_${today}.xlsx`);
 }
 
 /** Exporta el histórico completo de cotizaciones (una hoja por moneda) a un Excel. */
