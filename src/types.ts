@@ -231,6 +231,48 @@ export interface Category {
 }
 
 /**
+ * Persona o empresa con la que llevás una cuenta corriente informal: plata
+ * que vos ponés por ella o que ella pone por vos, y que se salda de vez en
+ * cuando (ej. un amigo, un cliente del estudio, tu padre). No es un usuario
+ * de la app, solo un contacto para llevar la cuenta.
+ */
+export interface Contact {
+  id: string;
+  name: string;
+  /**
+   * Etiqueta libre para organizar y filtrar (ej. "Personas", "Clientes",
+   * "Familia"). Sin categoría, el contacto queda sin agrupar.
+   */
+  category?: string;
+  note?: string;
+}
+
+/**
+ * Movimiento de la cuenta corriente con un `Contact`. `amountMinor` es un
+ * monto con signo: positivo suma a favor tuyo (le pagaste algo, le
+ * prestaste plata, o te está devolviendo menos de lo que te debía);
+ * negativo resta a favor tuyo (te pagó, te devolvió plata, o le debés vos).
+ * El saldo de un contacto es la suma de sus entries por moneda: positivo =
+ * te debe, negativo = le debés.
+ *
+ * Si `accountId` está cargado, el movimiento también impacta el saldo real
+ * de esa caja: sale plata de la cuenta cuando `amountMinor` es positivo
+ * (vos pusiste la plata), entra cuando es negativo (recibiste plata). Sin
+ * `accountId`, es solo informativo y no mueve ninguna cuenta (ej. "mi papá
+ * pagó directamente la luz de mi casa", sin que pase por una cuenta tuya).
+ */
+export interface ContactEntry {
+  id: string;
+  contactId: string;
+  date: string; // YYYY-MM-DD
+  amountMinor: number;
+  currency: Currency;
+  description: string;
+  accountId?: string;
+  receiptPaths?: string[];
+}
+
+/**
  * Cada módulo/pestaña de la app es una "clave de permiso". Se usa tanto para
  * decidir qué pestañas ve un usuario como qué puede modificar en cada una.
  */
@@ -243,6 +285,7 @@ export type PermissionKey =
   | "proyeccion"
   | "cotizaciones"
   | "notas"
+  | "personas"
   | "configuracion";
 
 export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
@@ -254,6 +297,7 @@ export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
   { key: "proyeccion", label: "Proyección" },
   { key: "cotizaciones", label: "Cotizaciones" },
   { key: "notas", label: "Notas" },
+  { key: "personas", label: "Personas" },
   { key: "configuracion", label: "Configuración" },
 ];
 
@@ -330,6 +374,8 @@ export interface FinanceData {
   cardPayments: CardPayment[];
   accountStatements: AccountStatement[];
   cardStatements: CardStatement[];
+  contacts: Contact[];
+  contactEntries: ContactEntry[];
   categories: Category[];
   notes: Note[];
   appLock: AppLock;
@@ -339,7 +385,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -384,6 +430,8 @@ export function emptyFinanceData(): FinanceData {
     cardPayments: [],
     accountStatements: [],
     cardStatements: [],
+    contacts: [],
+    contactEntries: [],
     categories: defaultCategories(),
     notes: [],
     appLock: { enabled: false, pinHash: null },

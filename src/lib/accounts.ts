@@ -1,18 +1,21 @@
-import type { Account, Bank, Transaction, Transfer, CardPayment } from "../types";
+import type { Account, Bank, Transaction, Transfer, CardPayment, ContactEntry } from "../types";
+import { contactEntryAccountImpact } from "./contacts";
 
 /**
  * Saldo de una cuenta: saldo inicial + ingresos - gastos asignados a esa
  * cuenta, +/- transferencias donde la cuenta es origen o destino, - pagos de
- * tarjeta hechos desde esa cuenta. Si se pasa `asOfDate` (YYYY-MM-DD), solo
- * se consideran movimientos con fecha hasta ese día (saldo "a esa fecha");
- * sin `asOfDate` se consideran todos, incluidos los de fecha futura.
+ * tarjeta hechos desde esa cuenta, +/- movimientos de Personas vinculados a
+ * esa cuenta. Si se pasa `asOfDate` (YYYY-MM-DD), solo se consideran
+ * movimientos con fecha hasta ese día (saldo "a esa fecha"); sin `asOfDate`
+ * se consideran todos, incluidos los de fecha futura.
  */
 export function accountBalance(
   account: Account,
   transactions: Transaction[],
   transfers: Transfer[] = [],
   cardPayments: CardPayment[] = [],
-  asOfDate?: string
+  asOfDate?: string,
+  contactEntries: ContactEntry[] = []
 ): number {
   const inRange = (d: string) => !asOfDate || d <= asOfDate;
 
@@ -31,7 +34,11 @@ export function accountBalance(
     .filter((p) => p.accountId === account.id && inRange(p.date))
     .reduce((sum, p) => sum - p.amountMinor, 0);
 
-  return account.initialBalanceMinor + movement + transferMovement + cardPaymentsMovement;
+  const contactEntriesMovement = contactEntries
+    .filter((e) => e.accountId === account.id && inRange(e.date))
+    .reduce((sum, e) => sum + contactEntryAccountImpact(e), 0);
+
+  return account.initialBalanceMinor + movement + transferMovement + cardPaymentsMovement + contactEntriesMovement;
 }
 
 export function accountsByBank(accounts: Account[], bankId: string): Account[] {
@@ -111,25 +118,28 @@ export interface AccountLedgerEntry {
   /** Monto con signo, en la moneda de la cuenta: positivo = entra, negativo = sale. */
   amountMinor: number;
   runningBalanceMinor: number;
-  kind: "transaction" | "transfer-out" | "transfer-in" | "card-payment";
+  kind: "transaction" | "transfer-out" | "transfer-in" | "card-payment" | "contact-entry";
   transaction?: Transaction;
   transfer?: Transfer;
   cardPayment?: CardPayment;
+  contactEntry?: ContactEntry;
 }
 
 /**
  * Historial completo de una cuenta (movimientos propios, ambas patas de
- * transferencias donde participa, y pagos de tarjeta hechos desde ella), con
- * saldo corriendo, del más reciente al más antiguo. Pensado para la vista
- * "Movimientos de esta cuenta". Si se pasa `asOfDate`, no incluye movimientos
- * con fecha posterior (ver `accountBalance`).
+ * transferencias donde participa, pagos de tarjeta hechos desde ella, y
+ * movimientos de Personas vinculados a ella), con saldo corriendo, del más
+ * reciente al más antiguo. Pensado para la vista "Movimientos de esta
+ * cuenta". Si se pasa `asOfDate`, no incluye movimientos con fecha posterior
+ * (ver `accountBalance`).
  */
 export function accountLedger(
   account: Account,
   transactions: Transaction[],
   transfers: Transfer[],
   cardPayments: CardPayment[] = [],
-  asOfDate?: string
+  asOfDate?: string,
+  contactEntries: ContactEntry[] = []
 ): AccountLedgerEntry[] {
   type Raw = {
     date: string;
@@ -139,6 +149,7 @@ export function accountLedger(
     transaction?: Transaction;
     transfer?: Transfer;
     cardPayment?: CardPayment;
+    contactEntry?: ContactEntry;
   };
 
   const inRange = (d: string) => !asOfDate || d <= asOfDate;
@@ -156,12 +167,15 @@ export function accountLedger(
     ...cardPayments
       .filter((p) => p.accountId === account.id && inRange(p.date))
       .map((p): Raw => ({ date: p.date, id: `${p.id}-pay`, amountMinor: -p.amountMinor, kind: "card-payment", cardPayment: p })),
+    ...contactEntries
+      .filter((e) => e.accountId === account.id && inRange(e.date))
+      .map((e): Raw => ({ date: e.date, id: `${e.id}-contact`, amountMinor: contactEntryAccountImpact(e), kind: "contact-entry", contactEntry: e })),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
   let running = account.initialBalanceMinor;
   const withBalance = raw.map((r) => {
     running += r.amountMinor;
-    return { date: r.date, amountMinor: r.amountMinor, kind: r.kind, transaction: r.transaction, transfer: r.transfer, cardPayment: r.cardPayment, runningBalanceMinor: running };
+    return { date: r.date, amountMinor: r.amountMinor, kind: r.kind, transaction: r.transaction, transfer: r.transfer, cardPayment: r.cardPayment, contactEntry: r.contactEntry, runningBalanceMinor: running };
   });
 
   return withBalance.reverse();

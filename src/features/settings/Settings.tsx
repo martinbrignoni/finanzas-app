@@ -5,7 +5,7 @@ import { CategoriesSettings } from "./Categories";
 import { UsersSettings } from "./Users";
 import { SecuritySettings } from "./Security";
 import { BanksSettings } from "./Banks";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, Installment, Budget, AppLock, Bank, Account } from "../../types";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account } from "../../types";
 
 export function Settings({
   users,
@@ -14,6 +14,7 @@ export function Settings({
   transactions,
   transfers,
   cardPayments,
+  contactEntries,
   installments,
   budgets,
   appLock,
@@ -38,6 +39,7 @@ export function Settings({
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  contactEntries: ContactEntry[];
   installments: Installment[];
   budgets: Budget[];
   appLock: AppLock;
@@ -106,6 +108,7 @@ export function Settings({
           transactions={transactions}
           transfers={transfers}
           cardPayments={cardPayments}
+          contactEntries={contactEntries}
           canEdit={canEdit}
           onUpdateBank={onUpdateBank}
           onUpdateAccount={onUpdateAccount}

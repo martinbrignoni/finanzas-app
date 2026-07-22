@@ -113,6 +113,11 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 8, cardStatements: [] };
   }
 
+  if (data.schemaVersion === 8) {
+    // v9: cuenta corriente con terceros (Personas): contactos y sus movimientos de deuda.
+    data = { ...data, schemaVersion: 9, contacts: [], contactEntries: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -122,6 +127,10 @@ function migrate(raw: any): FinanceData {
   // Ídem para el permiso "notas".
   const usersConNotas: AppUser[] = usersConCotizaciones.map((u) =>
     u.permissions?.notas ? u : { ...u, permissions: { ...u.permissions, notas: { view: true, edit: true } } }
+  );
+  // Ídem para el permiso "personas".
+  const usersConPersonas: AppUser[] = usersConNotas.map((u) =>
+    u.permissions?.personas ? u : { ...u, permissions: { ...u.permissions, personas: { view: true, edit: true } } }
   );
 
   return {
@@ -136,11 +145,13 @@ function migrate(raw: any): FinanceData {
     cardPayments: data.cardPayments ?? [],
     accountStatements: data.accountStatements ?? [],
     cardStatements: data.cardStatements ?? [],
+    contacts: data.contacts ?? [],
+    contactEntries: data.contactEntries ?? [],
     categories: data.categories ?? [],
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },
     sortOrders: data.sortOrders ?? { banks: [], accountsByBank: [], accountsByCurrency: [] },
-    users: usersConNotas,
+    users: usersConPersonas,
     activeUserId: data.activeUserId ?? null,
   };
 }

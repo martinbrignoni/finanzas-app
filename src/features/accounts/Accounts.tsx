@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Users, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
@@ -11,7 +11,7 @@ import { orderItems, moveWithinGroup } from "../../lib/order";
 import { pendingStatementMonths, getStatement } from "../../lib/accountStatements";
 import { exportBankToExcel } from "../../lib/excelExport";
 import { formatDateDMY, currentMonthKey, addMonths, monthLabel, capitalize, todayISO } from "../../lib/dates";
-import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders, AccountStatement } from "../../types";
+import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders, AccountStatement, Contact, ContactEntry } from "../../types";
 
 export function Accounts({
   banks,
@@ -19,6 +19,8 @@ export function Accounts({
   transactions,
   transfers,
   cardPayments,
+  contacts,
+  contactEntries,
   cards,
   canEdit,
   canEditMovements,
@@ -46,6 +48,8 @@ export function Accounts({
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  contacts: Contact[];
+  contactEntries: ContactEntry[];
   cards: Card[];
   canEdit: boolean;
   canEditMovements: boolean;
@@ -219,7 +223,8 @@ export function Accounts({
               const hasMovements =
                 transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||
                 transfers.some((tr) => bankAccounts.some((a) => a.id === tr.fromAccountId || a.id === tr.toAccountId)) ||
-                cardPayments.some((p) => bankAccounts.some((a) => a.id === p.accountId));
+                cardPayments.some((p) => bankAccounts.some((a) => a.id === p.accountId)) ||
+                contactEntries.some((e) => bankAccounts.some((a) => a.id === e.accountId));
               return (
                 <div key={bank.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                   <div className="flex items-center justify-between mb-3">
@@ -249,7 +254,7 @@ export function Accounts({
                         <>
                           <IconBtn
                             label="Exportar a Excel"
-                            onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers, cardPayments)}
+                            onClick={() => exportBankToExcel(bank, bankAccounts, transactions, transfers, cardPayments, contactEntries)}
                           >
                             <FileSpreadsheet size={15} />
                           </IconBtn>
@@ -269,7 +274,7 @@ export function Accounts({
                   ) : (
                     <div className="space-y-1.5 mb-2">
                       {bankAccounts.map((acc, accIdx) => {
-                        const balance = accountBalance(acc, transactions, transfers, cardPayments, asOfDate);
+                        const balance = accountBalance(acc, transactions, transfers, cardPayments, asOfDate, contactEntries);
                         return (
                           <button
                             key={acc.id}
@@ -351,7 +356,7 @@ export function Accounts({
                 sortOrders.accountsByCurrency
               );
               if (currencyAccounts.length === 0) return null;
-              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers, cardPayments, asOfDate), 0);
+              const total = currencyAccounts.reduce((sum, a) => sum + accountBalance(a, transactions, transfers, cardPayments, asOfDate, contactEntries), 0);
               return (
                 <div key={currency} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                   <div className="flex items-center justify-between mb-3">
@@ -363,7 +368,7 @@ export function Accounts({
                   </div>
                   <div className="space-y-1.5">
                     {currencyAccounts.map((acc, accIdx) => {
-                      const balance = accountBalance(acc, transactions, transfers, cardPayments, asOfDate);
+                      const balance = accountBalance(acc, transactions, transfers, cardPayments, asOfDate, contactEntries);
                       return (
                         <button
                           key={acc.id}
@@ -442,6 +447,8 @@ export function Accounts({
           transactions={transactions}
           transfers={transfers}
           cardPayments={cardPayments}
+          contacts={contacts}
+          contactEntries={contactEntries}
           cards={cards}
           canEdit={canEditMovements}
           asOfDate={asOfDate}
@@ -467,6 +474,8 @@ function AccountLedgerModal({
   transactions,
   transfers,
   cardPayments,
+  contacts,
+  contactEntries,
   cards,
   canEdit,
   asOfDate,
@@ -486,6 +495,8 @@ function AccountLedgerModal({
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  contacts: Contact[];
+  contactEntries: ContactEntry[];
   cards: Card[];
   canEdit: boolean;
   /** Fecha (YYYY-MM-DD) hasta la que se muestran saldo y movimientos; hoy por defecto. */
@@ -500,8 +511,8 @@ function AccountLedgerModal({
   onDeleteCardPayment: (id: string) => void;
   onClose: () => void;
 }) {
-  const entries = accountLedger(account, transactions, transfers, cardPayments, asOfDate);
-  const balance = accountBalance(account, transactions, transfers, cardPayments, asOfDate);
+  const entries = accountLedger(account, transactions, transfers, cardPayments, asOfDate, contactEntries);
+  const balance = accountBalance(account, transactions, transfers, cardPayments, asOfDate, contactEntries);
   const isToday = asOfDate === todayISO();
   const [copied, setCopied] = useState(false);
 
@@ -634,17 +645,26 @@ function AccountLedgerModal({
           {entries.map((entry) => {
             const isTransfer = entry.kind === "transfer-out" || entry.kind === "transfer-in";
             const isCardPayment = entry.kind === "card-payment";
+            const isContactEntry = entry.kind === "contact-entry";
             const key =
-              entry.kind === "transaction" ? entry.transaction!.id : isCardPayment ? entry.cardPayment!.id : `${entry.transfer!.id}-${entry.kind}`;
+              entry.kind === "transaction"
+                ? entry.transaction!.id
+                : isCardPayment
+                ? entry.cardPayment!.id
+                : isContactEntry
+                ? entry.contactEntry!.id
+                : `${entry.transfer!.id}-${entry.kind}`;
             const label = isCardPayment
               ? `Pago tarjeta ${cards.find((c) => c.id === entry.cardPayment!.cardId)?.name ?? "eliminada"}`
+              : isContactEntry
+              ? `Personas: ${contacts.find((c) => c.id === entry.contactEntry!.contactId)?.name ?? "contacto eliminado"}`
               : isTransfer
               ? entry.kind === "transfer-out"
                 ? `Transferencia a ${accountLabel(accounts.find((a) => a.id === entry.transfer!.toAccountId), banks)}`
                 : `Transferencia desde ${accountLabel(accounts.find((a) => a.id === entry.transfer!.fromAccountId), banks)}`
               : `${entry.transaction!.category}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
-            const note = isCardPayment ? entry.cardPayment!.note : isTransfer ? entry.transfer!.note : undefined;
-            const receiptPaths = receiptPathsOf(entry.transaction ?? entry.transfer ?? entry.cardPayment);
+            const note = isCardPayment ? entry.cardPayment!.note : isContactEntry ? entry.contactEntry!.description : isTransfer ? entry.transfer!.note : undefined;
+            const receiptPaths = receiptPathsOf(entry.transaction ?? entry.transfer ?? entry.cardPayment ?? entry.contactEntry);
 
             return (
               <div key={key} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
@@ -653,7 +673,7 @@ function AccountLedgerModal({
                     <div
                       className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
                       style={{
-                        background: isCardPayment
+                        background: isCardPayment || isContactEntry
                           ? "rgba(217,119,106,0.15)"
                           : isTransfer
                           ? "rgba(79,168,160,0.15)"
@@ -664,6 +684,8 @@ function AccountLedgerModal({
                     >
                       {isCardPayment ? (
                         <CreditCardIcon size={14} color={C.negative} />
+                      ) : isContactEntry ? (
+                        <Users size={14} color={entry.amountMinor >= 0 ? C.positive : C.negative} />
                       ) : isTransfer ? (
                         <ArrowRightLeft size={14} color={C.usd} />
                       ) : entry.amountMinor >= 0 ? (
@@ -685,7 +707,7 @@ function AccountLedgerModal({
                       <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>saldo {formatMoney(entry.runningBalanceMinor, account.currency)}</div>
                     </div>
                     <ReceiptButton paths={receiptPaths} />
-                    {canEdit && (
+                    {canEdit && !isContactEntry && (
                       <>
                         <IconBtn
                           label="Editar movimiento"

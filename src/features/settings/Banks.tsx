@@ -5,7 +5,7 @@ import { Field, Segment, TextArea, CurrencyPill } from "../../components/ui";
 import { accountBalance } from "../../lib/accounts";
 import { formatMoney } from "../../lib/money";
 import { todayISO } from "../../lib/dates";
-import type { Bank, Account, Transaction, Transfer, CardPayment } from "../../types";
+import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry } from "../../types";
 
 /**
  * Configuración de bancos y cajas que no tiene sentido repetir en el modal
@@ -20,6 +20,7 @@ export function BanksSettings({
   transactions,
   transfers,
   cardPayments,
+  contactEntries,
   canEdit,
   onUpdateBank,
   onUpdateAccount,
@@ -29,6 +30,7 @@ export function BanksSettings({
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  contactEntries: ContactEntry[];
   canEdit: boolean;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
@@ -51,6 +53,7 @@ export function BanksSettings({
           transactions={transactions}
           transfers={transfers}
           cardPayments={cardPayments}
+          contactEntries={contactEntries}
           canEdit={canEdit}
           onUpdateBank={onUpdateBank}
           onUpdateAccount={onUpdateAccount}
@@ -66,6 +69,7 @@ function BankSettingsCard({
   transactions,
   transfers,
   cardPayments,
+  contactEntries,
   canEdit,
   onUpdateBank,
   onUpdateAccount,
@@ -75,6 +79,7 @@ function BankSettingsCard({
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
+  contactEntries: ContactEntry[];
   canEdit: boolean;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
@@ -106,7 +111,7 @@ function BankSettingsCard({
             <AccountSettingsRow
               key={acc.id}
               account={acc}
-              balance={accountBalance(acc, transactions, transfers, cardPayments)}
+              balance={accountBalance(acc, transactions, transfers, cardPayments, undefined, contactEntries)}
               canEdit={canEdit}
               onUpdate={(partial) => onUpdateAccount(acc.id, partial)}
             />

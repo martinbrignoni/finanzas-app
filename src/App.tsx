@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users } from "lucide-react";
 import { theme as C } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
@@ -9,6 +9,7 @@ import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
+  Contact, ContactEntry,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -18,12 +19,13 @@ import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
 import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
 import { Notes, NoteModal } from "./features/notes/Notes";
+import { Contacts, ContactModal, ContactEntryModal, SplitExpenseModal, type SplitOwnExpense } from "./features/contacts/Contacts";
 import { LockScreen } from "./features/security/LockScreen";
 import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 
-type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "configuracion";
+type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "configuracion";
 
 const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
   { id: "inicio", label: "Inicio", Icon: Home },
@@ -44,6 +46,9 @@ type ModalState =
   | { type: "category" }
   | { type: "user"; payload?: AppUser }
   | { type: "note"; payload?: Note }
+  | { type: "contact"; payload?: Contact }
+  | { type: "contactEntry"; payload: { contactId: string; entry?: ContactEntry } }
+  | { type: "splitExpense" }
   | null;
 
 const repo = getRepository();
@@ -335,6 +340,70 @@ export default function App() {
     setData((d) => (d ? { ...d, accounts: d.accounts.map((a) => (a.id === id ? { ...a, ...partial } : a)) } : d));
   }, []);
 
+  // --- personas ---
+  const upsertContact = useCallback((c: Contact) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.contacts.findIndex((x) => x.id === c.id);
+      const contacts = idx >= 0 ? d.contacts.map((x) => (x.id === c.id ? c : x)) : [...d.contacts, c];
+      return { ...d, contacts };
+    });
+    closeModal();
+  }, []);
+  const deleteContact = useCallback((id: string) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            contacts: d.contacts.filter((x) => x.id !== id),
+            contactEntries: d.contactEntries.filter((e) => e.contactId !== id),
+          }
+        : d
+    );
+  }, []);
+  const confirmDeleteContact = useCallback(
+    (id: string) => requestConfirm("¿Eliminar esta persona? También se eliminan sus movimientos.", () => deleteContact(id)),
+    [requestConfirm, deleteContact]
+  );
+  const upsertContactEntry = useCallback((e: ContactEntry) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.contactEntries.findIndex((x) => x.id === e.id);
+      const contactEntries = idx >= 0 ? d.contactEntries.map((x) => (x.id === e.id ? e : x)) : [...d.contactEntries, e];
+      return { ...d, contactEntries };
+    });
+    closeModal();
+  }, []);
+  const deleteContactEntry = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, contactEntries: d.contactEntries.filter((x) => x.id !== id) } : d));
+  }, []);
+  const confirmDeleteContactEntry = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este movimiento? No se puede deshacer.", () => deleteContactEntry(id)),
+    [requestConfirm, deleteContactEntry]
+  );
+  const saveSplitExpense = useCallback((entries: ContactEntry[], ownExpense?: SplitOwnExpense) => {
+    setData((d) => {
+      if (!d) return d;
+      const transactions = ownExpense
+        ? [
+            ...d.transactions,
+            {
+              id: crypto.randomUUID(),
+              type: "gasto" as const,
+              amountMinor: ownExpense.amountMinor,
+              currency: ownExpense.currency,
+              category: ownExpense.category,
+              date: ownExpense.date,
+              note: ownExpense.note,
+              accountId: ownExpense.accountId,
+            },
+          ]
+        : d.transactions;
+      return { ...d, contactEntries: [...d.contactEntries, ...entries], transactions };
+    });
+    closeModal();
+  }, []);
+
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
     setData((d) => {
@@ -448,6 +517,11 @@ export default function App() {
                 <StickyNote size={20} />
               </button>
             )}
+            {has("personas", "view") && (
+              <button onClick={() => setTab("personas")} aria-label="Personas" style={{ color: tab === "personas" ? C.usd : C.textFaint }}>
+                <Users size={20} />
+              </button>
+            )}
             {has("configuracion", "view") && (
               <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
                 <SettingsIcon size={20} />
@@ -496,6 +570,8 @@ export default function App() {
                 transactions={data.transactions}
                 transfers={data.transfers}
                 cardPayments={data.cardPayments}
+                contacts={data.contacts}
+                contactEntries={data.contactEntries}
                 cards={data.cards}
                 canEdit={has("cuentas", "edit")}
                 canEditMovements={has("movimientos", "edit")}
@@ -561,6 +637,22 @@ export default function App() {
                 onDelete={confirmDeleteNote}
               />
             )}
+            {tab === "personas" && (
+              <Contacts
+                contacts={data.contacts}
+                contactEntries={data.contactEntries}
+                accounts={data.accounts}
+                banks={data.banks}
+                canEdit={has("personas", "edit")}
+                onAddContact={() => setModal({ type: "contact" })}
+                onEditContact={(c) => setModal({ type: "contact", payload: c })}
+                onDeleteContact={confirmDeleteContact}
+                onAddEntry={(contactId) => setModal({ type: "contactEntry", payload: { contactId } })}
+                onEditEntry={(e) => setModal({ type: "contactEntry", payload: { contactId: e.contactId, entry: e } })}
+                onDeleteEntry={confirmDeleteContactEntry}
+                onSplitExpense={() => setModal({ type: "splitExpense" })}
+              />
+            )}
             {tab === "configuracion" && (
               <Settings
                 users={data.users}
@@ -569,6 +661,7 @@ export default function App() {
                 transactions={data.transactions}
                 transfers={data.transfers}
                 cardPayments={data.cardPayments}
+                contactEntries={data.contactEntries}
                 installments={data.installments}
                 budgets={data.budgets}
                 appLock={data.appLock}
@@ -659,6 +752,30 @@ export default function App() {
       {modal?.type === "user" && <UserModal initial={modal.payload} onSave={upsertUser} onClose={closeModal} />}
       {modal?.type === "note" && (
         <NoteModal initial={modal.payload} activeUserId={data.activeUserId} onSave={upsertNote} onClose={closeModal} />
+      )}
+      {modal?.type === "contact" && (
+        <ContactModal initial={modal.payload} contacts={data.contacts} onSave={upsertContact} onClose={closeModal} />
+      )}
+      {modal?.type === "contactEntry" && (
+        <ContactEntryModal
+          contactId={modal.payload.contactId}
+          initial={modal.payload.entry}
+          contacts={data.contacts}
+          accounts={data.accounts}
+          banks={data.banks}
+          onSave={upsertContactEntry}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "splitExpense" && (
+        <SplitExpenseModal
+          contacts={data.contacts}
+          accounts={data.accounts}
+          banks={data.banks}
+          categories={data.categories}
+          onSave={saveSplitExpense}
+          onClose={closeModal}
+        />
       )}
 
       {calculatorOpen && <CalculatorModal onClose={() => setCalculatorOpen(false)} />}

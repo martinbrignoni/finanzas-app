@@ -1,8 +1,9 @@
 import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
 import { accountBalance } from "./accounts";
-import type { Bank, Account, Transaction, Transfer, CardPayment } from "../types";
+import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry } from "../types";
 import type { ExchangeRateRow } from "./exchangeRates";
+import { contactEntryAccountImpact } from "./contacts";
 
 /** Nombres de hoja de Excel: máx 31 caracteres, sin : \ / ? * [ ] */
 function sheetName(raw: string): string {
@@ -14,7 +15,8 @@ export function exportBankToExcel(
   accounts: Account[],
   transactions: Transaction[],
   transfers: Transfer[] = [],
-  cardPayments: CardPayment[] = []
+  cardPayments: CardPayment[] = [],
+  contactEntries: ContactEntry[] = []
 ): void {
   const wb = XLSX.utils.book_new();
 
@@ -22,7 +24,7 @@ export function exportBankToExcel(
     Cuenta: acc.name,
     Moneda: acc.currency,
     "Saldo inicial": fromMinor(acc.initialBalanceMinor),
-    "Saldo actual": fromMinor(accountBalance(acc, transactions, transfers, cardPayments)),
+    "Saldo actual": fromMinor(accountBalance(acc, transactions, transfers, cardPayments, undefined, contactEntries)),
   }));
   const summarySheet = XLSX.utils.json_to_sheet(summary);
   XLSX.utils.book_append_sheet(wb, summarySheet, "Resumen");
@@ -73,7 +75,18 @@ export function exportBankToExcel(
         Moneda: p.currency,
       }));
 
-    const accRows = [...accTx, ...accTransfersOut, ...accTransfersIn, ...accCardPayments].sort((a, b) => a.Fecha.localeCompare(b.Fecha));
+    const accContactEntries = contactEntries
+      .filter((e) => e.accountId === acc.id)
+      .map((e) => ({
+        Fecha: e.date,
+        Tipo: "Personas",
+        Categoría: "",
+        Nota: e.description,
+        Monto: fromMinor(contactEntryAccountImpact(e)),
+        Moneda: e.currency,
+      }));
+
+    const accRows = [...accTx, ...accTransfersOut, ...accTransfersIn, ...accCardPayments, ...accContactEntries].sort((a, b) => a.Fecha.localeCompare(b.Fecha));
 
     let name = sheetName(acc.name);
     let suffix = 2;
