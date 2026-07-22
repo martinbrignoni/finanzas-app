@@ -1,17 +1,18 @@
 import { useState } from "react";
-import { Trash2, Plus } from "lucide-react";
+import { Pencil, Trash2, Plus } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
-import { formatMoney, parseAmountInput } from "../../lib/money";
+import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthKeyOf } from "../../lib/dates";
 import type { Budget, Transaction, Currency, Category } from "../../types";
 
-export function Budgets({ budgets, transactions, canEdit, onAdd, onDelete }: {
+export function Budgets({ budgets, transactions, canEdit, onAdd, onEdit, onDelete }: {
   budgets: Budget[];
   transactions: Transaction[];
   canEdit: boolean;
   onAdd: () => void;
+  onEdit: (b: Budget) => void;
   onDelete: (id: string) => void;
 }) {
   const mk = currentMonthKey();
@@ -39,7 +40,12 @@ export function Budgets({ budgets, transactions, canEdit, onAdd, onDelete }: {
                   <span className="text-sm font-medium" style={{ color: C.text }}>{b.category}</span>
                   <CurrencyPill currency={b.currency} />
                 </div>
-                {canEdit && <IconBtn label="Eliminar presupuesto" danger onClick={() => onDelete(b.id)}><Trash2 size={14} /></IconBtn>}
+                {canEdit && (
+                  <div className="flex gap-1">
+                    <IconBtn label="Editar presupuesto" onClick={() => onEdit(b)}><Pencil size={14} /></IconBtn>
+                    <IconBtn label="Eliminar presupuesto" danger onClick={() => onDelete(b.id)}><Trash2 size={14} /></IconBtn>
+                  </div>
+                )}
               </div>
               <div className="h-2 rounded-full overflow-hidden mb-1.5" style={{ background: C.surface2 }}>
                 <div className="h-full rounded-full" style={{ width: `${pct}%`, background: over ? C.negative : C.usd }} />
@@ -66,21 +72,26 @@ export function Budgets({ budgets, transactions, canEdit, onAdd, onDelete }: {
   );
 }
 
-export function BudgetModal({ categories, onSave, onClose }: { categories: Category[]; onSave: (b: Budget) => void; onClose: () => void }) {
-  const [category, setCategory] = useState<string>(() => defaultLeafCategoryValue(categories, "gasto"));
-  const [currency, setCurrency] = useState<Currency>("UYU");
-  const [limit, setLimit] = useState("");
+export function BudgetModal({ categories, initial, onSave, onClose }: {
+  categories: Category[];
+  initial?: Budget;
+  onSave: (b: Budget) => void;
+  onClose: () => void;
+}) {
+  const [category, setCategory] = useState<string>(() => initial?.category ?? defaultLeafCategoryValue(categories, "gasto"));
+  const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
+  const [limit, setLimit] = useState(initial ? String(fromMinor(initial.limitMinor)) : "");
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = () => {
     if (!category) return setError("Elegí una categoría (o creá una en Configuración).");
     const limitMinor = parseAmountInput(limit);
     if (limitMinor === null || limitMinor === 0) return setError("Ingresá un límite mensual válido.");
-    onSave({ id: crypto.randomUUID(), category, currency, limitMinor });
+    onSave({ id: initial?.id ?? crypto.randomUUID(), category, currency, limitMinor });
   };
 
   return (
-    <Modal title="Nuevo presupuesto" onClose={onClose}>
+    <Modal title={initial ? "Editar presupuesto" : "Nuevo presupuesto"} onClose={onClose}>
       <CategoryPicker categories={categories} type="gasto" value={category} onChange={setCategory} />
       <div className="grid grid-cols-2 gap-3">
         <Field label="Límite mensual">{(id) => <TextInput id={id} type="number" min="0" step="0.01" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="0" />}</Field>

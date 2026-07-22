@@ -37,7 +37,7 @@ const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
 type ModalState =
   | { type: "movement"; payload?: { transaction?: Transaction; transfer?: Transfer; installment?: Installment; presetCardId?: string } }
   | { type: "card"; payload?: Card }
-  | { type: "budget" }
+  | { type: "budget"; payload?: Budget }
   | { type: "bank"; payload?: Bank }
   | { type: "account"; payload: { bankId: string; account?: Account } }
   | { type: "cardPayment"; payload: { cardId: string; payment?: CardPayment } }
@@ -189,8 +189,13 @@ export default function App() {
   );
 
   // --- budgets ---
-  const addBudget = useCallback((b: Budget) => {
-    setData((d) => (d ? { ...d, budgets: [...d.budgets, b] } : d));
+  const saveBudget = useCallback((b: Budget) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.budgets.findIndex((x) => x.id === b.id);
+      const budgets = idx >= 0 ? d.budgets.map((x) => (x.id === b.id ? b : x)) : [...d.budgets, b];
+      return { ...d, budgets };
+    });
     closeModal();
   }, []);
   const deleteBudget = useCallback((id: string) => {
@@ -539,6 +544,7 @@ export default function App() {
                 transactions={data.transactions}
                 canEdit={has("presupuestos", "edit")}
                 onAdd={() => setModal({ type: "budget" })}
+                onEdit={(b) => setModal({ type: "budget", payload: b })}
                 onDelete={confirmDeleteBudget}
               />
             )}
@@ -632,7 +638,7 @@ export default function App() {
         />
       )}
       {modal?.type === "card" && <CardModal initial={modal.payload} onSave={upsertCard} onClose={closeModal} />}
-      {modal?.type === "budget" && <BudgetModal categories={data.categories} onSave={addBudget} onClose={closeModal} />}
+      {modal?.type === "budget" && <BudgetModal categories={data.categories} initial={modal.payload} onSave={saveBudget} onClose={closeModal} />}
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (
         <AccountModal bankId={modal.payload.bankId} banks={data.banks} initial={modal.payload.account} accounts={data.accounts} onSave={upsertAccount} onClose={closeModal} />
