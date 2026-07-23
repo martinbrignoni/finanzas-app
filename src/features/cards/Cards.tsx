@@ -446,7 +446,7 @@ function CardDetailModal({
               <div className="flex items-center gap-2">
                 <ShoppingBag size={13} color={C.textFaint} />
                 <div>
-                  <div style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
+                  <div style={{ color: C.text }}>{t.category ?? "Sin categorizar"}{t.note ? ` · ${t.note}` : ""}</div>
                   <div style={{ color: C.textFaint }}>{formatDateDMY(t.date)}</div>
                 </div>
               </div>

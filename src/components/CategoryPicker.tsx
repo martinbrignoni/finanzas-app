@@ -33,16 +33,25 @@ function collectLeaves(categories: Category[], type: TransactionType, node: Cate
  * la hoja (ej. "Gastos Fijos" agrupa "UTE > Casa" y "UTE > Apto", ya no se
  * puede registrar un movimiento directo en "Gastos Fijos").
  */
+const NONE_VALUE = "__none__";
+
 export function CategoryPicker({
   categories,
   type,
   value,
   onChange,
+  allowEmpty = false,
 }: {
   categories: Category[];
   type: TransactionType;
   value: string;
   onChange: (name: string) => void;
+  /**
+   * Permite dejar el movimiento sin categoría (ej. para cargar rápido y
+   * categorizar después): agrega una opción "Sin categorizar" y, mientras
+   * esté elegida (`value === ""`), no fuerza ninguna categoría por defecto.
+   */
+  allowEmpty?: boolean;
 }) {
   const roots = categories.filter((c) => c.type === type && !c.parentId);
   const allLeaves: LeafInfo[] = roots.flatMap((root) =>
@@ -52,13 +61,17 @@ export function CategoryPicker({
   const current = allLeaves.find((x) => categoryFullPath(x.leaf, categories) === value);
 
   // Si el valor actual no corresponde a ninguna hoja válida (ej. le agregaron
-  // subcategorías después a una que ya estaba en uso), corregimos a la primera disponible.
+  // subcategorías después a una que ya estaba en uso), corregimos a la primera
+  // disponible. Si se permite dejarlo sin categoría, "sin corresponder a
+  // ninguna hoja" también describe el estado "vacío a propósito", así que no
+  // tocamos nada en ese caso.
   useEffect(() => {
+    if (allowEmpty) return;
     if (!current && allLeaves.length > 0) {
       onChange(categoryFullPath(allLeaves[0].leaf, categories));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.leaf.id, allLeaves.length]);
+  }, [current?.leaf.id, allLeaves.length, allowEmpty]);
 
   if (roots.length === 0) {
     return (
@@ -68,13 +81,16 @@ export function CategoryPicker({
     );
   }
 
-  const options: ComboboxOption[] = roots.flatMap((root) => {
-    const leaves = allLeaves.filter((x) => x.root.id === root.id);
-    if (leaves.length === 1 && leaves[0].leaf.id === root.id) {
-      return [{ value: root.id, label: root.name }];
-    }
-    return leaves.map(({ leaf, path }) => ({ value: leaf.id, label: path.join(" > "), group: root.name }));
-  });
+  const options: ComboboxOption[] = [
+    ...(allowEmpty ? [{ value: NONE_VALUE, label: "Sin categorizar" }] : []),
+    ...roots.flatMap((root) => {
+      const leaves = allLeaves.filter((x) => x.root.id === root.id);
+      if (leaves.length === 1 && leaves[0].leaf.id === root.id) {
+        return [{ value: root.id, label: root.name }];
+      }
+      return leaves.map(({ leaf, path }) => ({ value: leaf.id, label: path.join(" > "), group: root.name }));
+    }),
+  ];
 
   return (
     <Field label="Categoría">
@@ -82,9 +98,13 @@ export function CategoryPicker({
         <Combobox
           id={id}
           options={options}
-          value={current?.leaf.id ?? ""}
+          value={current?.leaf.id ?? (allowEmpty ? NONE_VALUE : "")}
           placeholder="Escribí o elegí una categoría..."
           onChange={(id) => {
+            if (id === NONE_VALUE) {
+              onChange("");
+              return;
+            }
             const found = allLeaves.find((x) => x.leaf.id === id);
             if (found) onChange(categoryFullPath(found.leaf, categories));
           }}

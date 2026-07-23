@@ -16,8 +16,12 @@ export interface Transaction {
    * Transporte"), no solo el nombre de la hoja: dos categorías en ramas
    * distintas pueden llamarse igual y no son la misma. Ver
    * `lib/categories.ts#categoryFullPath`.
+   *
+   * Opcional a propósito: permite cargar un movimiento rápido sin elegir
+   * categoría (ni medio de pago) y categorizarlo después. Ver el filtro de
+   * "pendientes de asignar" en Movimientos.
    */
-  category: string;
+  category?: string;
   date: string; // YYYY-MM-DD
   note?: string;
   /** Cuenta bancaria asociada (opcional: un movimiento puede no estar ligado a ninguna cuenta). */

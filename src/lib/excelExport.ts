@@ -37,7 +37,7 @@ export function exportBankToExcel(
       .map((t) => ({
         Fecha: t.date,
         Tipo: t.type === "ingreso" ? "Ingreso" : "Gasto",
-        Categoría: t.category,
+        Categoría: t.category ?? "",
         Nota: t.note ?? "",
         Monto: fromMinor(t.amountMinor) * (t.type === "gasto" ? -1 : 1),
         Moneda: t.currency,

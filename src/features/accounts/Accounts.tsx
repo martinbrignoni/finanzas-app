@@ -662,7 +662,7 @@ function AccountLedgerModal({
               ? entry.kind === "transfer-out"
                 ? `Transferencia a ${accountLabel(accounts.find((a) => a.id === entry.transfer!.toAccountId), banks)}`
                 : `Transferencia desde ${accountLabel(accounts.find((a) => a.id === entry.transfer!.fromAccountId), banks)}`
-              : `${entry.transaction!.category}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
+              : `${entry.transaction!.category ?? "Sin categorizar"}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
             const note = isCardPayment ? entry.cardPayment!.note : isContactEntry ? entry.contactEntry!.description : isTransfer ? entry.transfer!.note : undefined;
             const receiptPaths = receiptPathsOf(entry.transaction ?? entry.transfer ?? entry.cardPayment ?? entry.contactEntry);
 

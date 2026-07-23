@@ -4,7 +4,7 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
-import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
+import { CategoryPicker } from "../../components/CategoryPicker";
 import { categoryFullPath } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
@@ -141,6 +141,7 @@ export function Transactions({
 }) {
   const [filterMonth, setFilterMonth] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [pendingOnly, setPendingOnly] = useState(false);
   // Solo tiene sentido marcar de quién es cada movimiento si hay más de un perfil cargando datos.
   const showAuthor = users.length > 1;
 
@@ -151,15 +152,27 @@ export function Transactions({
     ...installments.map((i): LedgerItem => ({ kind: "installment", date: i.date ?? `${i.startMonth}-01`, data: i })),
   ].sort((a, b) => b.date.localeCompare(a.date));
 
+  // "Pendiente de asignar": un gasto/ingreso o compra en cuotas cargado
+  // rápido, sin categoría y/o sin medio de pago (cuenta o tarjeta), para
+  // completarlo con calma más adelante. Transferencias y pagos de tarjeta no
+  // aplican (no tienen categoría ni "medio de pago" en ese sentido).
+  const isPending = (item: LedgerItem): boolean => {
+    if (item.kind === "transaction") return !item.data.category || (!item.data.accountId && !item.data.cardId);
+    if (item.kind === "installment") return !item.data.category;
+    return false;
+  };
+  const pendingCount = allItems.filter(isPending).length;
+
   const availableMonths = Array.from(new Set(allItems.map((item) => monthKeyOf(item.date)))).sort((a, b) => b.localeCompare(a));
 
   const byMonth = filterMonth === "all" ? allItems : allItems.filter((item) => monthKeyOf(item.date) === filterMonth);
+  const byPending = pendingOnly ? byMonth.filter(isPending) : byMonth;
 
   const searchNorm = normalizeText(search.trim());
   const items =
     searchNorm === ""
-      ? byMonth
-      : byMonth.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards)).includes(searchNorm));
+      ? byPending
+      : byPending.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards)).includes(searchNorm));
 
   return (
     <div className="pb-24">
@@ -174,6 +187,19 @@ export function Transactions({
           </Select>
         </div>
       </div>
+
+      {pendingCount > 0 && (
+        <button
+          onClick={() => setPendingOnly((v) => !v)}
+          className="w-full text-left rounded-lg p-2.5 mb-3 text-xs flex items-center justify-between"
+          style={{ background: pendingOnly ? C.uyu : "rgba(217,164,65,0.15)", color: pendingOnly ? "#0A1413" : C.uyu }}
+        >
+          <span>
+            {pendingCount} movimiento{pendingCount === 1 ? "" : "s"} pendiente{pendingCount === 1 ? "" : "s"} de asignar categoría o medio de pago
+          </span>
+          <span className="font-semibold">{pendingOnly ? "Ver todos" : "Ver pendientes"}</span>
+        </button>
+      )}
 
       <div className="relative mb-4">
         <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.textFaint }} />
@@ -197,7 +223,13 @@ export function Transactions({
 
       {items.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          {search.trim() ? `Sin resultados para "${search.trim()}".` : filterMonth === "all" ? "Todavía no registraste movimientos." : "Sin movimientos en este período."}
+          {search.trim()
+            ? `Sin resultados para "${search.trim()}".`
+            : pendingOnly
+            ? "No hay movimientos pendientes de asignar."
+            : filterMonth === "all"
+            ? "Todavía no registraste movimientos."
+            : "Sin movimientos en este período."}
         </div>
       )}
 
@@ -225,12 +257,16 @@ export function Transactions({
                     {t.type === "ingreso" ? <ArrowUpRight size={16} color={C.positive} /> : <ArrowDownRight size={16} color={C.negative} />}
                   </div>
                   <div>
-                    <div className="text-sm" style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
+                    <div className="text-sm" style={{ color: C.text }}>
+                      {t.category ? t.category : <span style={{ color: C.uyu }}>Sin categorizar</span>}
+                      {t.note ? ` · ${t.note}` : ""}
+                    </div>
                     <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
                       <span>
                         {formatDateDMY(t.date)}
                         {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
                         {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
+                        {!t.accountId && !t.cardId && <span style={{ color: C.uyu }}> · Sin medio de pago</span>}
                       </span>
                       {showAuthor && <UserBadge users={users} userId={t.createdByUserId} />}
                     </div>
@@ -468,7 +504,9 @@ export function MovementModal({
     kind: initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
     amount: initialInstallment ? String(fromMinor(initialInstallment.totalAmountMinor)) : initial ? String(fromMinor(initial.amountMinor)) : "",
     currency: initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
-    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category : defaultLeafCategoryValue(categories, "gasto"),
+    // Nueva: arranca sin categoría a propósito, para poder cargar rápido y
+    // categorizar después (ver el filtro de "pendientes" en la lista).
+    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category ?? "" : "",
     date: initialTransfer ? initialTransfer.date : initial ? initial.date : initialInstallment ? initialInstallment.date ?? `${initialInstallment.startMonth}-01` : todayISO(),
     note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
     accountId: initial?.accountId ?? "",
@@ -563,7 +601,8 @@ export function MovementModal({
     const amountMinor = parseAmountInput(form.amount);
     if (amountMinor === null || amountMinor === 0) return setError("Ingresá un monto válido, mayor a cero.");
     if (!form.date) return setError("Elegí una fecha.");
-    if (!form.category) return setError("Elegí una categoría (o creá una nueva en Configuración).");
+    // La categoría es opcional a propósito: permite cargar rápido y
+    // categorizar después (ver el filtro de "pendientes" en Movimientos).
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
 
     if (showInstallmentsField) {
@@ -572,8 +611,8 @@ export function MovementModal({
         onSaveInstallment({
           id: movementId,
           cardId: form.cardId,
-          description: form.category,
-          category: form.category,
+          description: form.category.trim() || "Sin categorizar",
+          category: form.category || undefined,
           note: form.note.trim() || undefined,
           currency: form.currency,
           totalAmountMinor: amountMinor,
@@ -593,7 +632,7 @@ export function MovementModal({
       type: form.kind,
       amountMinor,
       currency: form.currency,
-      category: form.category,
+      category: form.category || undefined,
       date: form.date,
       note: form.note.trim() || undefined,
       accountId: form.kind === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
@@ -627,7 +666,7 @@ export function MovementModal({
           {() => (
             <Segment
               value={form.kind}
-              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : defaultLeafCategoryValue(categories, v) }))}
+              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : "" }))}
               options={kindOptions}
             />
           )}
@@ -737,6 +776,7 @@ export function MovementModal({
             type={form.kind === "ingreso" ? "ingreso" : "gasto"}
             value={form.category}
             onChange={(name) => setForm((f) => ({ ...f, category: name }))}
+            allowEmpty
           />
           <div className="flex justify-end -mt-1 mb-3">
             <button type="button" onClick={() => setShowCategoryModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
