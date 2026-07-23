@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users, Sun, Moon } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users, Sun, Moon, Building2 } from "lucide-react";
 import { theme as C, useThemeMode, toggleThemeMode } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
@@ -10,7 +10,7 @@ import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
-  Contact, ContactEntry,
+  Contact, ContactEntry, MortgageLoan, MortgagePrepayment,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -21,12 +21,13 @@ import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts"
 import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
 import { Notes, NoteModal } from "./features/notes/Notes";
 import { Contacts, ContactModal, ContactEntryModal, SplitExpenseModal, type SplitOwnExpense } from "./features/contacts/Contacts";
+import { Mortgage, LoanModal, PrepaymentModal } from "./features/mortgage/Mortgage";
 import { LockScreen } from "./features/security/LockScreen";
 import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 
-type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "configuracion";
+type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "configuracion";
 
 const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
   { id: "inicio", label: "Inicio", Icon: Home },
@@ -50,6 +51,8 @@ type ModalState =
   | { type: "contact"; payload?: Contact }
   | { type: "contactEntry"; payload: { contactId: string; entry?: ContactEntry } }
   | { type: "splitExpense" }
+  | { type: "mortgageLoan"; payload?: MortgageLoan }
+  | { type: "mortgagePrepayment"; payload: { loanId: string; prepayment?: MortgagePrepayment } }
   | null;
 
 const repo = getRepository();
@@ -448,6 +451,50 @@ export default function App() {
     closeModal();
   }, []);
 
+  // --- hipoteca ---
+  const upsertMortgageLoan = useCallback((loan: MortgageLoan) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.mortgageLoans.findIndex((x) => x.id === loan.id);
+      const mortgageLoans = idx >= 0 ? d.mortgageLoans.map((x) => (x.id === loan.id ? loan : x)) : [...d.mortgageLoans, loan];
+      return { ...d, mortgageLoans };
+    });
+    closeModal();
+  }, []);
+  const deleteMortgageLoan = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, mortgageLoans: d.mortgageLoans.filter((x) => x.id !== id) } : d));
+  }, []);
+  const confirmDeleteMortgageLoan = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este préstamo? También se eliminan sus amortizaciones registradas. No se puede deshacer.", () => deleteMortgageLoan(id)),
+    [requestConfirm, deleteMortgageLoan]
+  );
+  const upsertMortgagePrepayment = useCallback((loanId: string, prepayment: MortgagePrepayment) => {
+    setData((d) => {
+      if (!d) return d;
+      const mortgageLoans = d.mortgageLoans.map((loan) => {
+        if (loan.id !== loanId) return loan;
+        const idx = loan.prepayments.findIndex((x) => x.id === prepayment.id);
+        const prepayments = idx >= 0 ? loan.prepayments.map((x) => (x.id === prepayment.id ? prepayment : x)) : [...loan.prepayments, prepayment];
+        return { ...loan, prepayments };
+      });
+      return { ...d, mortgageLoans };
+    });
+    closeModal();
+  }, []);
+  const deleteMortgagePrepayment = useCallback((loanId: string, prepaymentId: string) => {
+    setData((d) => {
+      if (!d) return d;
+      const mortgageLoans = d.mortgageLoans.map((loan) =>
+        loan.id === loanId ? { ...loan, prepayments: loan.prepayments.filter((x) => x.id !== prepaymentId) } : loan
+      );
+      return { ...d, mortgageLoans };
+    });
+  }, []);
+  const confirmDeleteMortgagePrepayment = useCallback(
+    (loanId: string, prepaymentId: string) => requestConfirm("¿Eliminar esta amortización extraordinaria?", () => deleteMortgagePrepayment(loanId, prepaymentId)),
+    [requestConfirm, deleteMortgagePrepayment]
+  );
+
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
     setData((d) => {
@@ -591,6 +638,11 @@ export default function App() {
                 <Users size={20} />
               </button>
             )}
+            {has("hipoteca", "view") && (
+              <button onClick={() => setTab("hipoteca")} aria-label="Hipoteca" style={{ color: tab === "hipoteca" ? C.usd : C.textFaint }}>
+                <Building2 size={20} />
+              </button>
+            )}
             {has("configuracion", "view") && (
               <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
                 <SettingsIcon size={20} />
@@ -723,6 +775,17 @@ export default function App() {
                 onSplitExpense={() => setModal({ type: "splitExpense" })}
               />
             )}
+            {tab === "hipoteca" && (
+              <Mortgage
+                loans={data.mortgageLoans}
+                canEdit={has("hipoteca", "edit")}
+                onAddLoan={() => setModal({ type: "mortgageLoan" })}
+                onEditLoan={(loan) => setModal({ type: "mortgageLoan", payload: loan })}
+                onDeleteLoan={confirmDeleteMortgageLoan}
+                onAddPrepayment={(loanId) => setModal({ type: "mortgagePrepayment", payload: { loanId } })}
+                onDeletePrepayment={confirmDeleteMortgagePrepayment}
+              />
+            )}
             {tab === "configuracion" && (
               <Settings
                 users={data.users}
@@ -845,6 +908,18 @@ export default function App() {
           banks={data.banks}
           categories={data.categories}
           onSave={saveSplitExpense}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "mortgageLoan" && (
+        <LoanModal initial={modal.payload} onSave={upsertMortgageLoan} onClose={closeModal} />
+      )}
+      {modal?.type === "mortgagePrepayment" && (
+        <PrepaymentModal
+          loanId={modal.payload.loanId}
+          loan={data.mortgageLoans.find((l) => l.id === modal.payload.loanId)!}
+          initial={modal.payload.prepayment}
+          onSave={upsertMortgagePrepayment}
           onClose={closeModal}
         />
       )}

@@ -285,6 +285,47 @@ export interface ContactEntry {
 }
 
 /**
+ * Amortización extraordinaria (pago extra de capital) sobre un préstamo
+ * hipotecario. Al aplicarse, según `strategy`, se recalcula toda la tabla de
+ * amortización desde ese punto en adelante:
+ * - "reduceInstallment": el plazo original no cambia, pero la cuota baja
+ *   (mismo número de cuotas restantes, con el nuevo saldo).
+ * - "reduceTerm": la cuota queda igual, pero el préstamo se cancela antes
+ *   (se recalcula cuántas cuotas hacen falta con ese mismo importe).
+ * No se puede bajar cuota y plazo a la vez con un mismo pago extra.
+ */
+export interface MortgagePrepayment {
+  id: string;
+  date: string; // YYYY-MM-DD. Se aplica junto con la primera cuota cuyo vencimiento sea igual o posterior.
+  amountMinor: number;
+  strategy: "reduceInstallment" | "reduceTerm";
+  note?: string;
+}
+
+/**
+ * Préstamo hipotecario con amortización por sistema francés (cuota fija,
+ * compuesta de interés + amortización de capital, el interés baja y la
+ * amortización sube mes a mes). La tabla de amortización completa (cuota,
+ * interés, capital, saldo por período) se calcula siempre a partir de estos
+ * datos base + las amortizaciones extraordinarias, nunca se guarda cuota por
+ * cuota. Ver `lib/mortgage.ts#buildSchedule`.
+ */
+export interface MortgageLoan {
+  id: string;
+  name: string;
+  principalMinor: number;
+  currency: Currency;
+  /** Tasa nominal anual, en porcentaje (ej. 4.5 para 4.5% anual), compuesta mensualmente. */
+  annualRatePct: number;
+  /** Plazo original en meses (ej. 240 para 20 años). */
+  termMonths: number;
+  /** Fecha de la primera cuota. Las siguientes vencen el mismo día de cada mes. */
+  startDate: string; // YYYY-MM-DD
+  prepayments: MortgagePrepayment[];
+  note?: string;
+}
+
+/**
  * Cada módulo/pestaña de la app es una "clave de permiso". Se usa tanto para
  * decidir qué pestañas ve un usuario como qué puede modificar en cada una.
  */
@@ -298,6 +339,7 @@ export type PermissionKey =
   | "cotizaciones"
   | "notas"
   | "personas"
+  | "hipoteca"
   | "configuracion";
 
 export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
@@ -310,6 +352,7 @@ export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
   { key: "cotizaciones", label: "Cotizaciones" },
   { key: "notas", label: "Notas" },
   { key: "personas", label: "Personas" },
+  { key: "hipoteca", label: "Hipoteca" },
   { key: "configuracion", label: "Configuración" },
 ];
 
@@ -411,6 +454,7 @@ export interface FinanceData {
   cardStatements: CardStatement[];
   contacts: Contact[];
   contactEntries: ContactEntry[];
+  mortgageLoans: MortgageLoan[];
   categories: Category[];
   notes: Note[];
   appLock: AppLock;
@@ -420,7 +464,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 10;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -467,6 +511,7 @@ export function emptyFinanceData(): FinanceData {
     cardStatements: [],
     contacts: [],
     contactEntries: [],
+    mortgageLoans: [],
     categories: defaultCategories(),
     notes: [],
     appLock: { enabled: false, pinHash: null },

@@ -134,6 +134,11 @@ function migrate(raw: any): FinanceData {
     };
   }
 
+  if (data.schemaVersion === 10) {
+    // v11: préstamo hipotecario con amortización francesa.
+    data = { ...data, schemaVersion: 11, mortgageLoans: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -147,6 +152,10 @@ function migrate(raw: any): FinanceData {
   // Ídem para el permiso "personas".
   const usersConPersonas: AppUser[] = usersConNotas.map((u) =>
     u.permissions?.personas ? u : { ...u, permissions: { ...u.permissions, personas: { view: true, edit: true } } }
+  );
+  // Ídem para el permiso "hipoteca".
+  const usersConHipoteca: AppUser[] = usersConPersonas.map((u) =>
+    u.permissions?.hipoteca ? u : { ...u, permissions: { ...u.permissions, hipoteca: { view: true, edit: true } } }
   );
 
   return {
@@ -163,11 +172,12 @@ function migrate(raw: any): FinanceData {
     cardStatements: data.cardStatements ?? [],
     contacts: data.contacts ?? [],
     contactEntries: data.contactEntries ?? [],
+    mortgageLoans: data.mortgageLoans ?? [],
     categories: data.categories ?? [],
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },
     sortOrders: data.sortOrders ?? { banks: [], accountsByBank: [], accountsByCurrency: [] },
-    users: usersConPersonas,
+    users: usersConHipoteca,
     activeUserId: data.activeUserId ?? null,
   };
 }

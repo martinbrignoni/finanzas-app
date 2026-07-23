@@ -60,3 +60,17 @@ export function addMonths(mk: string, n: number): string {
   const d = new Date(y, m - 1 + n, 1);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 }
+
+/**
+ * Suma `n` meses a una fecha completa (YYYY-MM-DD) conservando el día,
+ * salvo que ese mes tenga menos días (ej. 31/01 + 1 mes -> 28 o 29/02, el
+ * último día de febrero, no marzo). Usado para las fechas de vencimiento de
+ * cuotas de un préstamo, todas el mismo día del mes que la primera.
+ */
+export function addMonthsToDate(iso: string, n: number): string {
+  const [y, m, day] = iso.split("-").map(Number);
+  const target = new Date(y, m - 1 + n, 1);
+  const lastDayOfTargetMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDayOfTargetMonth));
+  return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`;
+}
