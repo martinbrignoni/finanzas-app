@@ -345,6 +345,11 @@ export interface AppUser {
    * abrir la app.
    */
   lock?: AppLock;
+  /**
+   * Color del avatar de este perfil en Movimientos (ej. "MB" en verde). Si
+   * no se eligió ninguno, se asigna uno automático y estable en base al id.
+   */
+  color?: string;
 }
 
 /** Nota de texto libre dejada por un perfil, visible para todos los perfiles que comparten la app. */

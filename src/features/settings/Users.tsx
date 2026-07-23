@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, Trash2, Pencil, Check } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, PrimaryButton, IconBtn } from "../../components/ui";
+import { AVATAR_PALETTE, userColor } from "../../lib/users";
 import { PERMISSION_MODULES, fullPermissions, type AppUser, type PermissionSet, type PermissionKey } from "../../types";
 
 export function UsersSettings({
@@ -41,7 +42,10 @@ export function UsersSettings({
               className="w-full p-3 flex items-center justify-between text-sm text-left"
               style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
             >
-              <span style={{ color: C.text }}>{u.name}</span>
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: userColor(u) }} />
+                <span style={{ color: C.text }}>{u.name}</span>
+              </span>
               {activeUserId === u.id && <Check size={16} color={C.usd} />}
             </button>
           ))}
@@ -60,7 +64,10 @@ export function UsersSettings({
         {users.map((u) => (
           <div key={u.id} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium" style={{ color: C.text }}>{u.name}</span>
+              <span className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: userColor(u) }} />
+                <span className="text-sm font-medium" style={{ color: C.text }}>{u.name}</span>
+              </span>
               {canEdit && (
                 <div className="flex gap-1">
                   <IconBtn label={`Editar permisos de ${u.name}`} onClick={() => onEdit(u)}><Pencil size={14} /></IconBtn>
@@ -116,6 +123,7 @@ export function UserModal({ initial, onSave, onClose }: { initial?: AppUser; onS
   const [permissions, setPermissions] = useState<PermissionSet>(initial?.permissions ?? fullPermissions(false));
   const [authEmail, setAuthEmail] = useState(initial?.authEmail ?? "");
   const [isAdmin, setIsAdmin] = useState(initial?.isAdmin ?? false);
+  const [color, setColor] = useState<string | undefined>(initial?.color);
   const [error, setError] = useState<string | null>(null);
 
   const toggle = (key: PermissionKey, field: "view" | "edit") => {
@@ -139,6 +147,7 @@ export function UserModal({ initial, onSave, onClose }: { initial?: AppUser; onS
       permissions,
       authEmail: authEmail.trim() || undefined,
       isAdmin: isAdmin || undefined,
+      color,
     });
   };
 
@@ -166,6 +175,35 @@ export function UserModal({ initial, onSave, onClose }: { initial?: AppUser; onS
         <input type="checkbox" checked={isAdmin} onChange={() => setIsAdmin((v) => !v)} />
         Superusuario (puede ver y cambiar entre todos los perfiles)
       </label>
+
+      <span className="block text-xs mb-1.5" style={{ color: C.textMuted }}>Color del avatar en Movimientos</span>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <button
+          type="button"
+          onClick={() => setColor(undefined)}
+          aria-label="Color automático"
+          title="Automático"
+          className="w-7 h-7 rounded-full flex items-center justify-center"
+          style={{
+            background: C.surface2,
+            border: color === undefined ? `2px solid ${C.usd}` : `1px dashed ${C.borderLight}`,
+            color: C.textFaint,
+            fontSize: 10,
+          }}
+        >
+          auto
+        </button>
+        {AVATAR_PALETTE.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setColor(c)}
+            aria-label={`Elegir color ${c}`}
+            className="w-7 h-7 rounded-full"
+            style={{ background: c, border: color === c ? `2px solid ${C.text}` : "2px solid transparent" }}
+          />
+        ))}
+      </div>
 
       <span className="block text-xs mb-1.5" style={{ color: C.textMuted }}>Permisos por módulo</span>
       <div className="rounded-lg overflow-hidden mb-3" style={{ border: `1px solid ${C.border}` }}>

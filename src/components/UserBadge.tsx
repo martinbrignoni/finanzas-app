@@ -30,7 +30,7 @@ export function UserBadge({
         height: size,
         fontSize: Math.max(8, size * 0.42),
         lineHeight: 1,
-        background: userColor(userId),
+        background: userColor(user),
         color: "#FFFFFF",
       }}
     >

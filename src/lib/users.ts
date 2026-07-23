@@ -18,15 +18,29 @@ export function userInitials(users: AppUser[], userId: string | undefined): stri
 }
 
 /**
- * Paleta fija (no depende de modo claro/oscuro) para los avatares de perfil:
- * colores saturados que se leen bien con texto blanco en ambos modos.
+ * Paleta sugerida (no depende de modo claro/oscuro) para elegir el color de
+ * avatar de un perfil en Configuración > Usuarios: colores saturados que se
+ * leen bien con texto blanco en ambos modos.
  */
-const AVATAR_PALETTE = ["#4FA8A0", "#D9A441", "#8B7FD9", "#5FA8D9", "#D97FA8", "#6FBF8B", "#D9776A"];
+export const AVATAR_PALETTE = [
+  "#6FBF8B", // verde
+  "#D97FA8", // magenta
+  "#4FA8A0", // verde azulado
+  "#D9A441", // dorado
+  "#8B7FD9", // violeta
+  "#5FA8D9", // azul
+  "#D9776A", // coral
+];
 
-/** Color determinístico para el avatar de un perfil (mismo perfil = mismo color siempre). */
-export function userColor(userId: string | undefined): string {
-  if (!userId) return "#5E706C";
+/**
+ * Color del avatar de un perfil: el que haya elegido explícitamente
+ * (`AppUser.color`), o si no eligió ninguno, uno automático pero estable
+ * (mismo perfil = mismo color siempre) en base a su id.
+ */
+export function userColor(user: AppUser | undefined): string {
+  if (!user) return "#5E706C";
+  if (user.color) return user.color;
   let hash = 0;
-  for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
+  for (let i = 0; i < user.id.length; i++) hash = (hash * 31 + user.id.charCodeAt(i)) >>> 0;
   return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
 }
