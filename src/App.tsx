@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users } from "lucide-react";
-import { theme as C } from "./styles/theme";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users, Sun, Moon } from "lucide-react";
+import { theme as C, useThemeMode, toggleThemeMode } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
 import { PullToRefresh } from "./components/PullToRefresh";
@@ -55,6 +55,10 @@ type ModalState =
 const repo = getRepository();
 
 export default function App() {
+  // Suscribe a la app entera a los cambios de modo claro/oscuro: al llamarlo
+  // acá (cerca de la raíz), cualquier cambio de modo re-renderiza todo el
+  // árbol y cada componente vuelve a leer los colores actualizados de `C`.
+  const themeMode = useThemeMode();
   const [data, setData] = useState<FinanceData | null>(null);
   const [tab, setTab] = useState<TabId>("inicio");
   const [modal, setModal] = useState<ModalState>(null);
@@ -561,6 +565,13 @@ export default function App() {
                 Guardando...
               </span>
             )}
+            <button
+              onClick={() => toggleThemeMode()}
+              aria-label={themeMode === "dark" ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              style={{ color: C.textFaint }}
+            >
+              {themeMode === "dark" ? <Sun size={19} /> : <Moon size={19} />}
+            </button>
             <button onClick={() => loadData()} aria-label="Actualizar" disabled={refreshing} style={{ color: C.textFaint }}>
               <RefreshCw size={19} className={refreshing ? "animate-spin" : ""} />
             </button>

@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Finanzas</title>
+    <script>
+      // Evita el flash de fondo blanco/incorrecto antes de que React monte:
+      // aplica el color de fondo del modo guardado (o oscuro por defecto)
+      // apenas carga el HTML, en sync con src/styles/theme.ts.
+      (function () {
+        try {
+          var mode = localStorage.getItem("finanzas:theme") === "light" ? "light" : "dark";
+          document.documentElement.style.background = mode === "light" ? "#F4F1EA" : "#10181A";
+          document.documentElement.style.colorScheme = mode;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

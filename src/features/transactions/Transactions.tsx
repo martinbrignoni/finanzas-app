@@ -11,7 +11,7 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
-import { userInitials } from "../../lib/users";
+import { UserBadge } from "../../components/UserBadge";
 import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser } from "../../types";
 
 type LedgerItem =
@@ -226,11 +226,13 @@ export function Transactions({
                   </div>
                   <div>
                     <div className="text-sm" style={{ color: C.text }}>{t.category}{t.note ? ` · ${t.note}` : ""}</div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>
-                      {formatDateDMY(t.date)}
-                      {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
-                      {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
-                      {showAuthor && userInitials(users, t.createdByUserId) && ` · ${userInitials(users, t.createdByUserId)}`}
+                    <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
+                      <span>
+                        {formatDateDMY(t.date)}
+                        {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
+                        {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
+                      </span>
+                      {showAuthor && <UserBadge users={users} userId={t.createdByUserId} />}
                     </div>
                   </div>
                 </div>
@@ -272,9 +274,9 @@ export function Transactions({
                       {accountLabel(fromAcc, banks)} → {accountLabel(toAcc, banks)}
                       {tr.note ? ` · ${tr.note}` : ""}
                     </div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>
-                      {formatDateDMY(tr.date)} · Transferencia
-                      {showAuthor && userInitials(users, tr.createdByUserId) && ` · ${userInitials(users, tr.createdByUserId)}`}
+                    <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
+                      <span>{formatDateDMY(tr.date)} · Transferencia</span>
+                      {showAuthor && <UserBadge users={users} userId={tr.createdByUserId} />}
                     </div>
                   </div>
                 </div>
@@ -316,11 +318,13 @@ export function Transactions({
                   </div>
                   <div>
                     <div className="text-sm" style={{ color: C.text }}>{title}{inst.note ? ` · ${inst.note}` : ""}</div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>
-                      {formatDateDMY(instDate)}
-                      {card && ` · ${card.name}`}
-                      {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
-                      {showAuthor && userInitials(users, inst.createdByUserId) && ` · ${userInitials(users, inst.createdByUserId)}`}
+                    <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
+                      <span>
+                        {formatDateDMY(instDate)}
+                        {card && ` · ${card.name}`}
+                        {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
+                      </span>
+                      {showAuthor && <UserBadge users={users} userId={inst.createdByUserId} />}
                     </div>
                   </div>
                 </div>
@@ -358,9 +362,9 @@ export function Transactions({
                     Pago tarjeta {card?.name ?? "eliminada"} · {accountLabel(account, banks)}
                     {p.note ? ` · ${p.note}` : ""}
                   </div>
-                  <div className="text-xs" style={{ color: C.textFaint }}>
-                  {formatDateDMY(p.date)}
-                  {showAuthor && userInitials(users, p.createdByUserId) && ` · ${userInitials(users, p.createdByUserId)}`}
+                  <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
+                  <span>{formatDateDMY(p.date)}</span>
+                  {showAuthor && <UserBadge users={users} userId={p.createdByUserId} />}
                 </div>
                 </div>
               </div>
