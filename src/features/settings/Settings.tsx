@@ -84,7 +84,17 @@ export function Settings({
 
   return (
     <div className="pb-24">
-      <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Configuración</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-display" style={{ color: C.text }}>Configuración</h1>
+        <button
+          onClick={onSignOut}
+          aria-label="Cerrar sesión"
+          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+          style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.negative }}
+        >
+          <LogOut size={16} />
+        </button>
+      </div>
 
       <div className="mb-4">
         <Segment
@@ -158,16 +168,6 @@ export function Settings({
       {section === "notificaciones" && activeUser && (
         <NotificationsSettings user={activeUser} onUpdateUserNotifications={onUpdateUserNotifications} />
       )}
-
-      <div className="mt-8 pt-4" style={{ borderTop: `1px solid ${C.border}` }}>
-        <button
-          onClick={onSignOut}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, color: C.negative }}
-        >
-          <LogOut size={15} /> Cerrar sesión
-        </button>
-      </div>
     </div>
   );
 }
