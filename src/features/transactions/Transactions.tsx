@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
@@ -182,19 +182,14 @@ export function Transactions({
       ? byPending
       : byPending.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards)).includes(searchNorm));
 
-  // Los movimientos con fecha futura (a partir de mañana) quedan arriba del
-  // todo por el orden descendente, pero no queremos que se vean de entrada:
-  // al abrir Movimientos, la pantalla arranca en el primer movimiento de hoy
-  // (o pasado) y hay que hacer scroll hacia arriba para ver los futuros.
-  const todayAnchorRef = useRef<HTMLDivElement | null>(null);
-  const scrolledPastFutureRef = useRef(false);
-  useEffect(() => {
-    if (scrolledPastFutureRef.current) return;
-    if (todayAnchorRef.current) {
-      todayAnchorRef.current.scrollIntoView({ block: "start" });
-      scrolledPastFutureRef.current = true;
-    }
-  }, [items]);
+  // Los movimientos con fecha futura (a partir de mañana) no se muestran de
+  // entrada: quedan atrás de un banner ("Ver") para no ensuciar la lista del
+  // día a día, sin perder de vista los filtros/buscador de arriba. Si hay una
+  // búsqueda activa, se muestran igual (el usuario ya está buscando algo puntual).
+  const [showFuture, setShowFuture] = useState(false);
+  const todayStr = todayISO();
+  const futureCount = searchNorm === "" ? items.filter((item) => item.date > todayStr).length : 0;
+  const visibleItems = searchNorm === "" && !showFuture ? items.filter((item) => item.date <= todayStr) : items;
 
   return (
     <div className="pb-24">
@@ -220,6 +215,19 @@ export function Transactions({
             {pendingCount} movimiento{pendingCount === 1 ? "" : "s"} pendiente{pendingCount === 1 ? "" : "s"} de asignar categoría o medio de pago
           </span>
           <span className="font-semibold">{pendingOnly ? "Ver todos" : "Ver pendientes"}</span>
+        </button>
+      )}
+
+      {futureCount > 0 && (
+        <button
+          onClick={() => setShowFuture((v) => !v)}
+          className="w-full text-left rounded-lg p-2.5 mb-3 text-xs flex items-center justify-between"
+          style={{ background: showFuture ? C.usd : "rgba(79,168,160,0.15)", color: showFuture ? "#0A1413" : C.usd }}
+        >
+          <span>
+            {futureCount} movimiento{futureCount === 1 ? "" : "s"} con fecha futura
+          </span>
+          <span className="font-semibold">{showFuture ? "Ocultar" : "Ver"}</span>
         </button>
       )}
 
@@ -258,9 +266,7 @@ export function Transactions({
       <div className="space-y-2">
         {(() => {
           let lastMonth: string | null = null;
-          let anchorPlaced = false;
-          const todayStr = todayISO();
-          return items.map((item) => {
+          return visibleItems.map((item) => {
             const mk = monthKeyOf(item.date);
             const separator =
               mk !== lastMonth ? (
@@ -269,17 +275,12 @@ export function Transactions({
                 </div>
               ) : null;
             lastMonth = mk;
-            // Primer movimiento no futuro de la lista (ordenada de más reciente
-            // a menos reciente): acá arranca el scroll, dejando los futuros arriba.
-            const anchor = !anchorPlaced && item.date <= todayStr ? <div ref={todayAnchorRef} /> : null;
-            if (anchor) anchorPlaced = true;
 
           if (item.kind === "transaction") {
             const t = item.data;
             return (
               <Fragment key={t.id}>
                 {separator}
-                {anchor}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: t.type === "ingreso" ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}>
@@ -332,7 +333,6 @@ export function Transactions({
             return (
               <Fragment key={tr.id}>
                 {separator}
-                {anchor}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
@@ -380,7 +380,6 @@ export function Transactions({
             return (
               <Fragment key={inst.id}>
                 {separator}
-                {anchor}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
