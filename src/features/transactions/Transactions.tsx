@@ -150,7 +150,14 @@ export function Transactions({
     ...transfers.map((t): LedgerItem => ({ kind: "transfer", date: t.date, data: t })),
     ...cardPayments.map((p): LedgerItem => ({ kind: "cardPayment", date: p.date, data: p })),
     ...installments.map((i): LedgerItem => ({ kind: "installment", date: i.date ?? `${i.startMonth}-01`, data: i })),
-  ].sort((a, b) => b.date.localeCompare(a.date));
+  ].sort((a, b) => {
+    const byDate = b.date.localeCompare(a.date);
+    if (byDate !== 0) return byDate;
+    // Empate en fecha asignada: más reciente creado/editado arriba.
+    const aStamp = a.data.updatedAt ?? a.data.createdAt ?? "";
+    const bStamp = b.data.updatedAt ?? b.data.createdAt ?? "";
+    return bStamp.localeCompare(aStamp);
+  });
 
   // "Pendiente de asignar": un gasto/ingreso o compra en cuotas cargado
   // rápido, sin categoría y/o sin medio de pago (cuenta o tarjeta), para

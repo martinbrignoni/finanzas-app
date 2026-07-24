@@ -187,7 +187,10 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.transactions.findIndex((x) => x.id === t.id);
-      const withCreator = idx >= 0 ? t : { ...t, createdByUserId: t.createdByUserId ?? activeUser?.id };
+      const now = new Date().toISOString();
+      const withCreator = idx >= 0
+        ? { ...t, createdAt: d.transactions[idx].createdAt ?? now, updatedAt: now }
+        : { ...t, createdByUserId: t.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
       const transactions = idx >= 0 ? d.transactions.map((x) => (x.id === t.id ? withCreator : x)) : [...d.transactions, withCreator];
       return { ...d, transactions };
     });
@@ -232,7 +235,10 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.installments.findIndex((x) => x.id === inst.id);
-      const withCreator = idx >= 0 ? inst : { ...inst, createdByUserId: inst.createdByUserId ?? activeUser?.id };
+      const now = new Date().toISOString();
+      const withCreator = idx >= 0
+        ? { ...inst, createdAt: d.installments[idx].createdAt ?? now, updatedAt: now }
+        : { ...inst, createdByUserId: inst.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
       const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? withCreator : x)) : [...d.installments, withCreator];
       return { ...d, installments };
     });
@@ -249,7 +255,10 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.cardPayments.findIndex((x) => x.id === p.id);
-      const withCreator = idx >= 0 ? p : { ...p, createdByUserId: p.createdByUserId ?? activeUser?.id };
+      const now = new Date().toISOString();
+      const withCreator = idx >= 0
+        ? { ...p, createdAt: d.cardPayments[idx].createdAt ?? now, updatedAt: now }
+        : { ...p, createdByUserId: p.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
       const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? withCreator : x)) : [...d.cardPayments, withCreator];
       return { ...d, cardPayments };
     });
@@ -337,7 +346,10 @@ export default function App() {
     setData((d) => {
       if (!d) return d;
       const idx = d.transfers.findIndex((x) => x.id === tr.id);
-      const withCreator = idx >= 0 ? tr : { ...tr, createdByUserId: tr.createdByUserId ?? activeUser?.id };
+      const now = new Date().toISOString();
+      const withCreator = idx >= 0
+        ? { ...tr, createdAt: d.transfers[idx].createdAt ?? now, updatedAt: now }
+        : { ...tr, createdByUserId: tr.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
       const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? withCreator : x)) : [...d.transfers, withCreator];
       return { ...d, transfers };
     });

@@ -47,6 +47,10 @@ export interface Transaction {
   receiptPaths?: string[];
   /** Perfil (AppUser.id) que cargó este movimiento. `undefined` en movimientos guardados antes de este campo. */
   createdByUserId?: string;
+  /** Fecha/hora ISO de creación del registro (no la fecha del gasto). Usado para desempatar el orden en Movimientos. */
+  createdAt?: string;
+  /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
+  updatedAt?: string;
 }
 
 export interface Bank {
@@ -138,6 +142,10 @@ export interface Transfer {
   receiptPaths?: string[];
   /** Perfil (AppUser.id) que cargó este movimiento. */
   createdByUserId?: string;
+  /** Fecha/hora ISO de creación del registro (no la fecha del movimiento). Usado para desempatar el orden en Movimientos. */
+  createdAt?: string;
+  /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
+  updatedAt?: string;
 }
 
 export interface Card {
@@ -196,6 +204,10 @@ export interface Installment {
   receiptPaths?: string[];
   /** Perfil (AppUser.id) que cargó este movimiento. */
   createdByUserId?: string;
+  /** Fecha/hora ISO de creación del registro (no la fecha de la compra). Usado para desempatar el orden en Movimientos. */
+  createdAt?: string;
+  /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
+  updatedAt?: string;
 }
 
 /**
@@ -218,6 +230,10 @@ export interface CardPayment {
   receiptPaths?: string[];
   /** Perfil (AppUser.id) que cargó este movimiento. */
   createdByUserId?: string;
+  /** Fecha/hora ISO de creación del registro (no la fecha del pago). Usado para desempatar el orden en Movimientos. */
+  createdAt?: string;
+  /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
+  updatedAt?: string;
 }
 
 export interface Budget {
