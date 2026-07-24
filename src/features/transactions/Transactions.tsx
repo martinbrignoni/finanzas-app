@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
@@ -181,6 +181,20 @@ export function Transactions({
       ? byPending
       : byPending.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards)).includes(searchNorm));
 
+  // Los movimientos con fecha futura (a partir de mañana) quedan arriba del
+  // todo por el orden descendente, pero no queremos que se vean de entrada:
+  // al abrir Movimientos, la pantalla arranca en el primer movimiento de hoy
+  // (o pasado) y hay que hacer scroll hacia arriba para ver los futuros.
+  const todayAnchorRef = useRef<HTMLDivElement | null>(null);
+  const scrolledPastFutureRef = useRef(false);
+  useEffect(() => {
+    if (scrolledPastFutureRef.current) return;
+    if (todayAnchorRef.current) {
+      todayAnchorRef.current.scrollIntoView({ block: "start" });
+      scrolledPastFutureRef.current = true;
+    }
+  }, [items]);
+
   return (
     <div className="pb-24">
       <div className="flex items-center justify-between mb-3 gap-2">
@@ -243,6 +257,8 @@ export function Transactions({
       <div className="space-y-2">
         {(() => {
           let lastMonth: string | null = null;
+          let anchorPlaced = false;
+          const todayStr = todayISO();
           return items.map((item) => {
             const mk = monthKeyOf(item.date);
             const separator =
@@ -252,12 +268,17 @@ export function Transactions({
                 </div>
               ) : null;
             lastMonth = mk;
+            // Primer movimiento no futuro de la lista (ordenada de más reciente
+            // a menos reciente): acá arranca el scroll, dejando los futuros arriba.
+            const anchor = !anchorPlaced && item.date <= todayStr ? <div ref={todayAnchorRef} /> : null;
+            if (anchor) anchorPlaced = true;
 
           if (item.kind === "transaction") {
             const t = item.data;
             return (
               <Fragment key={t.id}>
                 {separator}
+                {anchor}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: t.type === "ingreso" ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}>
@@ -307,6 +328,7 @@ export function Transactions({
             return (
               <Fragment key={tr.id}>
                 {separator}
+                {anchor}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
@@ -354,6 +376,7 @@ export function Transactions({
             return (
               <Fragment key={inst.id}>
                 {separator}
+                {anchor}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
