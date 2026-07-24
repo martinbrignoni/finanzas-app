@@ -35,13 +35,32 @@ interface AppUserLite {
   notifications?: NotificationPrefs;
 }
 
+// La app se sirve desde GitHub Pages y esta función vive en supabase.co: es
+// una llamada cross-origin, así que el navegador manda primero un preflight
+// OPTIONS. Sin estos headers, el preflight vuelve con 405/sin Access-Control-*
+// y el navegador nunca llega a mandar el POST real (fallaba en silencio: el
+// fetch se corta antes, `notifyOtherDevices` solo lo loguea a consola).
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, { status, headers: corsHeaders });
+}
+
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
-    if (req.method !== "POST") return Response.json({ ok: false, error: "Method not allowed" }, { status: 405 });
+    if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
 
     const authHeader = req.headers.get("Authorization") ?? "";
     const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
-    if (!jwt) return Response.json({ ok: false, error: "Falta el header Authorization." }, { status: 401 });
+    if (!jwt) return json({ ok: false, error: "Falta el header Authorization." }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -51,7 +70,7 @@ Deno.serve(async (req) => {
     // que venga en el body para identidad, solo para el contenido del aviso).
     const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
     if (userErr || !userData.user) {
-      return Response.json({ ok: false, error: "Sesión inválida." }, { status: 401 });
+      return json({ ok: false, error: "Sesión inválida." }, 401);
     }
     const callerAuthId = userData.user.id;
 
@@ -69,7 +88,7 @@ Deno.serve(async (req) => {
       ? body.categories.filter((c: unknown): c is NotifiableModuleKey => typeof c === "string" && c in LABELS)
       : [];
     if (!actorUserId || categories.length === 0) {
-      return Response.json({ ok: false, error: "Faltan actorUserId o categories." }, { status: 400 });
+      return json({ ok: false, error: "Faltan actorUserId o categories." }, 400);
     }
 
     const { data: financeRow, error: financeErr } = await admin
@@ -78,7 +97,7 @@ Deno.serve(async (req) => {
       .eq("user_id", ownerId)
       .maybeSingle();
     if (financeErr || !financeRow) {
-      return Response.json({ ok: false, error: "No se encontraron datos del hogar." }, { status: 404 });
+      return json({ ok: false, error: "No se encontraron datos del hogar." }, 404);
     }
     const users: AppUserLite[] = financeRow.data?.users ?? [];
 
@@ -129,8 +148,8 @@ Deno.serve(async (req) => {
       await admin.from("push_subscriptions").delete().in("id", staleIds);
     }
 
-    return Response.json({ ok: true, sent, staleRemoved: staleIds.length });
+    return json({ ok: true, sent, staleRemoved: staleIds.length });
   } catch (err) {
-    return Response.json({ ok: false, error: String(err) }, { status: 500 });
+    return json({ ok: false, error: String(err) }, 500);
   }
 });
