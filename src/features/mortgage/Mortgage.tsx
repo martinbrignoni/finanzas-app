@@ -191,7 +191,9 @@ function LoanDetailModal({
     <Modal title={loan.name} onClose={onClose}>
       <div className="flex items-center gap-1.5 mb-3">
         <MortgageCurrencyPill currency={loan.currency} />
-        <span className="text-xs" style={{ color: C.textFaint }}>{SYSTEM_LABELS[system]}</span>
+        <span className="text-xs" style={{ color: C.textFaint }}>
+          {SYSTEM_LABELS[system]} · {loan.annualRatePct}% {(loan.rateType ?? "nominal") === "effective" ? "TEA" : "TNA"}
+        </span>
       </div>
 
       <div className="rounded-lg p-3 mb-4 space-y-1.5" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
@@ -225,6 +227,14 @@ function LoanDetailModal({
           <div className="flex items-center justify-between text-sm">
             <span style={{ color: C.textMuted }}>Próximo vencimiento</span>
             <span style={{ color: C.text }}>{formatDateDMY(summary.nextDueDate)}</span>
+          </div>
+        )}
+        {!!loan.paymentAdjustmentMinor && (
+          <div className="flex items-center justify-between text-sm">
+            <span style={{ color: C.textMuted }}>Ajuste de cuota (reconciliación)</span>
+            <span className="font-mono" style={{ color: C.textMuted }}>
+              {loan.paymentAdjustmentMinor > 0 ? "+" : ""}{formatMortgageAmount(loan.paymentAdjustmentMinor, loan.currency)} / cuota
+            </span>
           </div>
         )}
         <div className="flex items-center justify-between text-sm pt-1.5" style={{ borderTop: `1px solid ${C.border}` }}>
@@ -392,6 +402,7 @@ export function LoanModal({
   const [system, setSystem] = useState<AmortizationSystem>(initial?.system ?? "frances");
   const [principal, setPrincipal] = useState(initial ? String(fromMinor(initial.principalMinor)) : "");
   const [annualRate, setAnnualRate] = useState(initial ? String(initial.annualRatePct) : "");
+  const [rateType, setRateType] = useState<"nominal" | "effective">(initial?.rateType ?? "effective");
   const [termUnit, setTermUnit] = useState<"years" | "months">(
     initial && initial.termMonths % 12 === 0 ? "years" : "months"
   );
@@ -400,6 +411,9 @@ export function LoanModal({
   );
   const [startDate, setStartDate] = useState(initial?.startDate ?? todayISO());
   const [requestDate, setRequestDate] = useState(initial?.requestDate ?? "");
+  const [paymentAdjustment, setPaymentAdjustment] = useState(
+    initial?.paymentAdjustmentMinor ? String(fromMinor(initial.paymentAdjustmentMinor)) : ""
+  );
   const [note, setNote] = useState(initial?.note ?? "");
 
   const [hasGrace, setHasGrace] = useState((initial?.gracePeriodMonths ?? 0) > 0);
@@ -459,6 +473,12 @@ export function LoanModal({
       if (!Number.isFinite(graceNum) || graceNum <= 0) return setError("Ingresá una cantidad válida de cuotas de gracia.");
       gracePeriodMonths = graceNum;
     }
+    let paymentAdjustmentMinor: number | undefined;
+    if (paymentAdjustment.trim() !== "") {
+      const adjNum = parseFloat(paymentAdjustment.replace(",", "."));
+      if (!Number.isFinite(adjNum)) return setError("Ingresá un ajuste de cuota válido.");
+      paymentAdjustmentMinor = adjNum !== 0 ? toMinor(adjNum) : undefined;
+    }
 
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
@@ -467,11 +487,13 @@ export function LoanModal({
       currency,
       system,
       annualRatePct: rate,
+      rateType,
       termMonths,
       startDate,
       requestDate: requestDate || undefined,
       gracePeriodMonths,
       graceType: hasGrace ? graceType : undefined,
+      paymentAdjustmentMinor,
       prepayments: initial?.prepayments ?? [],
       note: note.trim() || undefined,
       propertyValueUsdMinor: showUsdInfo ? parseAmountInput(propertyValueUsd) ?? undefined : undefined,
@@ -508,6 +530,20 @@ export function LoanModal({
           {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="1" value={termValue} onChange={(e) => setTermValue(e.target.value)} placeholder="Ej. 20" />}
         </Field>
       </div>
+      <Field label="¿Cómo se expresa la tasa?">
+        {() => (
+          <Segment
+            value={rateType}
+            onChange={setRateType}
+            options={[{ value: "effective", label: "Efectiva anual (TEA)" }, { value: "nominal", label: "Nominal anual (TNA)" }]}
+          />
+        )}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        {rateType === "effective"
+          ? "TEA: la tasa mensual se obtiene componiendo (no dividiendo entre 12). Es como casi siempre cotizan los hipotecarios en Uruguay — si tu cuota no te cierra, probá acá antes que nada."
+          : "TNA: la tasa mensual es la anual dividida entre 12, sin componer. Más común en préstamos personales/prendarios."}
+      </p>
       <Field label="Unidad del plazo">
         {() => (
           <Segment
@@ -562,6 +598,13 @@ export function LoanModal({
         </div>
       )}
       <Field label="Nota (opcional)">{(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+
+      <Field label={`Ajuste de cuota por período (opcional, en ${currency})`}>
+        {(id) => <TextInput id={id} type="number" inputMode="decimal" step="0.01" value={paymentAdjustment} onChange={(e) => setPaymentAdjustment(e.target.value)} placeholder="Ej. 1.34 o -1.34" />}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        Para cuando la cuota real del banco queda a unos pesos/UI de la calculada (redondeo de tasa, convención de días, etc.) y querés que la tabla coincida exacto. Se suma a la cuota y al interés de cada período regular (no a los de gracia); no cambia la amortización de capital. Podés poner un número negativo si tu cuota real es más baja.
+      </p>
 
       <Field label="¿Agregar datos informativos en USD?">
         {() => (

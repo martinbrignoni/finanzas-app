@@ -335,8 +335,22 @@ export interface MortgageLoan {
   name: string;
   principalMinor: number;
   currency: MortgageCurrency;
-  /** Tasa nominal anual, en porcentaje (ej. 4.5 para 4.5% anual), compuesta mensualmente. */
+  /**
+   * Tasa anual en porcentaje (ej. 4.5 para 4.5% anual). Su significado
+   * depende de `rateType`:
+   * - "nominal" (TNA): se divide entre 12 para obtener la tasa mensual
+   *   (ej. 12% anual -> 1% mensual). Es la convención de préstamos
+   *   personales/prendarios.
+   * - "effective" (TEA): es la tasa anual real ya compuesta; la tasa
+   *   mensual equivalente se obtiene con `(1+TEA)^(1/12) - 1`, que da un
+   *   valor mensual más bajo que TNA/12. Es la convención habitual con la
+   *   que los bancos en Uruguay cotizan los préstamos hipotecarios,
+   *   sobre todo en UI.
+   * Sin definir = "nominal" (compatibilidad con préstamos cargados antes
+   * de agregar este campo).
+   */
   annualRatePct: number;
+  rateType?: "nominal" | "effective";
   /** Plazo de amortización regular en meses (ej. 240 para 20 años), sin contar los meses de gracia. */
   termMonths: number;
   /** Fecha de la primera cuota (de gracia, si hay, o si no la primera regular). Las siguientes vencen el mismo día de cada mes. */
@@ -362,6 +376,15 @@ export interface MortgageLoan {
   graceType?: "interestOnly" | "capitalized";
   /** Sin definir = "frances" (préstamos cargados antes de agregar este campo). */
   system?: AmortizationSystem;
+  /**
+   * Ajuste manual, en centésimos, para reconciliar contra la cuota real que
+   * cobra el banco cuando queda una diferencia mínima que no se puede
+   * replicar exacto (redondeo de tasa, convención de días, etc.). Se suma
+   * (puede ser negativo) al interés y a la cuota de cada período regular
+   * (no a los de gracia); no toca la amortización de capital ni el saldo,
+   * que siguen el cálculo teórico. Sin definir o 0 = sin ajuste.
+   */
+  paymentAdjustmentMinor?: number;
   prepayments: MortgagePrepayment[];
   note?: string;
   /**

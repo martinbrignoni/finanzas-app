@@ -12,6 +12,22 @@ import type { MortgageLoan, MortgageCurrency, MortgagePrepayment } from "../type
 
 const EPSILON = 0.005; // medio centavo: tolerancia para dar por saldado el préstamo
 
+/**
+ * Tasa mensual equivalente a `loan.annualRatePct`, según `loan.rateType`:
+ * - "nominal" (TNA, default): tasa/12 directamente.
+ * - "effective" (TEA): `(1+tasa)^(1/12) - 1`, la conversión correcta de una
+ *   tasa efectiva anual a su mensual equivalente (da un valor menor que
+ *   TNA/12 para la misma tasa anual nominal en %, porque ya viene compuesta).
+ * Usar la que no corresponde es la causa más común de que una cuota
+ * calculada no coincida con la real de un préstamo hipotecario: los bancos
+ * en Uruguay casi siempre cotizan el hipotecario como TEA.
+ */
+function monthlyRateOf(loan: MortgageLoan): number {
+  const annual = loan.annualRatePct / 100;
+  if (loan.rateType === "effective") return Math.pow(1 + annual, 1 / 12) - 1;
+  return annual / 12;
+}
+
 /** Cuota fija (sistema francés) para cancelar `principal` en `months` cuotas a una tasa mensual `monthlyRate` (ej. 0.004 = 0.4%/mes). */
 export function frenchPayment(principal: number, monthlyRate: number, months: number): number {
   if (months <= 0 || principal <= 0) return 0;
@@ -63,7 +79,7 @@ export interface AmortizationRow {
  * restante; "reduceTerm" mantiene la cuota y recalcula cuántas cuotas faltan.
  */
 function buildFrenchSchedule(loan: MortgageLoan): AmortizationRow[] {
-  const monthlyRate = loan.annualRatePct / 100 / 12;
+  const monthlyRate = monthlyRateOf(loan);
   const principal = fromMinor(loan.principalMinor);
   const today = todayISO();
 
@@ -132,7 +148,7 @@ function buildFrenchSchedule(loan: MortgageLoan): AmortizationRow[] {
  * de antes del pago extra y recalcula cuántas cuotas faltan.
  */
 function buildGermanSchedule(loan: MortgageLoan): AmortizationRow[] {
-  const monthlyRate = loan.annualRatePct / 100 / 12;
+  const monthlyRate = monthlyRateOf(loan);
   const principal = fromMinor(loan.principalMinor);
   const today = todayISO();
 
@@ -200,7 +216,7 @@ function buildGermanSchedule(loan: MortgageLoan): AmortizationRow[] {
  * "bajar plazo".
  */
 function buildAmericanSchedule(loan: MortgageLoan): AmortizationRow[] {
-  const monthlyRate = loan.annualRatePct / 100 / 12;
+  const monthlyRate = monthlyRateOf(loan);
   const principal = fromMinor(loan.principalMinor);
   const today = todayISO();
   const totalMonths = loan.termMonths;
@@ -265,7 +281,7 @@ function buildGracePrefix(loan: MortgageLoan): {
     return { rows: [], balanceAfter: principal, remainingPrepayments: loan.prepayments };
   }
 
-  const monthlyRate = loan.annualRatePct / 100 / 12;
+  const monthlyRate = monthlyRateOf(loan);
   const graceType = loan.graceType ?? "interestOnly";
   const today = todayISO();
 
@@ -320,6 +336,11 @@ function buildRegularSchedule(loan: MortgageLoan): AmortizationRow[] {
  * sobre el saldo y la fecha ya corridos por la gracia.
  */
 export function buildSchedule(loan: MortgageLoan): AmortizationRow[] {
+  const rows = buildRawSchedule(loan);
+  return applyPaymentAdjustment(rows, loan.paymentAdjustmentMinor);
+}
+
+function buildRawSchedule(loan: MortgageLoan): AmortizationRow[] {
   const graceMonths = loan.gracePeriodMonths ?? 0;
   if (graceMonths <= 0) return buildRegularSchedule(loan);
 
@@ -337,6 +358,22 @@ export function buildSchedule(loan: MortgageLoan): AmortizationRow[] {
   };
   const regularRows = buildRegularSchedule(regularLoan).map((r) => ({ ...r, number: r.number + graceMonths }));
   return [...graceRows, ...regularRows];
+}
+
+/**
+ * Suma (o resta) `adjustmentMinor` al interés y a la cuota de cada período
+ * regular (no a los de gracia), para reconciliar contra la cuota real del
+ * banco cuando queda una diferencia mínima que no se puede replicar exacto.
+ * No toca `principalMinor` ni `balanceMinor`: la amortización de capital
+ * sigue el cálculo teórico tal cual.
+ */
+function applyPaymentAdjustment(rows: AmortizationRow[], adjustmentMinor: number | undefined): AmortizationRow[] {
+  if (!adjustmentMinor) return rows;
+  return rows.map((r) =>
+    r.isGrace
+      ? r
+      : { ...r, interestMinor: r.interestMinor + adjustmentMinor, paymentMinor: r.paymentMinor + adjustmentMinor }
+  );
 }
 
 export interface LoanSummary {
