@@ -170,6 +170,12 @@ export interface CardExtension {
 export interface Card {
   id: string;
   name: string;
+  /**
+   * Banco emisor de esta tarjeta (Bank.id). Opcional solo por compatibilidad
+   * con tarjetas cargadas antes de que existiera este campo: al crear una
+   * tarjeta nueva se pide elegir un banco.
+   */
+  bankId?: string;
   closingDay: number; // 1-31
   dueDay: number; // 1-31
   /** Si está activo, se recuerda mensualmente adjuntar el estado de cuenta (PDF y Excel) de esta tarjeta. */

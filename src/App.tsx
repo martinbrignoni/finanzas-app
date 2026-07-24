@@ -1037,7 +1037,7 @@ export default function App() {
           onClose={closeModal}
         />
       )}
-      {modal?.type === "card" && <CardModal initial={modal.payload} onSave={upsertCard} onClose={closeModal} />}
+      {modal?.type === "card" && <CardModal initial={modal.payload} banks={data.banks} onSave={upsertCard} onClose={closeModal} />}
       {modal?.type === "budget" && <BudgetModal categories={data.categories} initial={modal.payload} onSave={saveBudget} onClose={closeModal} />}
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (

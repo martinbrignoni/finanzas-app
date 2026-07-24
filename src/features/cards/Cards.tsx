@@ -151,6 +151,9 @@ export function Cards({
   const [viewCardId, setViewCardId] = useState<string | null>(null);
   const viewCard = data.cards.find((c) => c.id === viewCardId) ?? null;
 
+  const cardSummaryProps = { data, mk, canEdit, canEditMovements, onEditCard, onDeleteCard, onAddCardExpense, onAddCardPayment, onView: setViewCardId };
+  const unassignedCards = data.cards.filter((c) => !c.bankId || !data.banks.some((b) => b.id === c.bankId));
+
   return (
     <div className="pb-24">
       <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Tarjetas y cuotas</h1>
@@ -161,94 +164,43 @@ export function Cards({
         </div>
       )}
 
-      <div className="space-y-3 mb-4">
-        {data.cards.map((card) => {
-          const debt = cardDebt(card.id, data.installments, data.transactions, data.cardPayments, mk);
-          const consumption = cardConsumptionForMonth(card.id, data.installments, data.transactions, mk);
-          const pendingMonths = pendingCardStatementMonths(card, data.cardStatements);
-          const currentStatement = getCardStatement(data.cardStatements, card.id, mk);
+      <div className="space-y-4 mb-4">
+        {data.banks.map((bank) => {
+          const bankCards = data.cards.filter((c) => c.bankId === bank.id);
+          if (bankCards.length === 0) return null;
           return (
-            <div key={card.id} className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: C.surface3 }}>
-                    <CreditCard size={16} color={C.usd} />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold" style={{ color: C.text }}>{card.name}</div>
-                    <div className="text-xs" style={{ color: C.textFaint }}>
-                      Cierre día {card.closingDay} · Vence {currentStatement?.dueDate ? formatDateDMY(currentStatement.dueDate) : `día ${card.dueDay}`}
-                    </div>
-                  </div>
-                </div>
-                {canEdit && (
-                  <div className="flex gap-1">
-                    <IconBtn label="Editar tarjeta" onClick={() => onEditCard(card)}><Pencil size={15} /></IconBtn>
-                    <IconBtn label="Eliminar tarjeta" danger onClick={() => onDeleteCard(card.id)}><Trash2 size={15} /></IconBtn>
-                  </div>
-                )}
+            <div key={bank.id}>
+              <div className="flex items-center gap-1.5 mb-2 px-1">
+                <Landmark size={13} color={C.textFaint} />
+                <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.textFaint }}>{bank.name}</span>
               </div>
-
-              <div className="rounded-lg p-2.5 mb-2" style={{ background: C.surface2 }}>
-                <div className="text-[11px] font-semibold mb-1" style={{ color: C.textMuted }}>Consumo de este mes</div>
-                <div className="flex gap-4 text-xs font-mono">
-                  {consumption.UYU === 0 && consumption.USD === 0 ? (
-                    <span style={{ color: C.textFaint }}>Sin consumo cargado todavía</span>
-                  ) : (
-                    <>
-                      {consumption.UYU !== 0 && <span style={{ color: C.uyu }}>{formatMoney(consumption.UYU, "UYU")}</span>}
-                      {consumption.USD !== 0 && <span style={{ color: C.usd }}>{formatMoney(consumption.USD, "USD")}</span>}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex gap-4 mb-2 text-xs font-mono" style={{ color: C.textMuted }}>
-                <span>Deuda pendiente:</span>
-                <span style={{ color: C.uyu }}>{formatMoney(Math.max(0, debt.UYU), "UYU")}</span>
-                <span style={{ color: C.usd }}>{formatMoney(Math.max(0, debt.USD), "USD")}</span>
-              </div>
-
-              {pendingMonths.length > 0 && (
-                <div className="rounded-lg p-2.5 mb-3 text-xs flex items-start gap-1.5" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
-                  <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-                  <span>Falta el estado de cuenta de: {pendingMonths.map((m) => capitalize(monthLabel(m))).join(", ")}.</span>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                {canEditMovements && (
-                  <button
-                    onClick={() => onAddCardExpense(card.id)}
-                    className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                    style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-                  >
-                    <Plus size={13} /> Gasto
-                  </button>
-                )}
-                {canEdit && (
-                  <button
-                    onClick={() => onAddCardPayment(card.id)}
-                    className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                    style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-                  >
-                    <Plus size={13} /> Pago
-                  </button>
-                )}
-                <button
-                  onClick={() => setViewCardId(card.id)}
-                  className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-                  style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
-                >
-                  Ver detalle <ChevronRight size={13} />
-                </button>
+              <div className="space-y-3">
+                {bankCards.map((card) => <CardSummaryCard key={card.id} card={card} {...cardSummaryProps} />)}
               </div>
             </div>
           );
         })}
+
+        {unassignedCards.length > 0 && (
+          <div>
+            <div className="flex items-center gap-1.5 mb-2 px-1">
+              <CreditCard size={13} color={C.textFaint} />
+              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.textFaint }}>Sin banco asignado</span>
+            </div>
+            <div className="space-y-3">
+              {unassignedCards.map((card) => <CardSummaryCard key={card.id} card={card} {...cardSummaryProps} />)}
+            </div>
+          </div>
+        )}
       </div>
 
-      {canEdit && (
+      {canEdit && data.banks.length === 0 && (
+        <div className="rounded-xl p-4 text-center text-xs mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textFaint }}>
+          Agregá primero un banco en Configuración &gt; Cajas y Bancos para poder crear tarjetas.
+        </div>
+      )}
+
+      {canEdit && data.banks.length > 0 && (
         <button
           onClick={onAddCard}
           className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
@@ -281,6 +233,115 @@ export function Cards({
           onClose={() => setViewCardId(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** Card resumida dentro de un grupo (banco o "sin banco asignado") en la lista de Tarjetas. */
+function CardSummaryCard({
+  card,
+  data,
+  mk,
+  canEdit,
+  canEditMovements,
+  onEditCard,
+  onDeleteCard,
+  onAddCardExpense,
+  onAddCardPayment,
+  onView,
+}: {
+  card: Card;
+  data: FinanceData;
+  mk: string;
+  canEdit: boolean;
+  canEditMovements: boolean;
+  onEditCard: (c: Card) => void;
+  onDeleteCard: (id: string) => void;
+  onAddCardExpense: (cardId: string) => void;
+  onAddCardPayment: (cardId: string) => void;
+  onView: (id: string) => void;
+}) {
+  const debt = cardDebt(card.id, data.installments, data.transactions, data.cardPayments, mk);
+  const consumption = cardConsumptionForMonth(card.id, data.installments, data.transactions, mk);
+  const pendingMonths = pendingCardStatementMonths(card, data.cardStatements);
+  const currentStatement = getCardStatement(data.cardStatements, card.id, mk);
+
+  return (
+    <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: C.surface3 }}>
+            <CreditCard size={16} color={C.usd} />
+          </div>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: C.text }}>{card.name}</div>
+            <div className="text-xs" style={{ color: C.textFaint }}>
+              Cierre día {card.closingDay} · Vence {currentStatement?.dueDate ? formatDateDMY(currentStatement.dueDate) : `día ${card.dueDay}`}
+            </div>
+          </div>
+        </div>
+        {canEdit && (
+          <div className="flex gap-1">
+            <IconBtn label="Editar tarjeta" onClick={() => onEditCard(card)}><Pencil size={15} /></IconBtn>
+            <IconBtn label="Eliminar tarjeta" danger onClick={() => onDeleteCard(card.id)}><Trash2 size={15} /></IconBtn>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg p-2.5 mb-2" style={{ background: C.surface2 }}>
+        <div className="text-[11px] font-semibold mb-1" style={{ color: C.textMuted }}>Consumo de este mes</div>
+        <div className="flex gap-4 text-xs font-mono">
+          {consumption.UYU === 0 && consumption.USD === 0 ? (
+            <span style={{ color: C.textFaint }}>Sin consumo cargado todavía</span>
+          ) : (
+            <>
+              {consumption.UYU !== 0 && <span style={{ color: C.uyu }}>{formatMoney(consumption.UYU, "UYU")}</span>}
+              {consumption.USD !== 0 && <span style={{ color: C.usd }}>{formatMoney(consumption.USD, "USD")}</span>}
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-4 mb-2 text-xs font-mono" style={{ color: C.textMuted }}>
+        <span>Deuda pendiente:</span>
+        <span style={{ color: C.uyu }}>{formatMoney(Math.max(0, debt.UYU), "UYU")}</span>
+        <span style={{ color: C.usd }}>{formatMoney(Math.max(0, debt.USD), "USD")}</span>
+      </div>
+
+      {pendingMonths.length > 0 && (
+        <div className="rounded-lg p-2.5 mb-3 text-xs flex items-start gap-1.5" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
+          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+          <span>Falta el estado de cuenta de: {pendingMonths.map((m) => capitalize(monthLabel(m))).join(", ")}.</span>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        {canEditMovements && (
+          <button
+            onClick={() => onAddCardExpense(card.id)}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+            style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+          >
+            <Plus size={13} /> Gasto
+          </button>
+        )}
+        {canEdit && (
+          <button
+            onClick={() => onAddCardPayment(card.id)}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+            style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+          >
+            <Plus size={13} /> Pago
+          </button>
+        )}
+        <button
+          onClick={() => onView(card.id)}
+          className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+          style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+        >
+          Ver detalle <ChevronRight size={13} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -590,8 +651,9 @@ function CardDetailModal({
   );
 }
 
-export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave: (c: Card) => void; onClose: () => void }) {
+export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card; banks: Bank[]; onSave: (c: Card) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
+  const [bankId, setBankId] = useState(initial?.bankId ?? banks[0]?.id ?? "");
   const [closingDay, setClosingDay] = useState(String(initial?.closingDay ?? 20));
   const [dueDay, setDueDay] = useState(String(initial?.dueDay ?? 5));
   const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
@@ -606,6 +668,7 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
   const handleSave = () => {
     const cd = parseInt(closingDay), dd = parseInt(dueDay);
     if (!name.trim()) return setError("Ingresá un nombre para la tarjeta.");
+    if (!bankId) return setError("Elegí el banco emisor de la tarjeta.");
     if (!Number.isInteger(cd) || cd < 1 || cd > 31 || !Number.isInteger(dd) || dd < 1 || dd > 31) {
       return setError("Los días deben estar entre 1 y 31.");
     }
@@ -623,6 +686,7 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
       name: name.trim(),
+      bankId,
       closingDay: cd,
       dueDay: dd,
       statementReminders,
@@ -634,6 +698,14 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
   return (
     <Modal title={initial ? "Editar tarjeta" : "Nueva tarjeta"} onClose={onClose}>
       <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Visa, Santander..." />}</Field>
+      <Field label="Banco">
+        {(id) => (
+          <Select id={id} value={bankId} onChange={(e) => setBankId(e.target.value)}>
+            {banks.length === 0 && <option value="">Agregá un banco primero</option>}
+            {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </Select>
+        )}
+      </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Día de cierre">{(id) => <TextInput id={id} type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />}</Field>
         <Field label="Día de vencimiento">{(id) => <TextInput id={id} type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}</Field>
