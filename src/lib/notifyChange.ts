@@ -40,8 +40,9 @@ export function notifyOtherDevices(actorUserId: string, actorName: string, categ
   if (categories.length === 0) return;
   supabase.functions
     .invoke("notify-change", { body: { actorUserId, actorName, categories } })
-    .then(({ error }) => {
+    .then(({ data, error }) => {
       if (error) console.error("No se pudo avisar a otros dispositivos.", error);
+      else console.log("[notify-change]", data);
     })
     .catch((err) => console.error("No se pudo avisar a otros dispositivos.", err));
 }
