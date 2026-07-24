@@ -6,11 +6,12 @@ import { CalculatorModal } from "./components/Calculator";
 import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
+import { detectChangedCategories, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
-  Contact, ContactEntry, MortgageLoan, MortgagePrepayment,
+  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -73,6 +74,13 @@ export default function App() {
   const [unlocked, setUnlocked] = useState(false);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
   const pendingSaves = useRef(0);
+  // Última versión de `data` que ya pasó por este efecto, para poder
+  // comparar contra la nueva y detectar qué cambió (y avisarle a otros
+  // dispositivos). `skipNotify` se prende justo antes de un `loadData()`
+  // (traer datos del servidor no es "editar": no hay que avisarle a nadie
+  // de un cambio que en realidad hizo otra persona en otro dispositivo).
+  const prevDataRef = useRef<FinanceData | null>(null);
+  const skipNotifyRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setSessionEmail(data.user?.email ?? null));
@@ -82,7 +90,10 @@ export default function App() {
     setRefreshing(true);
     return repo
       .load()
-      .then(setData)
+      .then((loaded) => {
+        skipNotifyRef.current = true;
+        setData(loaded);
+      })
       .finally(() => setRefreshing(false));
   }, []);
 
@@ -93,6 +104,19 @@ export default function App() {
 
   useEffect(() => {
     if (!data) return;
+
+    const prev = prevDataRef.current;
+    const skip = skipNotifyRef.current;
+    skipNotifyRef.current = false;
+    if (prev && !skip) {
+      const actor = data.users.find((u) => u.id === data.activeUserId);
+      if (actor) {
+        const changed = detectChangedCategories(prev, data);
+        if (changed.length > 0) notifyOtherDevices(actor.id, actor.name, changed);
+      }
+    }
+    prevDataRef.current = data;
+
     pendingSaves.current += 1;
     setSaving(true);
     repo
@@ -549,6 +573,18 @@ export default function App() {
       return { ...d, users };
     });
   }, []);
+  // Actualiza la preferencia de notificaciones del perfil actualmente activo.
+  const updateActiveUserNotifications = useCallback((partial: Partial<NotificationPrefs>) => {
+    setData((d) => {
+      if (!d || !d.activeUserId) return d;
+      const users = d.users.map((u) =>
+        u.id === d.activeUserId
+          ? { ...u, notifications: { ...(u.notifications ?? { enabled: false, categories: {} }), ...partial } }
+          : u
+      );
+      return { ...d, users };
+    });
+  }, []);
 
   if (!data) {
     return (
@@ -811,6 +847,7 @@ export default function App() {
                 onMoveCategory={moveCategory}
                 onReclassifyCategory={reclassifyCategory}
                 onUpdateUserLock={updateActiveUserLock}
+                onUpdateUserNotifications={updateActiveUserNotifications}
                 onUpdateBank={updateBankFields}
                 onUpdateAccount={updateAccountFields}
               />

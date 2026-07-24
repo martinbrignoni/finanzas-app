@@ -476,6 +476,36 @@ export interface AppUser {
    * no se eligió ninguno, se asigna uno automático y estable en base al id.
    */
   color?: string;
+  /** Preferencia de notificaciones push de este perfil. Sin definir = desactivadas. */
+  notifications?: NotificationPrefs;
+}
+
+/**
+ * Subconjunto de módulos sobre los que tiene sentido avisar "otro perfil hizo
+ * un cambio" (se excluyen inicio/proyección/cotizaciones/configuración, que
+ * no son datos que alguien "carga" y por ende no generan aviso).
+ */
+export type NotifiableModuleKey = Extract<
+  PermissionKey,
+  "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "notas" | "personas" | "hipoteca"
+>;
+
+export const NOTIFIABLE_MODULES: { key: NotifiableModuleKey; label: string }[] = PERMISSION_MODULES.filter(
+  (m): m is { key: NotifiableModuleKey; label: string } =>
+    (["movimientos", "cuentas", "tarjetas", "presupuestos", "notas", "personas", "hipoteca"] as PermissionKey[]).includes(m.key)
+);
+
+/**
+ * Preferencia de notificaciones push de un perfil: si quiere recibir avisos
+ * cuando OTRO perfil del mismo hogar carga o cambia algo, y sobre qué
+ * módulos. No tiene nada que ver con la suscripción técnica del navegador
+ * (eso vive en la tabla `push_subscriptions`, por dispositivo): esto es solo
+ * la preferencia de la persona, compartida entre todos sus dispositivos.
+ */
+export interface NotificationPrefs {
+  enabled: boolean;
+  /** Por módulo: `false` explícito lo excluye. Sin entrada = incluido (default true mientras `enabled` sea true). */
+  categories: Partial<Record<NotifiableModuleKey, boolean>>;
 }
 
 /** Nota de texto libre dejada por un perfil, visible para todos los perfiles que comparten la app. */

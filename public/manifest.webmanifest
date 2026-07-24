@@ -1,0 +1,16 @@
+{
+  "name": "Finanzas",
+  "short_name": "Finanzas",
+  "description": "Control de finanzas personales",
+  "start_url": "/finanzas-app/",
+  "scope": "/finanzas-app/",
+  "display": "standalone",
+  "background_color": "#10181A",
+  "theme_color": "#10181A",
+  "icons": [
+    { "src": "/finanzas-app/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/finanzas-app/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/finanzas-app/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/finanzas-app/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

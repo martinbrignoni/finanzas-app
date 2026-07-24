@@ -4,8 +4,9 @@ import { Segment } from "../../components/ui";
 import { CategoriesSettings } from "./Categories";
 import { UsersSettings } from "./Users";
 import { SecuritySettings } from "./Security";
+import { NotificationsSettings } from "./Notifications";
 import { BanksSettings } from "./Banks";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account } from "../../types";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, NotificationPrefs } from "../../types";
 
 export function Settings({
   users,
@@ -31,6 +32,7 @@ export function Settings({
   onMoveCategory,
   onReclassifyCategory,
   onUpdateUserLock,
+  onUpdateUserNotifications,
   onUpdateBank,
   onUpdateAccount,
 }: {
@@ -58,10 +60,11 @@ export function Settings({
   onMoveCategory: (id: string, newParentId: string) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
   onUpdateUserLock: (partial: Partial<AppLock>) => void;
+  onUpdateUserNotifications: (partial: Partial<NotificationPrefs>) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "seguridad">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -76,6 +79,7 @@ export function Settings({
             { value: "categorias", label: "Categorías" },
             { value: "bancos", label: "Cajas y Bancos" },
             { value: "seguridad", label: "Seguridad" },
+            { value: "notificaciones", label: "Notificaciones" },
           ]}
         />
       </div>
@@ -120,6 +124,9 @@ export function Settings({
       )}
       {section === "seguridad" && activeUser && (
         <SecuritySettings user={activeUser} onUpdateUserLock={onUpdateUserLock} />
+      )}
+      {section === "notificaciones" && activeUser && (
+        <NotificationsSettings user={activeUser} onUpdateUserNotifications={onUpdateUserNotifications} />
       )}
     </div>
   );
