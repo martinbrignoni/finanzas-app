@@ -35,6 +35,13 @@ export interface Transaction {
    */
   cardId?: string;
   /**
+   * Con qué tarjeta física se pagó, cuando la tarjeta (`cardId`) tiene
+   * extensiones cargadas: el id de un `CardExtension` de esa tarjeta.
+   * `undefined` significa "el titular". No tiene efecto si la tarjeta no
+   * tiene extensiones o si el gasto no se pagó con tarjeta.
+   */
+  cardExtensionId?: string;
+  /**
    * Ruta (no URL) del comprobante adjunto en el bucket "receipts" de Supabase
    * Storage, con forma `${userId}/${archivo}`. Se resuelve a una URL firmada
    * (temporal) recién al momento de mostrarla, porque el bucket es privado.
@@ -154,6 +161,12 @@ export interface Transfer {
   updatedAt?: string;
 }
 
+/** Titular adicional ("extensión") de una tarjeta: alguien más con su propia tarjeta física sobre la misma línea. */
+export interface CardExtension {
+  id: string;
+  name: string; // ej. "Luli"
+}
+
 export interface Card {
   id: string;
   name: string;
@@ -167,6 +180,13 @@ export interface Card {
    * retroactivamente meses de antes de haberlo prendido.
    */
   statementRemindersSince?: string;
+  /**
+   * Titulares adicionales ("extensiones") de esta tarjeta, si los hay (ej. una
+   * extensión a nombre de tu pareja). Vacío o `undefined` = solo vos la usás.
+   * Editable en cualquier momento: una tarjeta puede empezar sin extensiones
+   * y sumar una más adelante, o al revés.
+   */
+  extensions?: CardExtension[];
 }
 
 /**
@@ -214,6 +234,8 @@ export interface Installment {
   createdAt?: string;
   /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
   updatedAt?: string;
+  /** Con qué tarjeta física se hizo la compra, si la tarjeta tiene extensiones (ver Transaction.cardExtensionId). */
+  cardExtensionId?: string;
 }
 
 /**

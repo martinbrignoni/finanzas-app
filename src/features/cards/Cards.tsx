@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CreditCard, Pencil, Trash2, Plus, Landmark, ShoppingBag, AlertTriangle, ChevronRight } from "lucide-react";
+import { CreditCard, Pencil, Trash2, Plus, X, Landmark, ShoppingBag, AlertTriangle, ChevronRight } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -9,7 +9,13 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, monthKeyOf, addMonths, monthLabel, capitalize, todayISO, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
-import type { Card, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement } from "../../types";
+import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement } from "../../types";
+
+/** Nombre a mostrar para quién hizo un gasto con tarjeta: el titular (undefined) o una extensión puntual. */
+function cardHolderLabel(card: Card | undefined, extensionId: string | undefined): string | null {
+  if (!card || !extensionId) return null;
+  return card.extensions?.find((e) => e.id === extensionId)?.name ?? "Extensión eliminada";
+}
 
 /**
  * Deuda real de la tarjeta: cuotas restantes (proyección) + gastos de pago
@@ -66,6 +72,45 @@ function cardConsumptionForMonth(
       total[t.currency] += t.amountMinor;
     });
   return total;
+}
+
+/**
+ * Igual que `cardConsumptionForMonth`, pero desglosado por quién hizo cada
+ * gasto: el titular y cada extensión. Solo tiene sentido si la tarjeta tiene
+ * extensiones cargadas.
+ */
+function cardConsumptionByHolder(
+  card: Card,
+  installments: Installment[],
+  transactions: Transaction[],
+  mk: string
+): { label: string; amounts: Record<Currency, number> }[] {
+  const buckets = new Map<string, Record<Currency, number>>();
+  const ensure = (key: string) => {
+    if (!buckets.has(key)) buckets.set(key, { UYU: 0, USD: 0 });
+    return buckets.get(key)!;
+  };
+
+  installments.filter((i) => i.cardId === card.id).forEach((inst) => {
+    const idx = monthsBetween(inst.startMonth, mk);
+    if (idx >= 0 && idx < inst.numInstallments) {
+      ensure(inst.cardExtensionId ?? "")[inst.currency] += inst.installmentAmountMinor;
+    }
+  });
+  transactions
+    .filter((t) => t.type === "gasto" && t.cardId === card.id && monthKeyOf(t.date) === mk)
+    .forEach((t) => {
+      ensure(t.cardExtensionId ?? "")[t.currency] += t.amountMinor;
+    });
+
+  // Titular primero, después cada extensión en el orden en que están cargadas.
+  const order = ["", ...(card.extensions ?? []).map((e) => e.id)];
+  return order
+    .filter((key) => buckets.has(key))
+    .map((key) => ({
+      label: key === "" ? "Titular" : card.extensions?.find((e) => e.id === key)?.name ?? "Extensión eliminada",
+      amounts: buckets.get(key)!,
+    }));
 }
 
 export function Cards({
@@ -291,6 +336,7 @@ function CardDetailModal({
   const [dueDate, setDueDate] = useState(currentStatement?.dueDate ?? "");
   const statementMonthOptions = Array.from({ length: 25 }, (_, i) => addMonths(mk, -i));
   const consumption = cardConsumptionForMonth(card.id, installments, expenses, statementMonth);
+  const byHolder = (card.extensions?.length ?? 0) > 0 ? cardConsumptionByHolder(card, installments, expenses, statementMonth) : [];
   const hasAnyFile = !!(currentStatement?.pdfPath || currentStatement?.excelPath);
 
   const handleMonthChange = (m: string) => {
@@ -366,6 +412,23 @@ function CardDetailModal({
             </>
           )}
         </div>
+        {byHolder.length > 0 && (
+          <div className="mt-1.5 pt-1.5 space-y-0.5" style={{ borderTop: `1px solid ${C.border}` }}>
+            {byHolder.map(({ label, amounts }) => (
+              <div key={label} className="flex items-center gap-x-3 text-[11px] font-mono" style={{ color: C.textFaint }}>
+                <span className="min-w-[70px]" style={{ color: C.textMuted }}>{label}:</span>
+                {amounts.UYU === 0 && amounts.USD === 0 ? (
+                  <span>—</span>
+                ) : (
+                  <>
+                    {amounts.UYU !== 0 && <span style={{ color: C.uyu }}>{formatMoney(amounts.UYU, "UYU")}</span>}
+                    {amounts.USD !== 0 && <span style={{ color: C.usd }}>{formatMoney(amounts.USD, "USD")}</span>}
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
@@ -419,7 +482,10 @@ function CardDetailModal({
               <div key={p.id} className="flex items-center justify-between text-xs rounded-lg px-2.5 py-2" style={{ background: C.surface2 }}>
                 <div>
                   <div style={{ color: C.text }}>{p.category ? `${p.category} · ${p.description}` : p.description}</div>
-                  <div style={{ color: C.textFaint }}>{finished ? "Pagada" : `Cuota ${cuotaActual}/${p.numInstallments}`}</div>
+                  <div style={{ color: C.textFaint }}>
+                    {finished ? "Pagada" : `Cuota ${cuotaActual}/${p.numInstallments}`}
+                    {cardHolderLabel(card, p.cardExtensionId) && ` · ${cardHolderLabel(card, p.cardExtensionId)}`}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono" style={{ color: C.textMuted }}>{formatMoney(p.installmentAmountMinor, p.currency)}</span>
@@ -447,7 +513,10 @@ function CardDetailModal({
                 <ShoppingBag size={13} color={C.textFaint} />
                 <div>
                   <div style={{ color: C.text }}>{t.category ?? "Sin categorizar"}{t.note ? ` · ${t.note}` : ""}</div>
-                  <div style={{ color: C.textFaint }}>{formatDateDMY(t.date)}</div>
+                  <div style={{ color: C.textFaint }}>
+                    {formatDateDMY(t.date)}
+                    {cardHolderLabel(card, t.cardExtensionId) && ` · ${cardHolderLabel(card, t.cardExtensionId)}`}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -526,13 +595,22 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
   const [closingDay, setClosingDay] = useState(String(initial?.closingDay ?? 20));
   const [dueDay, setDueDay] = useState(String(initial?.dueDay ?? 5));
   const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
+  const [hasExtensions, setHasExtensions] = useState((initial?.extensions?.length ?? 0) > 0);
+  const [extensions, setExtensions] = useState<CardExtension[]>(initial?.extensions ?? []);
   const [error, setError] = useState<string | null>(null);
+
+  const addExtension = () => setExtensions((list) => [...list, { id: crypto.randomUUID(), name: "" }]);
+  const updateExtension = (id: string, name: string) => setExtensions((list) => list.map((e) => (e.id === id ? { ...e, name } : e)));
+  const removeExtension = (id: string) => setExtensions((list) => list.filter((e) => e.id !== id));
 
   const handleSave = () => {
     const cd = parseInt(closingDay), dd = parseInt(dueDay);
     if (!name.trim()) return setError("Ingresá un nombre para la tarjeta.");
     if (!Number.isInteger(cd) || cd < 1 || cd > 31 || !Number.isInteger(dd) || dd < 1 || dd > 31) {
       return setError("Los días deben estar entre 1 y 31.");
+    }
+    if (hasExtensions && extensions.some((e) => !e.name.trim())) {
+      return setError("Completá el nombre de cada extensión, o quitá la que quedó vacía.");
     }
     // Si se prende el recordatorio (y antes estaba apagado), empieza a contar desde el mes
     // actual: no reclama retroactivamente estados de cuenta de antes de haberlo activado.
@@ -549,6 +627,7 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
       dueDay: dd,
       statementReminders,
       statementRemindersSince,
+      extensions: hasExtensions ? extensions.map((e) => ({ ...e, name: e.name.trim() })) : [],
     });
   };
 
@@ -571,6 +650,45 @@ export function CardModal({ initial, onSave, onClose }: { initial?: Card; onSave
       <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
         Con esto activado, cada mes que cierre te avisamos en Tarjetas hasta que subas el PDF y el Excel del estado de cuenta de esta tarjeta.
       </p>
+
+      <Field label="¿Tiene extensiones?">
+        {() => (
+          <Segment
+            value={hasExtensions ? "on" : "off"}
+            onChange={(v) => setHasExtensions(v === "on")}
+            options={[{ value: "off", label: "No" }, { value: "on", label: "Sí" }]}
+          />
+        )}
+      </Field>
+      {hasExtensions && (
+        <div className="mb-3">
+          {extensions.map((ext) => (
+            <div key={ext.id} className="flex items-center gap-2 mb-2">
+              <TextInput
+                value={ext.name}
+                onChange={(e) => updateExtension(ext.id, e.target.value)}
+                placeholder="Nombre (ej. Luli)"
+                autoFocus
+              />
+              <button type="button" onClick={() => removeExtension(ext.id)} aria-label="Quitar extensión" className="shrink-0" style={{ color: C.negative }}>
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={addExtension}
+            className="text-xs font-semibold flex items-center gap-1"
+            style={{ color: C.usd }}
+          >
+            <Plus size={13} /> Agregar titular adicional
+          </button>
+          <p className="text-xs mt-1.5" style={{ color: C.textFaint }}>
+            Al cargar un gasto con esta tarjeta vas a poder elegir si lo pagaste vos o esta persona.
+          </p>
+        </div>
+      )}
+
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>

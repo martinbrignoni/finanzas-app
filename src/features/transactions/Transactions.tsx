@@ -33,6 +33,13 @@ function amountVariants(amountMinor: number): string {
   return `${plain} ${plain.replace(".", ",")}`;
 }
 
+/** Nombre de quién usó la tarjeta (una extensión puntual), o null si la pagó el titular o no aplica. */
+function cardExtensionLabel(cards: Card[], cardId: string | undefined, extensionId: string | undefined): string | null {
+  if (!cardId || !extensionId) return null;
+  const card = cards.find((c) => c.id === cardId);
+  return card?.extensions?.find((e) => e.id === extensionId)?.name ?? "Extensión eliminada";
+}
+
 /** Junta todo el texto relevante de un movimiento (categoría, nota, fecha, importe, cuenta, tarjeta...) para buscar en él. */
 function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], cards: Card[]): string {
   if (item.kind === "installment") {
@@ -50,6 +57,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       amountVariants(inst.totalAmountMinor),
       formatMoney(inst.totalAmountMinor, inst.currency),
       card?.name,
+      cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId) ?? undefined,
     ].filter((x): x is string => !!x).join(" ");
   }
   if (item.kind === "transaction") {
@@ -68,6 +76,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       formatMoney(t.amountMinor, t.currency),
       acc ? accountLabel(acc, banks) : undefined,
       card?.name,
+      cardExtensionLabel(cards, t.cardId, t.cardExtensionId) ?? undefined,
     ].filter((x): x is string => !!x).join(" ");
   }
   if (item.kind === "transfer") {
@@ -299,6 +308,7 @@ export function Transactions({
                         {formatDateDMY(t.date)}
                         {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
                         {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
+                        {cardExtensionLabel(cards, t.cardId, t.cardExtensionId) && ` (${cardExtensionLabel(cards, t.cardId, t.cardExtensionId)})`}
                         {!t.accountId && !t.cardId && <span style={{ color: C.uyu }}> · Sin medio de pago</span>}
                       </span>
                       {showAuthor && <UserBadge users={users} userId={t.createdByUserId} />}
@@ -391,6 +401,7 @@ export function Transactions({
                       <span>
                         {formatDateDMY(instDate)}
                         {card && ` · ${card.name}`}
+                        {cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId) && ` (${cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId)})`}
                         {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
                       </span>
                       {showAuthor && <UserBadge users={users} userId={inst.createdByUserId} />}
@@ -474,6 +485,7 @@ interface FormState {
   accountId: string; // "" significa sin cuenta asignada
   paymentMethod: PaymentMethod; // solo aplica a gastos
   cardId: string; // "" significa sin tarjeta elegida
+  cardExtensionId: string; // "" significa el titular (solo aplica si la tarjeta elegida tiene extensiones)
   // campos de transferencia
   fromAccountId: string;
   toAccountId: string;
@@ -545,6 +557,7 @@ export function MovementModal({
     accountId: initial?.accountId ?? "",
     paymentMethod: initialInstallment ? "tarjeta" : initial?.cardId ? "tarjeta" : initial?.accountId ? "cuenta" : presetCardId ? "tarjeta" : "ninguno",
     cardId: initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
+    cardExtensionId: initialInstallment?.cardExtensionId ?? initial?.cardExtensionId ?? "",
     fromAccountId: initialTransfer ? initialTransfer.fromAccountId : accounts[0]?.id ?? "",
     toAccountId: initialTransfer ? initialTransfer.toAccountId : accounts[1]?.id ?? accounts[0]?.id ?? "",
     fromAmount: initialTransfer ? String(fromMinor(initialTransfer.fromAmountMinor)) : "",
@@ -559,6 +572,7 @@ export function MovementModal({
   // si el movimiento ya tenía una asignada (edición), se mantiene disponible para no romperlo.
   const eligibleAccounts = accounts.filter((a) => a.currency === form.currency && (isAccountActive(a) || a.id === form.accountId));
   const transferAccountOptions = (selectedId: string) => accounts.filter((a) => isAccountActive(a) || a.id === selectedId);
+  const selectedCard = cards.find((c) => c.id === form.cardId);
 
   const fromAcc = accounts.find((a) => a.id === form.fromAccountId);
   const toAcc = accounts.find((a) => a.id === form.toAccountId);
@@ -655,6 +669,7 @@ export function MovementModal({
           date: form.date,
           receiptPaths: form.receiptPaths,
           createdByUserId: initialInstallment?.createdByUserId,
+          cardExtensionId: form.cardExtensionId || undefined,
         });
         return;
       }
@@ -670,6 +685,7 @@ export function MovementModal({
       note: form.note.trim() || undefined,
       accountId: form.kind === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
       cardId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
+      cardExtensionId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardExtensionId || undefined : undefined,
       receiptPaths: form.receiptPaths,
       createdByUserId: initial?.createdByUserId,
     });
@@ -877,11 +893,25 @@ export function MovementModal({
                         id={id}
                         value={form.cardId}
                         placeholder="Elegí una tarjeta"
-                        onChange={(cardId) => setForm((f) => ({ ...f, cardId }))}
+                        onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: "" }))}
                         options={cards.map((c) => ({ value: c.id, label: c.name }))}
                       />
                     )
                   }
+                </Field>
+              )}
+              {form.paymentMethod === "tarjeta" && (selectedCard?.extensions?.length ?? 0) > 0 && (
+                <Field label="¿Con qué tarjeta?">
+                  {() => (
+                    <Segment
+                      value={form.cardExtensionId}
+                      onChange={(v) => setForm((f) => ({ ...f, cardExtensionId: v }))}
+                      options={[
+                        { value: "", label: "Titular" },
+                        ...(selectedCard?.extensions ?? []).map((e) => ({ value: e.id, label: e.name })),
+                      ]}
+                    />
+                  )}
                 </Field>
               )}
               {showInstallmentsField && (
