@@ -1,11 +1,44 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building2, Plus, Pencil, Trash2, ChevronRight, Scissors } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn } from "../../components/ui";
-import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
+import { formatMoney, parseAmountInput, fromMinor, toMinor } from "../../lib/money";
 import { formatDateDMY, todayISO } from "../../lib/dates";
-import { buildSchedule, loanSummary } from "../../lib/mortgage";
-import type { MortgageLoan, MortgagePrepayment, Currency } from "../../types";
+import { buildSchedule, loanSummary, formatMortgageAmount, formatUiAmount, convertUsdReference } from "../../lib/mortgage";
+import { fetchRateForDate } from "../../lib/exchangeRates";
+import type { MortgageLoan, MortgagePrepayment, MortgageCurrency, AmortizationSystem } from "../../types";
+
+const SYSTEM_LABELS: Record<AmortizationSystem, string> = {
+  frances: "Sistema francés",
+  aleman: "Sistema alemán",
+  americano: "Sistema americano",
+};
+
+const SYSTEM_OPTIONS: { value: AmortizationSystem; label: string }[] = [
+  { value: "frances", label: "Francés" },
+  { value: "aleman", label: "Alemán" },
+  { value: "americano", label: "Americano" },
+];
+
+const CURRENCY_OPTIONS: { value: MortgageCurrency; label: string }[] = [
+  { value: "UYU", label: "UYU" },
+  { value: "USD", label: "USD" },
+  { value: "UI", label: "UI" },
+];
+
+function currencyColor(currency: MortgageCurrency): string {
+  if (currency === "USD") return C.usd;
+  if (currency === "UYU") return C.uyu;
+  return C.textMuted;
+}
+
+function MortgageCurrencyPill({ currency }: { currency: MortgageCurrency }) {
+  return (
+    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: "#0A1413", background: currencyColor(currency) }}>
+      {currency}
+    </span>
+  );
+}
 
 export function Mortgage({
   loans,
@@ -45,7 +78,7 @@ export function Mortgage({
 
       {loans.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          Todavía no cargaste ningún préstamo hipotecario. Agregá uno para calcular la cuota por sistema francés, ver el detalle de amortización y registrar pagos extraordinarios.
+          Todavía no cargaste ningún préstamo. Agregá uno para calcular la cuota (sistema francés, alemán o americano), ver el detalle de amortización y registrar pagos extraordinarios.
         </div>
       )}
 
@@ -53,6 +86,7 @@ export function Mortgage({
         {loans.map((loan) => {
           const schedule = buildSchedule(loan);
           const summary = loanSummary(schedule);
+          const system = loan.system ?? "frances";
           return (
             <button
               key={loan.id}
@@ -66,23 +100,27 @@ export function Mortgage({
                     <Building2 size={16} color={C.usd} />
                   </div>
                   <div>
-                    <div className="text-sm font-semibold" style={{ color: C.text }}>{loan.name}</div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold" style={{ color: C.text }}>{loan.name}</span>
+                      <MortgageCurrencyPill currency={loan.currency} />
+                    </div>
                     <div className="text-[10px]" style={{ color: C.textFaint }}>
-                      {summary.isPaidOff ? "Saldado" : `Cuota ${schedule.length - summary.remainingInstallments + 1} de ${summary.totalInstallments}`}
+                      {SYSTEM_LABELS[system]}
+                      {summary.isPaidOff
+                        ? " · Saldado"
+                        : ` · Cuota ${schedule.length - summary.remainingInstallments + 1} de ${summary.totalInstallments}`}
                     </div>
                   </div>
                 </div>
                 <ChevronRight size={16} color={C.textFaint} />
               </div>
-              {summary.isPaidOff ? (
-                <p className="text-xs" style={{ color: C.positive }}>Préstamo saldado</p>
-              ) : (
+              {!summary.isPaidOff && (
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
                   <span style={{ color: C.textMuted }}>
-                    Cuota: <span className="font-mono" style={{ color: C.text }}>{formatMoney(summary.currentPaymentMinor, loan.currency)}</span>
+                    Cuota: <span className="font-mono" style={{ color: C.text }}>{formatMortgageAmount(summary.currentPaymentMinor, loan.currency)}</span>
                   </span>
                   <span style={{ color: C.textMuted }}>
-                    Saldo: <span className="font-mono" style={{ color: C.text }}>{formatMoney(summary.balanceMinor, loan.currency)}</span>
+                    Saldo: <span className="font-mono" style={{ color: C.text }}>{formatMortgageAmount(summary.balanceMinor, loan.currency)}</span>
                   </span>
                   {summary.nextDueDate && (
                     <span style={{ color: C.textMuted }}>
@@ -140,18 +178,28 @@ function LoanDetailModal({
 }) {
   const schedule = buildSchedule(loan);
   const summary = loanSummary(schedule);
+  const system = loan.system ?? "frances";
   const sortedPrepayments = [...loan.prepayments].sort((a, b) => b.date.localeCompare(a.date));
+  const hasUsdInfo = loan.propertyValueUsdMinor != null || loan.requestedAmountUsdMinor != null;
+  const conversion = loan.requestedAmountUsdMinor != null
+    ? convertUsdReference(loan.requestedAmountUsdMinor, loan.referenceUsdToUyuRate, loan.referenceUiRate)
+    : null;
 
   return (
     <Modal title={loan.name} onClose={onClose}>
+      <div className="flex items-center gap-1.5 mb-3">
+        <MortgageCurrencyPill currency={loan.currency} />
+        <span className="text-xs" style={{ color: C.textFaint }}>{SYSTEM_LABELS[system]}</span>
+      </div>
+
       <div className="rounded-lg p-3 mb-4 space-y-1.5" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
         <div className="flex items-center justify-between text-sm">
           <span style={{ color: C.textMuted }}>Cuota actual</span>
-          <span className="font-mono font-semibold" style={{ color: C.text }}>{formatMoney(summary.currentPaymentMinor, loan.currency)}</span>
+          <span className="font-mono font-semibold" style={{ color: C.text }}>{formatMortgageAmount(summary.currentPaymentMinor, loan.currency)}</span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span style={{ color: C.textMuted }}>Saldo de capital</span>
-          <span className="font-mono" style={{ color: C.text }}>{formatMoney(summary.balanceMinor, loan.currency)}</span>
+          <span className="font-mono" style={{ color: C.text }}>{formatMortgageAmount(summary.balanceMinor, loan.currency)}</span>
         </div>
         <div className="flex items-center justify-between text-sm">
           <span style={{ color: C.textMuted }}>Cuotas restantes</span>
@@ -165,15 +213,45 @@ function LoanDetailModal({
         )}
         <div className="flex items-center justify-between text-sm pt-1.5" style={{ borderTop: `1px solid ${C.border}` }}>
           <span style={{ color: C.textMuted }}>Interés total del préstamo</span>
-          <span className="font-mono" style={{ color: C.negative }}>{formatMoney(summary.totalInterestMinor, loan.currency)}</span>
+          <span className="font-mono" style={{ color: C.negative }}>{formatMortgageAmount(summary.totalInterestMinor, loan.currency)}</span>
         </div>
         {summary.totalPrepaidMinor > 0 && (
           <div className="flex items-center justify-between text-sm">
             <span style={{ color: C.textMuted }}>Amortizado extra</span>
-            <span className="font-mono" style={{ color: C.positive }}>{formatMoney(summary.totalPrepaidMinor, loan.currency)}</span>
+            <span className="font-mono" style={{ color: C.positive }}>{formatMortgageAmount(summary.totalPrepaidMinor, loan.currency)}</span>
           </div>
         )}
       </div>
+
+      {hasUsdInfo && (
+        <div className="rounded-lg p-3 mb-4 space-y-1.5" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+          <p className="text-xs font-semibold mb-1" style={{ color: C.textMuted }}>Datos informativos (no afectan el cálculo)</p>
+          {loan.propertyValueUsdMinor != null && (
+            <div className="flex items-center justify-between text-sm">
+              <span style={{ color: C.textMuted }}>Valor de la propiedad</span>
+              <span className="font-mono" style={{ color: C.text }}>{formatMoney(loan.propertyValueUsdMinor, "USD")}</span>
+            </div>
+          )}
+          {loan.requestedAmountUsdMinor != null && (
+            <div className="flex items-center justify-between text-sm">
+              <span style={{ color: C.textMuted }}>Importe solicitado</span>
+              <span className="font-mono" style={{ color: C.text }}>{formatMoney(loan.requestedAmountUsdMinor, "USD")}</span>
+            </div>
+          )}
+          {conversion && (
+            <div className="pt-1" style={{ borderTop: `1px solid ${C.border}` }}>
+              <div className="flex items-center justify-between text-xs">
+                <span style={{ color: C.textFaint }}>≈ en pesos (TC {loan.referenceUsdToUyuRate})</span>
+                <span className="font-mono" style={{ color: C.textFaint }}>{formatMoney(toMinor(conversion.amountUyu), "UYU")}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span style={{ color: C.textFaint }}>≈ en UI (cotiz. {loan.referenceUiRate})</span>
+                <span className="font-mono" style={{ color: C.textFaint }}>{formatUiAmount(conversion.amountUi)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {loan.note && <p className="text-xs mb-3" style={{ color: C.textFaint }}>{loan.note}</p>}
 
@@ -214,10 +292,10 @@ function LoanDetailModal({
               <div key={p.id} className="rounded-lg p-2.5 flex items-center justify-between" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
                 <div>
                   <div className="text-xs" style={{ color: C.text }}>
-                    {formatDateDMY(p.date)} · <span className="font-mono">{formatMoney(p.amountMinor, loan.currency)}</span>
+                    {formatDateDMY(p.date)} · <span className="font-mono">{formatMortgageAmount(p.amountMinor, loan.currency)}</span>
                   </div>
                   <div className="text-[10px]" style={{ color: C.textFaint }}>
-                    {p.strategy === "reduceInstallment" ? "Bajó la cuota" : "Bajó el plazo"}
+                    {system === "americano" ? "Redujo el saldo" : p.strategy === "reduceInstallment" ? "Bajó la cuota" : "Bajó el plazo"}
                     {p.note ? ` · ${p.note}` : ""}
                   </div>
                 </div>
@@ -258,10 +336,10 @@ function LoanDetailModal({
                 >
                   <td className="py-1.5 px-2" style={{ color: C.textFaint }}>{row.number}</td>
                   <td className="py-1.5 px-2" style={{ color: C.text }}>{formatDateDMY(row.dueDate)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMoney(row.paymentMinor, loan.currency)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.negative }}>{formatMoney(row.interestMinor, loan.currency)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.positive }}>{formatMoney(row.principalMinor, loan.currency)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMoney(row.balanceMinor, loan.currency)}</td>
+                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMortgageAmount(row.paymentMinor, loan.currency)}</td>
+                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.negative }}>{formatMortgageAmount(row.interestMinor, loan.currency)}</td>
+                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.positive }}>{formatMortgageAmount(row.principalMinor, loan.currency)}</td>
+                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMortgageAmount(row.balanceMinor, loan.currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -285,7 +363,8 @@ export function LoanModal({
   onClose: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
-  const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
+  const [currency, setCurrency] = useState<MortgageCurrency>(initial?.currency ?? "UYU");
+  const [system, setSystem] = useState<AmortizationSystem>(initial?.system ?? "frances");
   const [principal, setPrincipal] = useState(initial ? String(fromMinor(initial.principalMinor)) : "");
   const [annualRate, setAnnualRate] = useState(initial ? String(initial.annualRatePct) : "");
   const [termUnit, setTermUnit] = useState<"years" | "months">(
@@ -296,7 +375,41 @@ export function LoanModal({
   );
   const [startDate, setStartDate] = useState(initial?.startDate ?? todayISO());
   const [note, setNote] = useState(initial?.note ?? "");
+
+  const [showUsdInfo, setShowUsdInfo] = useState(!!(initial?.propertyValueUsdMinor || initial?.requestedAmountUsdMinor));
+  const [propertyValueUsd, setPropertyValueUsd] = useState(initial?.propertyValueUsdMinor ? String(fromMinor(initial.propertyValueUsdMinor)) : "");
+  const [requestedAmountUsd, setRequestedAmountUsd] = useState(initial?.requestedAmountUsdMinor ? String(fromMinor(initial.requestedAmountUsdMinor)) : "");
+  const [rateUyu, setRateUyu] = useState(initial?.referenceUsdToUyuRate ? String(initial.referenceUsdToUyuRate) : "");
+  const [rateUi, setRateUi] = useState(initial?.referenceUiRate ? String(initial.referenceUiRate) : "");
+  const [rateUyuAuto, setRateUyuAuto] = useState(() => !initial?.referenceUsdToUyuRate);
+  const [rateUiAuto, setRateUiAuto] = useState(() => !initial?.referenceUiRate);
   const [error, setError] = useState<string | null>(null);
+
+  // Sugiere el TC USD->UYU y la cotización de la UI de la fecha del préstamo
+  // (BCU, desde Cotizaciones), mientras el usuario no las haya editado a mano.
+  useEffect(() => {
+    if (!showUsdInfo || !startDate) return;
+    let cancelado = false;
+    if (rateUyuAuto) {
+      fetchRateForDate("USD", startDate).then((row) => {
+        if (!cancelado && row) setRateUyu(String(row.sell));
+      });
+    }
+    if (rateUiAuto) {
+      fetchRateForDate("UI", startDate).then((row) => {
+        if (!cancelado && row) setRateUi(String(row.sell));
+      });
+    }
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showUsdInfo, startDate, rateUyuAuto, rateUiAuto]);
+
+  const requestedAmountUsdMinor = parseAmountInput(requestedAmountUsd);
+  const rateUyuNum = parseFloat(rateUyu.replace(",", "."));
+  const rateUiNum = parseFloat(rateUi.replace(",", "."));
+  const conversion = requestedAmountUsdMinor
+    ? convertUsdReference(requestedAmountUsdMinor, rateUyuNum, rateUiNum)
+    : null;
 
   const handleSave = () => {
     if (!name.trim()) return setError("Ingresá un nombre para el préstamo.");
@@ -315,11 +428,16 @@ export function LoanModal({
       name: name.trim(),
       principalMinor: principalAmount,
       currency,
+      system,
       annualRatePct: rate,
       termMonths,
       startDate,
       prepayments: initial?.prepayments ?? [],
       note: note.trim() || undefined,
+      propertyValueUsdMinor: showUsdInfo ? parseAmountInput(propertyValueUsd) ?? undefined : undefined,
+      requestedAmountUsdMinor: showUsdInfo ? requestedAmountUsdMinor ?? undefined : undefined,
+      referenceUsdToUyuRate: showUsdInfo && Number.isFinite(rateUyuNum) && rateUyuNum > 0 ? rateUyuNum : undefined,
+      referenceUiRate: showUsdInfo && Number.isFinite(rateUiNum) && rateUiNum > 0 ? rateUiNum : undefined,
     });
   };
 
@@ -331,9 +449,17 @@ export function LoanModal({
           {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" />}
         </Field>
         <Field label="Moneda">
-          {() => <Segment value={currency} onChange={setCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
+          {() => <Segment value={currency} onChange={setCurrency} options={CURRENCY_OPTIONS} />}
         </Field>
       </div>
+      <Field label="Sistema de amortización">
+        {() => <Segment value={system} onChange={setSystem} options={SYSTEM_OPTIONS} />}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        {system === "frances" && "Cuota fija; el interés baja y la amortización de capital sube mes a mes."}
+        {system === "aleman" && "Amortización de capital fija; la cuota total baja mes a mes."}
+        {system === "americano" && "Solo se pagan intereses durante el plazo; el capital se cancela entero en la última cuota."}
+      </p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Tasa anual (%)">
           {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} placeholder="Ej. 4.5" />}
@@ -354,6 +480,70 @@ export function LoanModal({
       <Field label="Fecha de la primera cuota">{(id) => <TextInput id={id} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
       <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>Las siguientes cuotas vencen el mismo día de cada mes.</p>
       <Field label="Nota (opcional)">{(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+
+      <Field label="¿Agregar datos informativos en USD?">
+        {() => (
+          <Segment
+            value={showUsdInfo ? "on" : "off"}
+            onChange={(v) => setShowUsdInfo(v === "on")}
+            options={[{ value: "off", label: "No" }, { value: "on", label: "Sí" }]}
+          />
+        )}
+      </Field>
+      {showUsdInfo && (
+        <div className="rounded-lg p-3 mb-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+          <p className="text-[11px] mb-2" style={{ color: C.textFaint }}>
+            Dato de referencia, no afecta el cálculo de la cuota (que se hace en la moneda del préstamo).
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Valor de la propiedad (USD)">
+              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={propertyValueUsd} onChange={(e) => setPropertyValueUsd(e.target.value)} placeholder="0" />}
+            </Field>
+            <Field label="Importe solicitado (USD)">
+              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={requestedAmountUsd} onChange={(e) => setRequestedAmountUsd(e.target.value)} placeholder="0" />}
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="TC USD → UYU">
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.001"
+                  value={rateUyu}
+                  onChange={(e) => { setRateUyu(e.target.value); setRateUyuAuto(false); }}
+                  placeholder="Ej. 40.5"
+                />
+              )}
+            </Field>
+            <Field label="Cotización UI">
+              {(id) => (
+                <TextInput
+                  id={id}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.0001"
+                  value={rateUi}
+                  onChange={(e) => { setRateUi(e.target.value); setRateUiAuto(false); }}
+                  placeholder="Ej. 5.85"
+                />
+              )}
+            </Field>
+          </div>
+          <p className="text-[10px] -mt-1 mb-1" style={{ color: C.textFaint }}>
+            Sugeridas automáticamente según la fecha de la primera cuota (Cotizaciones), pero se pueden editar.
+          </p>
+          {conversion && (
+            <div className="text-xs mt-2 pt-2" style={{ borderTop: `1px solid ${C.border}`, color: C.textMuted }}>
+              Importe solicitado ≈ {formatMoney(toMinor(conversion.amountUyu), "UYU")} · {formatUiAmount(conversion.amountUi)}
+            </div>
+          )}
+        </div>
+      )}
+
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
@@ -378,6 +568,7 @@ export function PrepaymentModal({
   const [strategy, setStrategy] = useState<"reduceInstallment" | "reduceTerm">(initial?.strategy ?? "reduceInstallment");
   const [note, setNote] = useState(initial?.note ?? "");
   const [error, setError] = useState<string | null>(null);
+  const isAmerican = (loan.system ?? "frances") === "americano";
 
   const handleSave = () => {
     const amountMinor = parseAmountInput(amount);
@@ -388,7 +579,7 @@ export function PrepaymentModal({
       id: initial?.id ?? crypto.randomUUID(),
       date,
       amountMinor,
-      strategy,
+      strategy: isAmerican ? "reduceInstallment" : strategy,
       note: note.trim() || undefined,
     });
   };
@@ -396,26 +587,35 @@ export function PrepaymentModal({
   return (
     <Modal title={initial ? "Editar amortización" : "Nueva amortización extraordinaria"} onClose={onClose}>
       <p className="text-xs mb-3" style={{ color: C.textFaint }}>
-        Se aplica sobre el saldo del préstamo junto con la primera cuota que venza a partir de esta fecha. Elegí si preferís bajar el valor de la cuota o el plazo restante: no se puede hacer las dos cosas con el mismo pago.
+        Se aplica sobre el saldo del préstamo junto con la primera cuota que venza a partir de esta fecha.
+        {!isAmerican && " Elegí si preferís bajar el valor de la cuota o el plazo restante: no se puede hacer las dos cosas con el mismo pago."}
       </p>
       <Field label="Fecha">{(id) => <TextInput id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
       <Field label={`Monto (${loan.currency})`}>
         {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
       </Field>
-      <Field label="¿Qué preferís bajar?">
-        {() => (
-          <Segment
-            value={strategy}
-            onChange={setStrategy}
-            options={[{ value: "reduceInstallment", label: "Bajar cuota" }, { value: "reduceTerm", label: "Bajar plazo" }]}
-          />
-        )}
-      </Field>
-      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-        {strategy === "reduceInstallment"
-          ? "El plazo restante no cambia, pero las próximas cuotas bajan de valor."
-          : "La cuota no cambia, pero el préstamo se termina de pagar antes."}
-      </p>
+      {isAmerican ? (
+        <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+          En el sistema americano no hay amortización de capital programada: cualquier pago extra siempre reduce el saldo y, con él, el interés de las próximas cuotas.
+        </p>
+      ) : (
+        <>
+          <Field label="¿Qué preferís bajar?">
+            {() => (
+              <Segment
+                value={strategy}
+                onChange={setStrategy}
+                options={[{ value: "reduceInstallment", label: "Bajar cuota" }, { value: "reduceTerm", label: "Bajar plazo" }]}
+              />
+            )}
+          </Field>
+          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+            {strategy === "reduceInstallment"
+              ? "El plazo restante no cambia, pero las próximas cuotas bajan de valor."
+              : "La cuota no cambia, pero el préstamo se termina de pagar antes."}
+          </p>
+        </>
+      )}
       <Field label="Nota (opcional)">{(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>

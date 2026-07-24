@@ -303,26 +303,63 @@ export interface MortgagePrepayment {
 }
 
 /**
- * Préstamo hipotecario con amortización por sistema francés (cuota fija,
- * compuesta de interés + amortización de capital, el interés baja y la
- * amortización sube mes a mes). La tabla de amortización completa (cuota,
- * interés, capital, saldo por período) se calcula siempre a partir de estos
- * datos base + las amortizaciones extraordinarias, nunca se guarda cuota por
- * cuota. Ver `lib/mortgage.ts#buildSchedule`.
+ * Moneda de un préstamo. Además de pesos y dólares, los préstamos
+ * hipotecarios en Uruguay suelen pactarse en Unidades Indexadas (UI),
+ * ajustadas por inflación. No es lo mismo que `Currency` (la de cuentas y
+ * movimientos), que no incluye UI.
+ */
+export type MortgageCurrency = "UYU" | "USD" | "UI";
+
+/**
+ * Sistema de amortización del préstamo:
+ * - "frances": cuota fija; el interés baja y la amortización de capital sube
+ *   mes a mes. El más común en préstamos personales e hipotecarios.
+ * - "aleman": amortización de capital fija por período; la cuota total baja
+ *   mes a mes porque el interés se calcula sobre un saldo cada vez menor.
+ * - "americano": durante el plazo solo se pagan intereses; el capital se
+ *   cancela entero en la última cuota ("bullet").
+ * Sin definir, se asume "frances" (compatibilidad con préstamos cargados
+ * antes de agregar este campo).
+ */
+export type AmortizationSystem = "frances" | "aleman" | "americano";
+
+/**
+ * Préstamo con amortización por sistema francés, alemán o americano (ver
+ * `system`). La tabla de amortización completa (cuota, interés, capital,
+ * saldo por período) se calcula siempre a partir de estos datos base + las
+ * amortizaciones extraordinarias, nunca se guarda cuota por cuota. Ver
+ * `lib/mortgage.ts#buildSchedule`.
  */
 export interface MortgageLoan {
   id: string;
   name: string;
   principalMinor: number;
-  currency: Currency;
+  currency: MortgageCurrency;
   /** Tasa nominal anual, en porcentaje (ej. 4.5 para 4.5% anual), compuesta mensualmente. */
   annualRatePct: number;
   /** Plazo original en meses (ej. 240 para 20 años). */
   termMonths: number;
   /** Fecha de la primera cuota. Las siguientes vencen el mismo día de cada mes. */
   startDate: string; // YYYY-MM-DD
+  /** Sin definir = "frances" (préstamos cargados antes de agregar este campo). */
+  system?: AmortizationSystem;
   prepayments: MortgagePrepayment[];
   note?: string;
+  /**
+   * Datos informativos de referencia en USD: no afectan el cálculo de la
+   * cuota (que siempre se hace en `currency`/`principalMinor`), pero son
+   * útiles en préstamos en UYU/UI donde el valor de la propiedad y el
+   * importe solicitado suelen pactarse en dólares.
+   */
+  propertyValueUsdMinor?: number;
+  requestedAmountUsdMinor?: number;
+  /**
+   * TC USD -> UYU y cotización de la UI (en pesos) a la fecha del préstamo,
+   * sugeridos automáticamente desde Cotizaciones pero editables. Se usan
+   * solo para mostrar la conversión de `requestedAmountUsdMinor` a pesos y UI.
+   */
+  referenceUsdToUyuRate?: number;
+  referenceUiRate?: number;
 }
 
 /**
