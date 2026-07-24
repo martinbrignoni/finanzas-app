@@ -139,6 +139,11 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 11, mortgageLoans: [] };
   }
 
+  if (data.schemaVersion === 11) {
+    // v12: movimientos recurrentes (suscripciones, sueldo, etc.).
+    data = { ...data, schemaVersion: 12, recurringRules: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -173,6 +178,7 @@ function migrate(raw: any): FinanceData {
     contacts: data.contacts ?? [],
     contactEntries: data.contactEntries ?? [],
     mortgageLoans: data.mortgageLoans ?? [],
+    recurringRules: data.recurringRules ?? [],
     categories: data.categories ?? [],
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },

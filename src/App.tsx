@@ -8,10 +8,11 @@ import { getRepository } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
 import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
+import { generateDueRecurringTransactions } from "./lib/recurring";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
-  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs,
+  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -27,6 +28,7 @@ import { LockScreen } from "./features/security/LockScreen";
 import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
+import { RecurringRuleModal } from "./features/settings/Recurring";
 
 type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "configuracion";
 
@@ -54,6 +56,7 @@ type ModalState =
   | { type: "splitExpense" }
   | { type: "mortgageLoan"; payload?: MortgageLoan }
   | { type: "mortgagePrepayment"; payload: { loanId: string; prepayment?: MortgagePrepayment } }
+  | { type: "recurringRule"; payload?: RecurringRule }
   | null;
 
 const repo = getRepository();
@@ -92,7 +95,10 @@ export default function App() {
       .load()
       .then((loaded) => {
         skipNotifyRef.current = true;
-        setData(loaded);
+        // Genera acá los movimientos recurrentes vencidos (ver lib/recurring.ts),
+        // como si fueran parte de los datos que se acaban de traer: no dispara
+        // aviso a otros dispositivos por esto (es "traer datos", no "editar").
+        setData(generateDueRecurringTransactions(loaded));
       })
       .finally(() => setRefreshing(false));
   }, []);
@@ -591,6 +597,45 @@ export default function App() {
     [requestConfirm, deleteMortgagePrepayment]
   );
 
+  // --- movimientos recurrentes ---
+  const upsertRecurringRule = useCallback((r: RecurringRule) => {
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.recurringRules.findIndex((x) => x.id === r.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...r, createdAt: d.recurringRules[idx].createdAt ?? now, updatedAt: now }
+          : { ...r, createdByUserId: r.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const recurringRules = idx >= 0 ? d.recurringRules.map((x) => (x.id === r.id ? withCreator : x)) : [...d.recurringRules, withCreator];
+        return { ...d, recurringRules };
+      });
+      closeModal();
+    };
+    const isEdit = data?.recurringRules.some((x) => x.id === r.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este movimiento recurrente?", commit);
+  }, [activeUser, data, confirmSave]);
+  // Pausar/reactivar es una acción rápida (como activar/desactivar una caja en
+  // Configuración → Bancos): no pide confirmación, a diferencia de editar
+  // desde el modal completo.
+  const toggleRecurringActive = useCallback((r: RecurringRule) => {
+    setData((d) => {
+      if (!d) return d;
+      const now = new Date().toISOString();
+      return {
+        ...d,
+        recurringRules: d.recurringRules.map((x) => (x.id === r.id ? { ...x, active: !x.active, updatedAt: now } : x)),
+      };
+    });
+  }, []);
+  const deleteRecurringRule = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, recurringRules: d.recurringRules.filter((x) => x.id !== id) } : d));
+  }, []);
+  const confirmDeleteRecurringRule = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este movimiento recurrente? Los movimientos ya generados en Movimientos no se borran.", () => deleteRecurringRule(id)),
+    [requestConfirm, deleteRecurringRule]
+  );
+
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
     const commit = () => {
@@ -920,6 +965,8 @@ export default function App() {
                 activeUser={activeUser}
                 banks={data.banks}
                 accounts={data.accounts}
+                cards={data.cards}
+                recurringRules={data.recurringRules}
                 canEdit={has("configuracion", "edit")}
                 canSwitchUser={!lockedToNonAdmin}
                 onSetActiveUser={setActiveUser}
@@ -934,6 +981,10 @@ export default function App() {
                 onUpdateUserNotifications={updateActiveUserNotifications}
                 onUpdateBank={updateBankFields}
                 onUpdateAccount={updateAccountFields}
+                onAddRecurringRule={() => setModal({ type: "recurringRule" })}
+                onEditRecurringRule={(r) => setModal({ type: "recurringRule", payload: r })}
+                onToggleRecurringActive={toggleRecurringActive}
+                onDeleteRecurringRule={confirmDeleteRecurringRule}
                 onSignOut={handleSignOut}
               />
             )}
@@ -1042,6 +1093,18 @@ export default function App() {
           loan={data.mortgageLoans.find((l) => l.id === modal.payload.loanId)!}
           initial={modal.payload.prepayment}
           onSave={upsertMortgagePrepayment}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "recurringRule" && (
+        <RecurringRuleModal
+          initial={modal.payload}
+          accounts={data.accounts}
+          banks={data.banks}
+          cards={data.cards}
+          categories={data.categories}
+          onSave={upsertRecurringRule}
+          onSaveCategory={addCategory}
           onClose={closeModal}
         />
       )}

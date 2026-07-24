@@ -84,6 +84,26 @@ export function addMonthsToDate(iso: string, n: number): string {
   return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`;
 }
 
+/** Suma (o resta, con `n` negativo) `n` días a una fecha YYYY-MM-DD. Usado para avanzar movimientos recurrentes semanales. */
+export function addDaysToDate(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const target = new Date(y, m - 1, d + n);
+  return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`;
+}
+
+/**
+ * Suma `n` años a una fecha YYYY-MM-DD conservando el día, salvo que ese día
+ * no exista en el año destino (29/02 en un año no bisiesto, que cae al 28).
+ * Usado para avanzar movimientos recurrentes anuales.
+ */
+export function addYearsToDate(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const target = new Date(y + n, m - 1, 1);
+  const lastDayOfTargetMonth = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(d, lastDayOfTargetMonth));
+  return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`;
+}
+
 /** Cantidad de días de diferencia entre dos fechas YYYY-MM-DD (`to` - `from`). Puede dar negativo si `to` es anterior. */
 export function daysBetween(from: string, to: string): number {
   const [fy, fm, fd] = from.split("-").map(Number);

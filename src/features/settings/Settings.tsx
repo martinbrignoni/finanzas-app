@@ -7,7 +7,8 @@ import { UsersSettings } from "./Users";
 import { SecuritySettings } from "./Security";
 import { NotificationsSettings } from "./Notifications";
 import { BanksSettings } from "./Banks";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, NotificationPrefs } from "../../types";
+import { RecurringRulesSettings } from "./Recurring";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, NotificationPrefs, RecurringRule } from "../../types";
 
 export function Settings({
   users,
@@ -22,6 +23,8 @@ export function Settings({
   activeUser,
   banks,
   accounts,
+  cards,
+  recurringRules,
   canEdit,
   canSwitchUser = true,
   onSetActiveUser,
@@ -36,6 +39,10 @@ export function Settings({
   onUpdateUserNotifications,
   onUpdateBank,
   onUpdateAccount,
+  onAddRecurringRule,
+  onEditRecurringRule,
+  onToggleRecurringActive,
+  onDeleteRecurringRule,
   onSignOut,
 }: {
   users: AppUser[];
@@ -51,6 +58,8 @@ export function Settings({
   activeUser: AppUser | null;
   banks: Bank[];
   accounts: Account[];
+  cards: Card[];
+  recurringRules: RecurringRule[];
   canEdit: boolean;
   canSwitchUser?: boolean;
   onSetActiveUser: (id: string) => void;
@@ -65,9 +74,13 @@ export function Settings({
   onUpdateUserNotifications: (partial: Partial<NotificationPrefs>) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
+  onAddRecurringRule: () => void;
+  onEditRecurringRule: (r: RecurringRule) => void;
+  onToggleRecurringActive: (r: RecurringRule) => void;
+  onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "recurrentes" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -81,6 +94,7 @@ export function Settings({
             { value: "usuarios", label: "Usuarios y permisos" },
             { value: "categorias", label: "Categorías" },
             { value: "bancos", label: "Cajas y Bancos" },
+            { value: "recurrentes", label: "Recurrentes" },
             { value: "seguridad", label: "Seguridad" },
             { value: "notificaciones", label: "Notificaciones" },
           ]}
@@ -123,6 +137,19 @@ export function Settings({
           canEdit={canEdit}
           onUpdateBank={onUpdateBank}
           onUpdateAccount={onUpdateAccount}
+        />
+      )}
+      {section === "recurrentes" && (
+        <RecurringRulesSettings
+          rules={recurringRules}
+          accounts={accounts}
+          banks={banks}
+          cards={cards}
+          canEdit={canEdit}
+          onAdd={onAddRecurringRule}
+          onEdit={onEditRecurringRule}
+          onToggleActive={onToggleRecurringActive}
+          onDelete={onDeleteRecurringRule}
         />
       )}
       {section === "seguridad" && activeUser && (

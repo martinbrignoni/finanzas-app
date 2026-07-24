@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -57,6 +57,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
     const acc = accounts.find((a) => a.id === t.accountId);
     const card = cards.find((c) => c.id === t.cardId);
     return [
+      t.recurringRuleId ? "recurrente" : undefined,
       t.category,
       t.note,
       t.date,
@@ -285,9 +286,12 @@ export function Transactions({
                     {t.type === "ingreso" ? <ArrowUpRight size={16} color={C.positive} /> : <ArrowDownRight size={16} color={C.negative} />}
                   </div>
                   <div>
-                    <div className="text-sm" style={{ color: C.text }}>
-                      {t.category ? t.category : <span style={{ color: C.uyu }}>Sin categorizar</span>}
-                      {t.note ? ` · ${t.note}` : ""}
+                    <div className="text-sm flex items-center gap-1" style={{ color: C.text }}>
+                      {t.recurringRuleId && <Repeat size={11} color={C.textFaint} aria-label="Movimiento recurrente" />}
+                      <span>
+                        {t.category ? t.category : <span style={{ color: C.uyu }}>Sin categorizar</span>}
+                        {t.note ? ` · ${t.note}` : ""}
+                      </span>
                     </div>
                     <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
                       <span>

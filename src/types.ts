@@ -51,6 +51,12 @@ export interface Transaction {
   createdAt?: string;
   /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
   updatedAt?: string;
+  /**
+   * Si este movimiento se generó automáticamente a partir de una regla
+   * recurrente (ver `RecurringRule`), acá queda su id. Editar o eliminar este
+   * movimiento no afecta a la regla ni a otras ocurrencias ya generadas.
+   */
+  recurringRuleId?: string;
 }
 
 export interface Bank {
@@ -524,6 +530,46 @@ export interface NotificationPrefs {
   categories: Partial<Record<NotifiableModuleKey, boolean>>;
 }
 
+export type RecurrencePeriod = "mensual" | "semanal" | "anual";
+
+export const RECURRENCE_PERIOD_LABELS: Record<RecurrencePeriod, string> = {
+  mensual: "Mensual",
+  semanal: "Semanal",
+  anual: "Anual",
+};
+
+/**
+ * Regla de un movimiento (gasto o ingreso) que se repite solo, sin tener que
+ * cargarlo a mano cada vez (ej. una suscripción, el sueldo, un alquiler).
+ * Cada vez que se abre la app se generan como `Transaction` normales (ver
+ * `lib/recurring.ts`) todas las ocurrencias vencidas desde `nextDueDate`
+ * hasta hoy, y `nextDueDate` avanza un período. Los movimientos ya generados
+ * quedan totalmente editables/eliminables como cualquier otro (ver
+ * `Transaction.recurringRuleId`); cambiar el monto acá solo afecta a las
+ * ocurrencias futuras, no a las ya generadas.
+ */
+export interface RecurringRule {
+  id: string;
+  type: TransactionType;
+  /** Ej. "Netflix", "Sueldo". Se usa como categoría/nota si no se elige una categoría. */
+  description: string;
+  amountMinor: number;
+  currency: Currency;
+  category?: string;
+  note?: string;
+  accountId?: string;
+  /** Solo aplica si `type` es "gasto" (igual que en Transaction). */
+  cardId?: string;
+  period: RecurrencePeriod;
+  /** Próxima fecha (YYYY-MM-DD) en que corresponde generar el movimiento. */
+  nextDueDate: string;
+  /** Si es `false`, no se generan más ocurrencias ("dar de baja"), pero se conserva el historial ya generado. */
+  active: boolean;
+  createdByUserId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 /** Nota de texto libre dejada por un perfil, visible para todos los perfiles que comparten la app. */
 export interface Note {
   id: string;
@@ -580,6 +626,7 @@ export interface FinanceData {
   contacts: Contact[];
   contactEntries: ContactEntry[];
   mortgageLoans: MortgageLoan[];
+  recurringRules: RecurringRule[];
   categories: Category[];
   notes: Note[];
   appLock: AppLock;
@@ -589,7 +636,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -637,6 +684,7 @@ export function emptyFinanceData(): FinanceData {
     contacts: [],
     contactEntries: [],
     mortgageLoans: [],
+    recurringRules: [],
     categories: defaultCategories(),
     notes: [],
     appLock: { enabled: false, pinHash: null },
