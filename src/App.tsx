@@ -143,8 +143,20 @@ export default function App() {
 
   const closeModal = () => setModal(null);
 
-  const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void } | null>(null);
-  const requestConfirm = useCallback((message: string, onConfirm: () => void) => setConfirm({ message, onConfirm }), []);
+  const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void; title?: string; confirmLabel?: string } | null>(null);
+  const requestConfirm = useCallback(
+    (message: string, onConfirm: () => void, opts?: { title?: string; confirmLabel?: string }) =>
+      setConfirm({ message, onConfirm, title: opts?.title, confirmLabel: opts?.confirmLabel }),
+    []
+  );
+  // Para ediciones (no altas) de un registro existente: pide confirmación antes de aplicar el guardado.
+  const confirmSave = useCallback(
+    (isEdit: boolean, message: string, commit: () => void) => {
+      if (isEdit) requestConfirm(message, commit, { title: "Guardar cambios", confirmLabel: "Guardar" });
+      else commit();
+    },
+    [requestConfirm]
+  );
 
   const activeUser = useMemo(() => {
     if (!data) return null;
@@ -184,18 +196,22 @@ export default function App() {
 
   // --- transactions ---
   const upsertTransaction = useCallback((t: Transaction) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.transactions.findIndex((x) => x.id === t.id);
-      const now = new Date().toISOString();
-      const withCreator = idx >= 0
-        ? { ...t, createdAt: d.transactions[idx].createdAt ?? now, updatedAt: now }
-        : { ...t, createdByUserId: t.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
-      const transactions = idx >= 0 ? d.transactions.map((x) => (x.id === t.id ? withCreator : x)) : [...d.transactions, withCreator];
-      return { ...d, transactions };
-    });
-    closeModal();
-  }, [activeUser]);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.transactions.findIndex((x) => x.id === t.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...t, createdAt: d.transactions[idx].createdAt ?? now, updatedAt: now }
+          : { ...t, createdByUserId: t.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const transactions = idx >= 0 ? d.transactions.map((x) => (x.id === t.id ? withCreator : x)) : [...d.transactions, withCreator];
+        return { ...d, transactions };
+      });
+      closeModal();
+    };
+    const isEdit = data?.transactions.some((x) => x.id === t.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este movimiento?", commit);
+  }, [activeUser, data, confirmSave]);
   const deleteTransaction = useCallback((id: string) => {
     setData((d) => (d ? { ...d, transactions: d.transactions.filter((x) => x.id !== id) } : d));
   }, []);
@@ -206,14 +222,18 @@ export default function App() {
 
   // --- cards & installments ---
   const upsertCard = useCallback((c: Card) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.cards.findIndex((x) => x.id === c.id);
-      const cards = idx >= 0 ? d.cards.map((x) => (x.id === c.id ? c : x)) : [...d.cards, c];
-      return { ...d, cards };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.cards.findIndex((x) => x.id === c.id);
+        const cards = idx >= 0 ? d.cards.map((x) => (x.id === c.id ? c : x)) : [...d.cards, c];
+        return { ...d, cards };
+      });
+      closeModal();
+    };
+    const isEdit = data?.cards.some((x) => x.id === c.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta tarjeta?", commit);
+  }, [data, confirmSave]);
   const deleteCard = useCallback((id: string) => {
     setData((d) =>
       d
@@ -232,18 +252,22 @@ export default function App() {
     [requestConfirm, deleteCard]
   );
   const upsertInstallment = useCallback((inst: Installment) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.installments.findIndex((x) => x.id === inst.id);
-      const now = new Date().toISOString();
-      const withCreator = idx >= 0
-        ? { ...inst, createdAt: d.installments[idx].createdAt ?? now, updatedAt: now }
-        : { ...inst, createdByUserId: inst.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
-      const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? withCreator : x)) : [...d.installments, withCreator];
-      return { ...d, installments };
-    });
-    closeModal();
-  }, [activeUser]);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.installments.findIndex((x) => x.id === inst.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...inst, createdAt: d.installments[idx].createdAt ?? now, updatedAt: now }
+          : { ...inst, createdByUserId: inst.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? withCreator : x)) : [...d.installments, withCreator];
+        return { ...d, installments };
+      });
+      closeModal();
+    };
+    const isEdit = data?.installments.some((x) => x.id === inst.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta compra en cuotas?", commit);
+  }, [activeUser, data, confirmSave]);
   const deleteInstallment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, installments: d.installments.filter((x) => x.id !== id) } : d));
   }, []);
@@ -252,18 +276,22 @@ export default function App() {
     [requestConfirm, deleteInstallment]
   );
   const upsertCardPayment = useCallback((p: CardPayment) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.cardPayments.findIndex((x) => x.id === p.id);
-      const now = new Date().toISOString();
-      const withCreator = idx >= 0
-        ? { ...p, createdAt: d.cardPayments[idx].createdAt ?? now, updatedAt: now }
-        : { ...p, createdByUserId: p.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
-      const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? withCreator : x)) : [...d.cardPayments, withCreator];
-      return { ...d, cardPayments };
-    });
-    closeModal();
-  }, [activeUser]);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.cardPayments.findIndex((x) => x.id === p.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...p, createdAt: d.cardPayments[idx].createdAt ?? now, updatedAt: now }
+          : { ...p, createdByUserId: p.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? withCreator : x)) : [...d.cardPayments, withCreator];
+        return { ...d, cardPayments };
+      });
+      closeModal();
+    };
+    const isEdit = data?.cardPayments.some((x) => x.id === p.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este pago de tarjeta?", commit);
+  }, [activeUser, data, confirmSave]);
   const deleteCardPayment = useCallback((id: string) => {
     setData((d) => (d ? { ...d, cardPayments: d.cardPayments.filter((x) => x.id !== id) } : d));
   }, []);
@@ -274,14 +302,18 @@ export default function App() {
 
   // --- budgets ---
   const saveBudget = useCallback((b: Budget) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.budgets.findIndex((x) => x.id === b.id);
-      const budgets = idx >= 0 ? d.budgets.map((x) => (x.id === b.id ? b : x)) : [...d.budgets, b];
-      return { ...d, budgets };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.budgets.findIndex((x) => x.id === b.id);
+        const budgets = idx >= 0 ? d.budgets.map((x) => (x.id === b.id ? b : x)) : [...d.budgets, b];
+        return { ...d, budgets };
+      });
+      closeModal();
+    };
+    const isEdit = data?.budgets.some((x) => x.id === b.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este presupuesto?", commit);
+  }, [data, confirmSave]);
   const deleteBudget = useCallback((id: string) => {
     setData((d) => (d ? { ...d, budgets: d.budgets.filter((x) => x.id !== id) } : d));
   }, []);
@@ -292,14 +324,18 @@ export default function App() {
 
   // --- banks & accounts ---
   const upsertBank = useCallback((b: Bank) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.banks.findIndex((x) => x.id === b.id);
-      const banks = idx >= 0 ? d.banks.map((x) => (x.id === b.id ? b : x)) : [...d.banks, b];
-      return { ...d, banks };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.banks.findIndex((x) => x.id === b.id);
+        const banks = idx >= 0 ? d.banks.map((x) => (x.id === b.id ? b : x)) : [...d.banks, b];
+        return { ...d, banks };
+      });
+      closeModal();
+    };
+    const isEdit = data?.banks.some((x) => x.id === b.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este banco?", commit);
+  }, [data, confirmSave]);
   const deleteBank = useCallback((id: string) => {
     setData((d) => {
       if (!d) return d;
@@ -317,14 +353,18 @@ export default function App() {
     [requestConfirm, deleteBank]
   );
   const upsertAccount = useCallback((a: Account) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.accounts.findIndex((x) => x.id === a.id);
-      const accounts = idx >= 0 ? d.accounts.map((x) => (x.id === a.id ? a : x)) : [...d.accounts, a];
-      return { ...d, accounts };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.accounts.findIndex((x) => x.id === a.id);
+        const accounts = idx >= 0 ? d.accounts.map((x) => (x.id === a.id ? a : x)) : [...d.accounts, a];
+        return { ...d, accounts };
+      });
+      closeModal();
+    };
+    const isEdit = data?.accounts.some((x) => x.id === a.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta caja?", commit);
+  }, [data, confirmSave]);
   const deleteAccount = useCallback((id: string) => {
     setData((d) =>
       d
@@ -343,18 +383,22 @@ export default function App() {
     [requestConfirm, deleteAccount]
   );
   const upsertTransfer = useCallback((tr: Transfer) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.transfers.findIndex((x) => x.id === tr.id);
-      const now = new Date().toISOString();
-      const withCreator = idx >= 0
-        ? { ...tr, createdAt: d.transfers[idx].createdAt ?? now, updatedAt: now }
-        : { ...tr, createdByUserId: tr.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
-      const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? withCreator : x)) : [...d.transfers, withCreator];
-      return { ...d, transfers };
-    });
-    closeModal();
-  }, [activeUser]);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.transfers.findIndex((x) => x.id === tr.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...tr, createdAt: d.transfers[idx].createdAt ?? now, updatedAt: now }
+          : { ...tr, createdByUserId: tr.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? withCreator : x)) : [...d.transfers, withCreator];
+        return { ...d, transfers };
+      });
+      closeModal();
+    };
+    const isEdit = data?.transfers.some((x) => x.id === tr.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta transferencia?", commit);
+  }, [activeUser, data, confirmSave]);
   const deleteTransfer = useCallback((id: string) => {
     setData((d) => (d ? { ...d, transfers: d.transfers.filter((x) => x.id !== id) } : d));
   }, []);
@@ -425,14 +469,18 @@ export default function App() {
 
   // --- personas ---
   const upsertContact = useCallback((c: Contact) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.contacts.findIndex((x) => x.id === c.id);
-      const contacts = idx >= 0 ? d.contacts.map((x) => (x.id === c.id ? c : x)) : [...d.contacts, c];
-      return { ...d, contacts };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.contacts.findIndex((x) => x.id === c.id);
+        const contacts = idx >= 0 ? d.contacts.map((x) => (x.id === c.id ? c : x)) : [...d.contacts, c];
+        return { ...d, contacts };
+      });
+      closeModal();
+    };
+    const isEdit = data?.contacts.some((x) => x.id === c.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta persona?", commit);
+  }, [data, confirmSave]);
   const deleteContact = useCallback((id: string) => {
     setData((d) =>
       d
@@ -449,14 +497,18 @@ export default function App() {
     [requestConfirm, deleteContact]
   );
   const upsertContactEntry = useCallback((e: ContactEntry) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.contactEntries.findIndex((x) => x.id === e.id);
-      const contactEntries = idx >= 0 ? d.contactEntries.map((x) => (x.id === e.id ? e : x)) : [...d.contactEntries, e];
-      return { ...d, contactEntries };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.contactEntries.findIndex((x) => x.id === e.id);
+        const contactEntries = idx >= 0 ? d.contactEntries.map((x) => (x.id === e.id ? e : x)) : [...d.contactEntries, e];
+        return { ...d, contactEntries };
+      });
+      closeModal();
+    };
+    const isEdit = data?.contactEntries.some((x) => x.id === e.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este movimiento?", commit);
+  }, [data, confirmSave]);
   const deleteContactEntry = useCallback((id: string) => {
     setData((d) => (d ? { ...d, contactEntries: d.contactEntries.filter((x) => x.id !== id) } : d));
   }, []);
@@ -489,14 +541,18 @@ export default function App() {
 
   // --- hipoteca ---
   const upsertMortgageLoan = useCallback((loan: MortgageLoan) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.mortgageLoans.findIndex((x) => x.id === loan.id);
-      const mortgageLoans = idx >= 0 ? d.mortgageLoans.map((x) => (x.id === loan.id ? loan : x)) : [...d.mortgageLoans, loan];
-      return { ...d, mortgageLoans };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.mortgageLoans.findIndex((x) => x.id === loan.id);
+        const mortgageLoans = idx >= 0 ? d.mortgageLoans.map((x) => (x.id === loan.id ? loan : x)) : [...d.mortgageLoans, loan];
+        return { ...d, mortgageLoans };
+      });
+      closeModal();
+    };
+    const isEdit = data?.mortgageLoans.some((x) => x.id === loan.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este préstamo?", commit);
+  }, [data, confirmSave]);
   const deleteMortgageLoan = useCallback((id: string) => {
     setData((d) => (d ? { ...d, mortgageLoans: d.mortgageLoans.filter((x) => x.id !== id) } : d));
   }, []);
@@ -505,18 +561,22 @@ export default function App() {
     [requestConfirm, deleteMortgageLoan]
   );
   const upsertMortgagePrepayment = useCallback((loanId: string, prepayment: MortgagePrepayment) => {
-    setData((d) => {
-      if (!d) return d;
-      const mortgageLoans = d.mortgageLoans.map((loan) => {
-        if (loan.id !== loanId) return loan;
-        const idx = loan.prepayments.findIndex((x) => x.id === prepayment.id);
-        const prepayments = idx >= 0 ? loan.prepayments.map((x) => (x.id === prepayment.id ? prepayment : x)) : [...loan.prepayments, prepayment];
-        return { ...loan, prepayments };
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const mortgageLoans = d.mortgageLoans.map((loan) => {
+          if (loan.id !== loanId) return loan;
+          const idx = loan.prepayments.findIndex((x) => x.id === prepayment.id);
+          const prepayments = idx >= 0 ? loan.prepayments.map((x) => (x.id === prepayment.id ? prepayment : x)) : [...loan.prepayments, prepayment];
+          return { ...loan, prepayments };
+        });
+        return { ...d, mortgageLoans };
       });
-      return { ...d, mortgageLoans };
-    });
-    closeModal();
-  }, []);
+      closeModal();
+    };
+    const isEdit = data?.mortgageLoans.find((x) => x.id === loanId)?.prepayments.some((x) => x.id === prepayment.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta amortización extraordinaria?", commit);
+  }, [data, confirmSave]);
   const deleteMortgagePrepayment = useCallback((loanId: string, prepaymentId: string) => {
     setData((d) => {
       if (!d) return d;
@@ -533,14 +593,18 @@ export default function App() {
 
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.notes.findIndex((x) => x.id === n.id);
-      const notes = idx >= 0 ? d.notes.map((x) => (x.id === n.id ? n : x)) : [...d.notes, n];
-      return { ...d, notes };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.notes.findIndex((x) => x.id === n.id);
+        const notes = idx >= 0 ? d.notes.map((x) => (x.id === n.id ? n : x)) : [...d.notes, n];
+        return { ...d, notes };
+      });
+      closeModal();
+    };
+    const isEdit = data?.notes.some((x) => x.id === n.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en esta nota?", commit);
+  }, [data, confirmSave]);
   const deleteNote = useCallback((id: string) => {
     setData((d) => (d ? { ...d, notes: d.notes.filter((x) => x.id !== id) } : d));
   }, []);
@@ -551,14 +615,18 @@ export default function App() {
 
   // --- users ---
   const upsertUser = useCallback((u: AppUser) => {
-    setData((d) => {
-      if (!d) return d;
-      const idx = d.users.findIndex((x) => x.id === u.id);
-      const users = idx >= 0 ? d.users.map((x) => (x.id === u.id ? u : x)) : [...d.users, u];
-      return { ...d, users };
-    });
-    closeModal();
-  }, []);
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.users.findIndex((x) => x.id === u.id);
+        const users = idx >= 0 ? d.users.map((x) => (x.id === u.id ? u : x)) : [...d.users, u];
+        return { ...d, users };
+      });
+      closeModal();
+    };
+    const isEdit = data?.users.some((x) => x.id === u.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este usuario?", commit);
+  }, [data, confirmSave]);
   const deleteUser = useCallback((id: string) => {
     setData((d) => {
       if (!d || d.users.length <= 1) return d;
@@ -586,7 +654,7 @@ export default function App() {
     });
   }, []);
   const handleSignOut = useCallback(
-    () => requestConfirm("¿Cerrar sesión?", () => supabase.auth.signOut()),
+    () => requestConfirm("¿Seguro que querés cerrar sesión?", () => supabase.auth.signOut(), { title: "Cerrar sesión", confirmLabel: "Cerrar sesión" }),
     [requestConfirm]
   );
   // Actualiza la preferencia de notificaciones del perfil actualmente activo.
@@ -982,7 +1050,9 @@ export default function App() {
 
       {confirm && (
         <ConfirmDialog
+          title={confirm.title}
           message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
           onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
           onCancel={() => setConfirm(null)}
         />
