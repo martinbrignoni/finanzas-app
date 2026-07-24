@@ -32,7 +32,19 @@ export function Notes({
 
   return (
     <div className="pb-24">
-      <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Notas</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-display" style={{ color: C.text }}>Notas</h1>
+        {canEdit && (
+          <button
+            onClick={onAdd}
+            aria-label="Nueva nota"
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+          >
+            <Plus size={18} />
+          </button>
+        )}
+      </div>
 
       {sorted.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
@@ -61,16 +73,6 @@ export function Notes({
           </div>
         ))}
       </div>
-
-      {canEdit && (
-        <button
-          onClick={onAdd}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Nueva nota
-        </button>
-      )}
     </div>
   );
 }
