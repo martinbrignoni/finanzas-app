@@ -83,27 +83,42 @@ async function resolverCodigosMoneda(): Promise<Record<CurrencyKey, MonedaInfo>>
     nombre: String(getByPattern(r, /nombre/i)).trim().toUpperCase(),
   }));
 
+  const findOptional = (test: (nombre: string) => boolean): MonedaInfo | undefined => monedas.find((x) => test(x.nombre));
   const find = (test: (nombre: string) => boolean, label: string): MonedaInfo => {
-    const m = monedas.find((x) => test(x.nombre));
+    const m = findOptional(test);
     if (!m) throw new Error(`No encontré en el listado de monedas del BCU una entrada para: ${label}. Nombres recibidos: ${monedas.map((x) => x.nombre).join(", ")}`);
     return m;
   };
 
-  // Nombres reales confirmados contra el webservice del BCU (ver comentario abajo):
-  // "DLS. USA BILLETE", "EURO", "PESO ARGENTINO" (existe también "PESO ARG.BILLETE",
-  // que NO usamos), "REAL" (existe también "REAL BILLETE", que NO usamos),
-  // "UNIDAD INDEXADA", "UNIDAD REAJUSTAB".
+  // IMPORTANTE: para ARS y BRL usamos la variante "BILLETE", igual que para USD
+  // ("DLS. USA BILLETE"). Antes usábamos la variante sin "BILLETE" ("PESO
+  // ARGENTINO", "REAL"), pensando que era una serie aparte y más "oficial";
+  // pero la página de cotizaciones del BCU (bcu.gub.uy, confirmado a mano)
+  // solo publica y actualiza a diario "PESO ARG.BILLETE" y "REAL BILLETE" — no
+  // hay una fila separada para la variante sin billete en el listado del día,
+  // así que veníamos comparando el arbitraje de ARS/BRL (sin billete) contra
+  // USD billete: dos bases distintas, y probablemente datos viejos si esa
+  // serie sin billete ya no se actualiza. Confirmado con capturas del usuario
+  // el 23/07/2026: DLS. USA BILLETE 40,2 / PESO ARG.BILLETE 0,028 (arbitraje
+  // 1435,71) / REAL BILLETE 7,96 (arbitraje 5,05) / UNIDAD INDEXADA 6,6229.
   return {
     USD: find((n) => n.includes("DLS") && n.includes("BILLETE"), "Dólar USA Billete"),
-    EUR: find((n) => n.includes("EURO"), "Euro"),
-    ARS: find((n) => n.includes("ARGENTINO") && !n.includes("BILLETE"), "Peso Argentino"),
-    BRL: find((n) => n.includes("REAL") && !n.includes("BILLETE") && !n.includes("REAJUST"), "Real"),
+    // EUR no tiene (hasta donde vimos) una variante "BILLETE" separada en el
+    // listado público, pero probamos primero por si existiera en el catálogo
+    // completo del webservice, y si no, caemos a la variante genérica "EURO".
+    EUR: findOptional((n) => n.includes("EURO") && n.includes("BILLETE")) ?? find((n) => n.includes("EURO"), "Euro"),
+    ARS: find((n) => n.includes("ARG") && n.includes("BILLETE"), "Peso Argentino Billete"),
+    BRL: find((n) => n.includes("REAL") && n.includes("BILLETE"), "Real Billete"),
     UI: find((n) => n.includes("INDEXADA"), "Unidad Indexada"),
-    UR: find((n) => n.includes("REAJUST"), "Unidad Reajustable"),
+    UR: find((n) => n.includes("REAJUST") && !n.includes("PREVISIONAL"), "Unidad Reajustable"),
   };
 }
 
-type Cotizacion = { fecha: string; codigo: number; venta: number };
+// `arbAct` es el arbitraje que el propio BCU ya trae calculado en su respuesta
+// (campo "ArbAct" del webservice) — coincide exacto con la columna "Arbitraje"
+// de su página pública. Usamos este valor directamente en vez de recalcularlo
+// nosotros dividiendo ventas (ver nota más abajo, en construirSerieDesfasada).
+type Cotizacion = { fecha: string; codigo: number; venta: number; arbAct: number | null };
 type Diagnostico = { desde: string; hasta: string; codigos: number[]; rawPreview: string };
 
 async function traerCotizacionesRaw(
@@ -142,11 +157,16 @@ async function traerCotizaciones(
 ): Promise<Cotizacion[]> {
   const { text, rows } = await traerCotizacionesRaw(codigos, fechaDesde, fechaHasta);
   const resultado = rows
-    .map((r) => ({
-      fecha: String(getByPattern(r, /fecha/i) ?? "").slice(0, 10),
-      codigo: Number(getByPattern(r, /moneda|codigo/i)),
-      venta: Number(getByPattern(r, /tcv|venta/i)),
-    }))
+    .map((r) => {
+      const arbRaw = getByPattern(r, /arbact/i);
+      const arb = arbRaw !== undefined ? Number(arbRaw) : NaN;
+      return {
+        fecha: String(getByPattern(r, /fecha/i) ?? "").slice(0, 10),
+        codigo: Number(getByPattern(r, /moneda|codigo/i)),
+        venta: Number(getByPattern(r, /tcv|venta/i)),
+        arbAct: Number.isFinite(arb) ? arb : null,
+      };
+    })
     // El BCU a veces devuelve una fila "vacía" (fecha nula, código 0) en vez de
     // datos reales o un error explícito — la descartamos acá.
     .filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.fecha) && r.codigo > 0 && Number.isFinite(r.venta) && r.venta > 0);
@@ -257,6 +277,18 @@ Deno.serve(async (req) => {
     // consecutivas (esa versión anterior tenía un error de índices que se
     // comía el primer día de cada fin de semana largo).
     const usdSerie = porCodigo(codigos.USD.codigo);
+
+    // Busca, dentro de una serie ordenada por fecha, la última publicación
+    // con fecha <= limite (o null si no hay ninguna todavía).
+    const buscarUltimaPublicacion = (serie: Cotizacion[], limite: string): Cotizacion | null => {
+      let res: Cotizacion | null = null;
+      for (const row of serie) {
+        if (row.fecha <= limite) res = row;
+        else break;
+      }
+      return res;
+    };
+
     const construirSerieDesfasada = (
       key: CurrencyKey,
       serie: Cotizacion[],
@@ -268,17 +300,18 @@ Deno.serve(async (req) => {
       const fin = hoy;
       while (cursor <= fin) {
         const limiteBusqueda = iso(addDays(cursor, -1));
-        let pub: Cotizacion | null = null;
-        for (const row of serie) {
-          if (row.fecha <= limiteBusqueda) pub = row;
-          else break;
-        }
+        const pub = buscarUltimaPublicacion(serie, limiteBusqueda);
         if (pub) {
-          let arbitrage: number | null = null;
-          if (arbitrajeContraUsd) {
-            const usdMismaPublicacion = usdSerie.find((u) => u.fecha === pub!.fecha);
-            if (usdMismaPublicacion) arbitrage = pub.venta / usdMismaPublicacion.venta;
-          }
+          // Usamos el arbitraje que ya viene calculado por el BCU en su propia
+          // respuesta (pub.arbAct), en vez de recalcularlo dividiendo ventas
+          // nosotros mismos. Probamos primero dividir venta propia / venta de
+          // USD del mismo día de publicación, pero el BCU no siempre publica
+          // ARS/BRL/EUR el mismo día calendario que USD, así que ese cálculo
+          // quedaba levemente corrido (ej. 1.434,72 en vez de 1.435,71 para
+          // ARS el 24/07/2026). El campo ArbAct que trae el BCU coincide
+          // exacto con la columna "Arbitraje" de su página pública, así que
+          // es la fuente más confiable.
+          const arbitrage = arbitrajeContraUsd ? pub.arbAct : null;
           filas.push({ currency: key, rate_date: iso(cursor), published_date: pub.fecha, sell: pub.venta, arbitrage });
         }
         cursor = addDays(cursor, 1);
