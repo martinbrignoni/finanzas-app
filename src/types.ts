@@ -337,10 +337,29 @@ export interface MortgageLoan {
   currency: MortgageCurrency;
   /** Tasa nominal anual, en porcentaje (ej. 4.5 para 4.5% anual), compuesta mensualmente. */
   annualRatePct: number;
-  /** Plazo original en meses (ej. 240 para 20 años). */
+  /** Plazo de amortización regular en meses (ej. 240 para 20 años), sin contar los meses de gracia. */
   termMonths: number;
-  /** Fecha de la primera cuota. Las siguientes vencen el mismo día de cada mes. */
+  /** Fecha de la primera cuota (de gracia, si hay, o si no la primera regular). Las siguientes vencen el mismo día de cada mes. */
   startDate: string; // YYYY-MM-DD
+  /**
+   * Fecha en que se solicitó/desembolsó el préstamo. Informativa: sirve para
+   * ver cuánto tiempo pasa hasta la primera cuota (lo normal es ~1 mes). El
+   * cálculo de intereses de la primera cuota siempre asume ese mes completo
+   * a partir de `startDate` hacia atrás, así que si el desfasaje real no es
+   * de un mes exacto, este dato es solo de referencia y no ajusta la tabla.
+   */
+  requestDate?: string; // YYYY-MM-DD
+  /** Cantidad de cuotas de gracia al inicio del préstamo, antes de que arranque la amortización regular. 0 o sin definir = sin gracia. */
+  gracePeriodMonths?: number;
+  /**
+   * Qué pasa con el interés durante el período de gracia (solo aplica si
+   * `gracePeriodMonths` > 0):
+   * - "interestOnly": se paga solo el interés cada cuota de gracia; el saldo no baja.
+   * - "capitalized": no se paga nada; el interés se suma al saldo, que crece
+   *   hasta que arranca la amortización regular.
+   * Sin definir = "interestOnly".
+   */
+  graceType?: "interestOnly" | "capitalized";
   /** Sin definir = "frances" (préstamos cargados antes de agregar este campo). */
   system?: AmortizationSystem;
   prepayments: MortgagePrepayment[];

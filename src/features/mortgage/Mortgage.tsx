@@ -3,7 +3,7 @@ import { Building2, Plus, Pencil, Trash2, ChevronRight, Scissors } from "lucide-
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor, toMinor } from "../../lib/money";
-import { formatDateDMY, todayISO } from "../../lib/dates";
+import { formatDateDMY, todayISO, daysBetween, addMonthsToDate } from "../../lib/dates";
 import { buildSchedule, loanSummary, formatMortgageAmount, formatUiAmount, convertUsdReference } from "../../lib/mortgage";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import type { MortgageLoan, MortgagePrepayment, MortgageCurrency, AmortizationSystem } from "../../types";
@@ -180,6 +180,8 @@ function LoanDetailModal({
   const summary = loanSummary(schedule);
   const system = loan.system ?? "frances";
   const sortedPrepayments = [...loan.prepayments].sort((a, b) => b.date.localeCompare(a.date));
+  const graceMonths = loan.gracePeriodMonths ?? 0;
+  const graceEndDate = graceMonths > 0 ? addMonthsToDate(loan.startDate, graceMonths) : null;
   const hasUsdInfo = loan.propertyValueUsdMinor != null || loan.requestedAmountUsdMinor != null;
   const conversion = loan.requestedAmountUsdMinor != null
     ? convertUsdReference(loan.requestedAmountUsdMinor, loan.referenceUsdToUyuRate, loan.referenceUiRate)
@@ -205,6 +207,20 @@ function LoanDetailModal({
           <span style={{ color: C.textMuted }}>Cuotas restantes</span>
           <span style={{ color: C.text }}>{summary.remainingInstallments} de {summary.totalInstallments}</span>
         </div>
+        {loan.requestDate && (
+          <div className="flex items-center justify-between text-sm">
+            <span style={{ color: C.textMuted }}>Solicitado</span>
+            <span style={{ color: C.text }}>{formatDateDMY(loan.requestDate)} · {daysBetween(loan.requestDate, loan.startDate)} días antes de la 1ª cuota</span>
+          </div>
+        )}
+        {(loan.gracePeriodMonths ?? 0) > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span style={{ color: C.textMuted }}>Período de gracia</span>
+            <span style={{ color: C.text }}>
+              {loan.gracePeriodMonths} {loan.gracePeriodMonths === 1 ? "cuota" : "cuotas"} · {loan.graceType === "capitalized" ? "sin pagos (capitaliza)" : "solo interés"}
+            </span>
+          </div>
+        )}
         {summary.nextDueDate && (
           <div className="flex items-center justify-between text-sm">
             <span style={{ color: C.textMuted }}>Próximo vencimiento</span>
@@ -295,7 +311,9 @@ function LoanDetailModal({
                     {formatDateDMY(p.date)} · <span className="font-mono">{formatMortgageAmount(p.amountMinor, loan.currency)}</span>
                   </div>
                   <div className="text-[10px]" style={{ color: C.textFaint }}>
-                    {system === "americano" ? "Redujo el saldo" : p.strategy === "reduceInstallment" ? "Bajó la cuota" : "Bajó el plazo"}
+                    {system === "americano" || (graceEndDate && p.date < graceEndDate)
+                      ? "Redujo el saldo"
+                      : p.strategy === "reduceInstallment" ? "Bajó la cuota" : "Bajó el plazo"}
                     {p.note ? ` · ${p.note}` : ""}
                   </div>
                 </div>
@@ -330,11 +348,15 @@ function LoanDetailModal({
                   key={row.number}
                   style={{
                     opacity: row.isPast ? 0.55 : 1,
-                    background: row.extraPaymentMinor ? "rgba(111,191,139,0.15)" : "transparent",
+                    background: row.extraPaymentMinor
+                      ? "rgba(111,191,139,0.15)"
+                      : row.isGrace
+                      ? "rgba(217,164,65,0.12)"
+                      : "transparent",
                     borderTop: `1px solid ${C.border}`,
                   }}
                 >
-                  <td className="py-1.5 px-2" style={{ color: C.textFaint }}>{row.number}</td>
+                  <td className="py-1.5 px-2" style={{ color: C.textFaint }}>{row.number}{row.isGrace ? " (g)" : ""}</td>
                   <td className="py-1.5 px-2" style={{ color: C.text }}>{formatDateDMY(row.dueDate)}</td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMortgageAmount(row.paymentMinor, loan.currency)}</td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.negative }}>{formatMortgageAmount(row.interestMinor, loan.currency)}</td>
@@ -346,8 +368,11 @@ function LoanDetailModal({
           </table>
         </div>
       </div>
-      {schedule.some((r) => r.extraPaymentMinor) && (
-        <p className="text-[10px] mt-1.5" style={{ color: C.textFaint }}>Las filas resaltadas incluyen una amortización extraordinaria aplicada junto con esa cuota.</p>
+      {(schedule.some((r) => r.extraPaymentMinor) || schedule.some((r) => r.isGrace)) && (
+        <p className="text-[10px] mt-1.5" style={{ color: C.textFaint }}>
+          {schedule.some((r) => r.isGrace) && "Las filas marcadas \"(g)\" y en amarillo son cuotas de gracia. "}
+          {schedule.some((r) => r.extraPaymentMinor) && "Las filas en verde incluyen una amortización extraordinaria aplicada junto con esa cuota."}
+        </p>
       )}
     </Modal>
   );
@@ -374,7 +399,12 @@ export function LoanModal({
     initial ? String(termUnit === "years" ? initial.termMonths / 12 : initial.termMonths) : ""
   );
   const [startDate, setStartDate] = useState(initial?.startDate ?? todayISO());
+  const [requestDate, setRequestDate] = useState(initial?.requestDate ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
+
+  const [hasGrace, setHasGrace] = useState((initial?.gracePeriodMonths ?? 0) > 0);
+  const [gracePeriodValue, setGracePeriodValue] = useState(initial?.gracePeriodMonths ? String(initial.gracePeriodMonths) : "");
+  const [graceType, setGraceType] = useState<"interestOnly" | "capitalized">(initial?.graceType ?? "interestOnly");
 
   const [showUsdInfo, setShowUsdInfo] = useState(!!(initial?.propertyValueUsdMinor || initial?.requestedAmountUsdMinor));
   const [propertyValueUsd, setPropertyValueUsd] = useState(initial?.propertyValueUsdMinor ? String(fromMinor(initial.propertyValueUsdMinor)) : "");
@@ -422,6 +452,13 @@ export function LoanModal({
     const termMonths = Math.round(termUnit === "years" ? termNum * 12 : termNum);
     if (termMonths <= 0) return setError("Ingresá un plazo válido.");
     if (!startDate) return setError("Elegí la fecha de la primera cuota.");
+    if (requestDate && requestDate > startDate) return setError("La fecha de solicitud no puede ser posterior a la de la primera cuota.");
+    let gracePeriodMonths: number | undefined;
+    if (hasGrace) {
+      const graceNum = Math.round(parseFloat(gracePeriodValue.replace(",", ".")));
+      if (!Number.isFinite(graceNum) || graceNum <= 0) return setError("Ingresá una cantidad válida de cuotas de gracia.");
+      gracePeriodMonths = graceNum;
+    }
 
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
@@ -432,6 +469,9 @@ export function LoanModal({
       annualRatePct: rate,
       termMonths,
       startDate,
+      requestDate: requestDate || undefined,
+      gracePeriodMonths,
+      graceType: hasGrace ? graceType : undefined,
       prepayments: initial?.prepayments ?? [],
       note: note.trim() || undefined,
       propertyValueUsdMinor: showUsdInfo ? parseAmountInput(propertyValueUsd) ?? undefined : undefined,
@@ -479,6 +519,48 @@ export function LoanModal({
       </Field>
       <Field label="Fecha de la primera cuota">{(id) => <TextInput id={id} type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />}</Field>
       <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>Las siguientes cuotas vencen el mismo día de cada mes.</p>
+      <Field label="Fecha de solicitud / desembolso (opcional)">
+        {(id) => <TextInput id={id} type="date" value={requestDate} onChange={(e) => setRequestDate(e.target.value)} />}
+      </Field>
+      {requestDate && startDate && (
+        <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+          {daysBetween(requestDate, startDate)} días hasta la primera cuota
+          {Math.abs(daysBetween(requestDate, startDate) - 30) <= 3 ? " (≈ 1 mes, el caso más común)." : "."}
+        </p>
+      )}
+
+      <Field label="¿Tiene período de gracia?">
+        {() => (
+          <Segment
+            value={hasGrace ? "on" : "off"}
+            onChange={(v) => setHasGrace(v === "on")}
+            options={[{ value: "off", label: "No" }, { value: "on", label: "Sí" }]}
+          />
+        )}
+      </Field>
+      {hasGrace && (
+        <div className="rounded-lg p-3 mb-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Cuotas de gracia">
+              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="1" step="1" value={gracePeriodValue} onChange={(e) => setGracePeriodValue(e.target.value)} placeholder="Ej. 6" />}
+            </Field>
+            <Field label="Durante la gracia">
+              {() => (
+                <Segment
+                  value={graceType}
+                  onChange={setGraceType}
+                  options={[{ value: "interestOnly", label: "Solo interés" }, { value: "capitalized", label: "Sin pagos" }]}
+                />
+              )}
+            </Field>
+          </div>
+          <p className="text-[11px]" style={{ color: C.textFaint }}>
+            {graceType === "interestOnly"
+              ? "Pagás solo el interés durante esas cuotas; el saldo no baja. La amortización regular (el plazo de arriba) arranca después."
+              : "No pagás nada durante esas cuotas; el interés se suma al saldo, que va a ser más alto cuando arranque la amortización regular."}
+          </p>
+        </div>
+      )}
       <Field label="Nota (opcional)">{(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
 
       <Field label="¿Agregar datos informativos en USD?">

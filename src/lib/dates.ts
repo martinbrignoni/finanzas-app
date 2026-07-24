@@ -74,3 +74,12 @@ export function addMonthsToDate(iso: string, n: number): string {
   target.setDate(Math.min(day, lastDayOfTargetMonth));
   return `${target.getFullYear()}-${pad2(target.getMonth() + 1)}-${pad2(target.getDate())}`;
 }
+
+/** Cantidad de días de diferencia entre dos fechas YYYY-MM-DD (`to` - `from`). Puede dar negativo si `to` es anterior. */
+export function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  const a = Date.UTC(fy, fm - 1, fd);
+  const b = Date.UTC(ty, tm - 1, td);
+  return Math.round((b - a) / 86400000);
+}

@@ -1,6 +1,6 @@
 import { toMinor, fromMinor, formatMoney } from "./money";
 import { addMonthsToDate, todayISO } from "./dates";
-import type { MortgageLoan, MortgageCurrency } from "../types";
+import type { MortgageLoan, MortgageCurrency, MortgagePrepayment } from "../types";
 
 /**
  * Cálculo de préstamos por sistema francés, alemán o americano (ver
@@ -52,6 +52,8 @@ export interface AmortizationRow {
   extraPaymentMinor?: number;
   /** Si esta cuota ya venció respecto a hoy (informativo, no implica que se haya pagado realmente). */
   isPast: boolean;
+  /** Si esta cuota es parte del período de gracia (antes de que arranque la amortización regular). */
+  isGrace?: boolean;
 }
 
 /**
@@ -242,12 +244,99 @@ function buildAmericanSchedule(loan: MortgageLoan): AmortizationRow[] {
   return rows;
 }
 
-/** Arma la tabla de amortización completa de un préstamo según su sistema (`loan.system`, sin definir = francés). */
-export function buildSchedule(loan: MortgageLoan): AmortizationRow[] {
+/**
+ * Cuotas de gracia al inicio del préstamo, antes de que arranque la
+ * amortización regular (francés/alemán/americano). No dependen del sistema
+ * elegido: durante la gracia, o se paga solo el interés (`interestOnly`,
+ * saldo constante) o no se paga nada y el interés capitaliza (`capitalized`,
+ * saldo creciente). Una amortización extraordinaria con fecha dentro de la
+ * gracia siempre baja el saldo de inmediato: todavía no hay una cuota o
+ * plazo "regular" que acelerar, así que no aplica la distinción
+ * bajar-cuota/bajar-plazo (mismo criterio que el sistema americano).
+ */
+function buildGracePrefix(loan: MortgageLoan): {
+  rows: AmortizationRow[];
+  balanceAfter: number;
+  remainingPrepayments: MortgagePrepayment[];
+} {
+  const graceMonths = loan.gracePeriodMonths ?? 0;
+  const principal = fromMinor(loan.principalMinor);
+  if (graceMonths <= 0) {
+    return { rows: [], balanceAfter: principal, remainingPrepayments: loan.prepayments };
+  }
+
+  const monthlyRate = loan.annualRatePct / 100 / 12;
+  const graceType = loan.graceType ?? "interestOnly";
+  const today = todayISO();
+
+  let balance = principal;
+  const prepayments = [...loan.prepayments].sort((a, b) => a.date.localeCompare(b.date));
+  let idx = 0;
+  const rows: AmortizationRow[] = [];
+
+  for (let month = 1; month <= graceMonths && balance > EPSILON; month++) {
+    const dueDate = addMonthsToDate(loan.startDate, month - 1);
+    const interest = balance * monthlyRate;
+    const paid = graceType === "capitalized" ? 0 : interest;
+    let newBalance = graceType === "capitalized" ? balance + interest : balance;
+
+    let extraThisMonth = 0;
+    while (idx < prepayments.length && prepayments[idx].date <= dueDate && newBalance > EPSILON) {
+      const extra = Math.min(fromMinor(prepayments[idx].amountMinor), newBalance);
+      newBalance -= extra;
+      extraThisMonth += extra;
+      idx++;
+    }
+
+    rows.push({
+      number: month,
+      dueDate,
+      paymentMinor: toMinor(paid),
+      interestMinor: toMinor(interest),
+      principalMinor: 0,
+      balanceMinor: toMinor(Math.max(0, newBalance)),
+      extraPaymentMinor: extraThisMonth > 0 ? toMinor(extraThisMonth) : undefined,
+      isPast: dueDate < today,
+      isGrace: true,
+    });
+
+    balance = newBalance;
+  }
+
+  return { rows, balanceAfter: balance, remainingPrepayments: prepayments.slice(idx) };
+}
+
+function buildRegularSchedule(loan: MortgageLoan): AmortizationRow[] {
   const system = loan.system ?? "frances";
   if (system === "aleman") return buildGermanSchedule(loan);
   if (system === "americano") return buildAmericanSchedule(loan);
   return buildFrenchSchedule(loan);
+}
+
+/**
+ * Arma la tabla de amortización completa de un préstamo: primero las cuotas
+ * de gracia si las hay (`loan.gracePeriodMonths`), y después la amortización
+ * regular según el sistema elegido (`loan.system`, sin definir = francés),
+ * sobre el saldo y la fecha ya corridos por la gracia.
+ */
+export function buildSchedule(loan: MortgageLoan): AmortizationRow[] {
+  const graceMonths = loan.gracePeriodMonths ?? 0;
+  if (graceMonths <= 0) return buildRegularSchedule(loan);
+
+  const { rows: graceRows, balanceAfter, remainingPrepayments } = buildGracePrefix(loan);
+  if (balanceAfter <= EPSILON || graceRows.length < graceMonths) {
+    // El préstamo se saldó durante la gracia (amortizaciones extraordinarias): no hay fase regular.
+    return graceRows;
+  }
+
+  const regularLoan: MortgageLoan = {
+    ...loan,
+    principalMinor: toMinor(balanceAfter),
+    startDate: addMonthsToDate(loan.startDate, graceMonths),
+    prepayments: remainingPrepayments,
+  };
+  const regularRows = buildRegularSchedule(regularLoan).map((r) => ({ ...r, number: r.number + graceMonths }));
+  return [...graceRows, ...regularRows];
 }
 
 export interface LoanSummary {
