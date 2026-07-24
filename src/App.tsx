@@ -6,7 +6,7 @@ import { CalculatorModal } from "./components/Calculator";
 import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
 import { supabase } from "./lib/supabaseClient";
-import { detectChangedCategories, notifyOtherDevices } from "./lib/notifyChange";
+import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
@@ -111,8 +111,8 @@ export default function App() {
     if (prev && !skip) {
       const actor = data.users.find((u) => u.id === data.activeUserId);
       if (actor) {
-        const changed = detectChangedCategories(prev, data);
-        if (changed.length > 0) notifyOtherDevices(actor.id, actor.name, changed);
+        const changes = describeChangesByCategory(prev, data);
+        notifyOtherDevices(actor.id, actor.name, changes);
       }
     }
     prevDataRef.current = data;

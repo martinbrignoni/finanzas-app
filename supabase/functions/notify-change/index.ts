@@ -87,6 +87,13 @@ Deno.serve(async (req) => {
     const categories: NotifiableModuleKey[] = Array.isArray(body.categories)
       ? body.categories.filter((c: unknown): c is NotifiableModuleKey => typeof c === "string" && c in LABELS)
       : [];
+    // Líneas de detalle armadas por el cliente (ej. "Agregó un gasto de $500
+    // en Alimentación"), ya truncadas a unas pocas. Si no vienen (cliente
+    // viejo, o cambios sin detalle puntual como un reordenamiento), se cae al
+    // mensaje genérico por categoría.
+    const details: string[] = Array.isArray(body.details)
+      ? body.details.filter((d: unknown): d is string => typeof d === "string").slice(0, 5)
+      : [];
     if (!actorUserId || categories.length === 0) {
       return json({ ok: false, error: "Faltan actorUserId o categories." }, 400);
     }
@@ -113,9 +120,13 @@ Deno.serve(async (req) => {
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
 
     const labels = categories.map((c) => LABELS[c]).join(", ");
+    const bodyText =
+      details.length > 0
+        ? `${actorName}: ${details.join("; ")}`
+        : `${actorName} hizo cambios en ${labels}.`;
     const payload = JSON.stringify({
       title: "Finanzas",
-      body: `${actorName} hizo cambios en ${labels}.`,
+      body: bodyText,
       url: "/finanzas-app/",
     });
 
