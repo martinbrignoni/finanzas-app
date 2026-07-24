@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { RefreshCw, FileSpreadsheet } from "lucide-react";
+import { RefreshCw, FileSpreadsheet, ArrowLeftRight } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Segment } from "../../components/ui";
+import { Segment, Modal, Field, TextInput } from "../../components/ui";
 import { formatDateDMY } from "../../lib/dates";
 import { fetchLatestRates, fetchRateHistory, fetchAllRatesAllCurrencies, type ExchangeRateCurrency, type ExchangeRateRow } from "../../lib/exchangeRates";
 import { exportExchangeRatesToExcel } from "../../lib/excelExport";
@@ -15,8 +15,80 @@ const MONEDAS: { id: ExchangeRateCurrency; label: string; decimals: number }[] =
   { id: "UR", label: "Unidad Reajustable", decimals: 2 },
 ];
 
+/** Monedas que entran en el convertidor rápido: pesos uruguayos + las 4 que tienen cotización directa contra UYU en BCU. */
+type ConverterCurrency = "UYU" | "USD" | "EUR" | "ARS" | "BRL";
+const CONVERTER_CURRENCIES: { id: ConverterCurrency; label: string }[] = [
+  { id: "UYU", label: "Peso uruguayo" },
+  { id: "USD", label: "Dólar" },
+  { id: "ARS", label: "Peso argentino" },
+  { id: "BRL", label: "Real" },
+  { id: "EUR", label: "Euro" },
+];
+
 function fmt(n: number, decimals: number): string {
   return new Intl.NumberFormat("es-UY", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+}
+
+/**
+ * Convertidor rápido entre pesos uruguayos y las monedas con cotización BCU
+ * cargada. Usa el peso uruguayo como moneda "pivote": convierte el monto de
+ * origen a UYU con la cotización de venta de esa moneda, y de ahí a cada una
+ * de las demás dividiendo por su propia cotización. Es la misma cotización
+ * ("sell") que ya se usa en el resto de la pantalla, solo que acá se
+ * encadenan dos conversiones en vez de mostrar una moneda contra otra por
+ * separado.
+ */
+function ConverterModal({ latest, onClose }: { latest: Record<string, ExchangeRateRow | null> | null; onClose: () => void }) {
+  const [amount, setAmount] = useState("100");
+  const [from, setFrom] = useState<ConverterCurrency>("USD");
+
+  const rateOf = (c: ConverterCurrency): number | null => (c === "UYU" ? 1 : latest?.[c]?.sell ?? null);
+
+  const parsed = parseFloat(amount.replace(",", "."));
+  const amountValid = Number.isFinite(parsed);
+  const fromRate = rateOf(from);
+
+  const refDate = (["USD", "EUR", "ARS", "BRL"] as const)
+    .map((c) => latest?.[c]?.rate_date)
+    .filter((d): d is string => !!d)
+    .sort()
+    .pop();
+
+  return (
+    <Modal title="Convertidor de moneda" onClose={onClose}>
+      <Field label="Monto">
+        {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+      </Field>
+      <Field label="Moneda de origen">
+        {() => <Segment value={from} onChange={setFrom} options={CONVERTER_CURRENCIES.map((c) => ({ value: c.id, label: c.id }))} />}
+      </Field>
+
+      {!amountValid ? (
+        <p className="text-xs" style={{ color: C.textFaint }}>Ingresá un monto para convertir.</p>
+      ) : fromRate == null ? (
+        <p className="text-xs" style={{ color: C.negative }}>Todavía no hay cotización cargada para {from}.</p>
+      ) : (
+        <div className="space-y-2 mt-1 mb-3">
+          {CONVERTER_CURRENCIES.filter((c) => c.id !== from).map((c) => {
+            const toRate = rateOf(c.id);
+            const result = toRate != null ? (parsed * fromRate) / toRate : null;
+            return (
+              <div key={c.id} className="flex items-center justify-between rounded-lg px-3 py-2.5" style={{ background: C.surface2 }}>
+                <span className="text-xs" style={{ color: C.textMuted }}>{c.label}</span>
+                <span className="font-mono text-sm font-semibold" style={{ color: C.text }}>
+                  {result != null ? `${fmt(result, 2)} ${c.id}` : "sin cotización"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="text-[11px]" style={{ color: C.textFaint }}>
+        {refDate ? `Cotizaciones al ${formatDateDMY(refDate)} (fuente: BCU).` : "Cargando cotizaciones..."}
+      </p>
+    </Modal>
+  );
 }
 
 export function ExchangeRates() {
@@ -25,6 +97,7 @@ export function ExchangeRates() {
   const [historia, setHistoria] = useState<ExchangeRateRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [converterOpen, setConverterOpen] = useState(false);
 
   const cargarTodo = () => {
     setLoading(true);
@@ -63,7 +136,16 @@ export function ExchangeRates() {
           </button>
         </div>
       </div>
-      <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Cotizaciones</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-display" style={{ color: C.text }}>Cotizaciones</h1>
+        <button
+          onClick={() => setConverterOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold"
+          style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+        >
+          <ArrowLeftRight size={13} /> Convertidor
+        </button>
+      </div>
 
       <div className="grid grid-cols-2 gap-2 mb-5">
         {MONEDAS.map((m) => {
@@ -142,6 +224,8 @@ export function ExchangeRates() {
           })}
         </div>
       )}
+
+      {converterOpen && <ConverterModal latest={latest} onClose={() => setConverterOpen(false)} />}
     </div>
   );
 }
