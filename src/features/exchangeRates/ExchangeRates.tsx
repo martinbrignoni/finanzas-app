@@ -122,13 +122,21 @@ export function ExchangeRates() {
             return (
               <div
                 key={row.rate_date}
-                className="px-3 py-2 flex items-center justify-between text-sm"
+                className="px-3 py-2 text-sm"
                 style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
               >
-                <span style={{ color: C.textMuted }}>
-                  {selected === "UR" ? formatDateDMY(row.rate_date).slice(3) : formatDateDMY(row.rate_date)}
-                </span>
-                <span className="font-mono" style={{ color: C.text }}>{fmt(row.sell, decimals)}</span>
+                <div className="flex items-center justify-between">
+                  <span style={{ color: C.textMuted }}>
+                    {selected === "UR" ? formatDateDMY(row.rate_date).slice(3) : formatDateDMY(row.rate_date)}
+                  </span>
+                  <span className="font-mono" style={{ color: C.text }}>{fmt(row.sell, decimals)}</span>
+                </div>
+                {row.arbitrage != null && (
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-[10px] font-mono" style={{ color: C.textFaint }}>arb. {fmt(row.arbitrage, 4)} vs USD</span>
+                    <span className="text-[10px] font-mono" style={{ color: C.textFaint }}>1 USD = {fmt(1 / row.arbitrage, 2)} {selected}</span>
+                  </div>
+                )}
               </div>
             );
           })}
