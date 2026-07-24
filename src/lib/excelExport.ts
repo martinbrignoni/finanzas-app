@@ -5,6 +5,7 @@ import { categoryFullPath } from "./categories";
 import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry, Category, Installment } from "../types";
 import type { ExchangeRateRow } from "./exchangeRates";
 import { contactEntryAccountImpact } from "./contacts";
+import { todayISO } from "./dates";
 
 /** Nombres de hoja de Excel: máx 31 caracteres, sin : \ / ? * [ ] */
 function sheetName(raw: string): string {
@@ -101,7 +102,7 @@ export function exportBankToExcel(
     XLSX.utils.book_append_sheet(wb, sheet, name);
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const filename = `${bank.name.replace(/[^a-zA-Z0-9-_ ]/g, "")}_${today}.xlsx`;
   XLSX.writeFile(wb, filename);
 }
@@ -146,7 +147,7 @@ export function exportCategoryToExcel(
   );
   XLSX.utils.book_append_sheet(wb, sheet, sheetName(category.name));
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   XLSX.writeFile(wb, `${category.name.replace(/[^a-zA-Z0-9-_ ]/g, "")}_movimientos_${today}.xlsx`);
 }
 
@@ -167,6 +168,6 @@ export function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRat
     XLSX.utils.book_append_sheet(wb, sheet, moneda.slice(0, 31));
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   XLSX.writeFile(wb, `Cotizaciones_BCU_${today}.xlsx`);
 }

@@ -18,8 +18,17 @@ export function formatDateDMY(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+/**
+ * Fecha de HOY en formato YYYY-MM-DD, según la hora local del dispositivo.
+ * OJO: no usar `toISOString()` acá, porque convierte a UTC y en Uruguay
+ * (UTC-3) eso adelanta la fecha en cualquier momento entre las 21:00 y la
+ * medianoche local (a las 23:00 del 23/07 en Uruguay, en UTC ya son las
+ * 02:00 del 24/07). Usamos los getters locales de `Date` para que la fecha
+ * coincida siempre con la del calendario del usuario.
+ */
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
 /** Convierte una fecha y hora ISO completa a "DD/MM/AAAA HH:MM" para mostrarla. */
