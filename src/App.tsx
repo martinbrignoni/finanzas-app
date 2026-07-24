@@ -42,7 +42,7 @@ const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
 ];
 
 type ModalState =
-  | { type: "movement"; payload?: { transaction?: Transaction; transfer?: Transfer; installment?: Installment; presetCardId?: string } }
+  | { type: "movement"; payload?: { transaction?: Transaction; transfer?: Transfer; installment?: Installment; contactEntry?: ContactEntry; presetCardId?: string } }
   | { type: "card"; payload?: Card }
   | { type: "budget"; payload?: Budget }
   | { type: "bank"; payload?: Bank }
@@ -507,14 +507,18 @@ export default function App() {
       setData((d) => {
         if (!d) return d;
         const idx = d.contactEntries.findIndex((x) => x.id === e.id);
-        const contactEntries = idx >= 0 ? d.contactEntries.map((x) => (x.id === e.id ? e : x)) : [...d.contactEntries, e];
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...e, createdAt: d.contactEntries[idx].createdAt ?? now, updatedAt: now }
+          : { ...e, createdByUserId: e.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const contactEntries = idx >= 0 ? d.contactEntries.map((x) => (x.id === e.id ? withCreator : x)) : [...d.contactEntries, withCreator];
         return { ...d, contactEntries };
       });
       closeModal();
     };
     const isEdit = data?.contactEntries.some((x) => x.id === e.id) ?? false;
     confirmSave(isEdit, "¿Guardar los cambios en este movimiento?", commit);
-  }, [data, confirmSave]);
+  }, [data, confirmSave, activeUser]);
   const deleteContactEntry = useCallback((id: string) => {
     setData((d) => (d ? { ...d, contactEntries: d.contactEntries.filter((x) => x.id !== id) } : d));
   }, []);
@@ -835,11 +839,14 @@ export default function App() {
                 transfers={data.transfers}
                 cardPayments={data.cardPayments}
                 installments={data.installments}
+                contactEntries={data.contactEntries}
+                contacts={data.contacts}
                 cards={data.cards}
                 accounts={data.accounts}
                 banks={data.banks}
                 users={data.users}
                 canEdit={has("movimientos", "edit")}
+                canEditContacts={has("personas", "edit")}
                 onEdit={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDelete={confirmDeleteTransaction}
                 onEditTransfer={(t) => setModal({ type: "movement", payload: { transfer: t } })}
@@ -848,6 +855,8 @@ export default function App() {
                 onDeleteCardPayment={confirmDeleteCardPayment}
                 onEditInstallment={(i) => setModal({ type: "movement", payload: { installment: i } })}
                 onDeleteInstallment={confirmDeleteInstallment}
+                onEditContactEntry={(e) => setModal({ type: "movement", payload: { contactEntry: e } })}
+                onDeleteContactEntry={confirmDeleteContactEntry}
               />
             )}
             {tab === "cuentas" && (
@@ -1025,14 +1034,18 @@ export default function App() {
           initial={modal.payload?.transaction}
           initialTransfer={modal.payload?.transfer}
           initialInstallment={modal.payload?.installment}
+          initialContactEntry={modal.payload?.contactEntry}
           presetCardId={modal.payload?.presetCardId}
           accounts={data.accounts}
           banks={data.banks}
           cards={data.cards}
           categories={data.categories}
+          contacts={data.contacts}
+          canEditContacts={has("personas", "edit")}
           onSaveTransaction={upsertTransaction}
           onSaveTransfer={upsertTransfer}
           onSaveInstallment={upsertInstallment}
+          onSaveContactEntry={upsertContactEntry}
           onSaveCategory={saveCategory}
           onClose={closeModal}
         />

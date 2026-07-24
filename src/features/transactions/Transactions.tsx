@@ -1,5 +1,5 @@
 import { useState, useEffect, Fragment } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -12,13 +12,14 @@ import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry } from "../../types";
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
   | { kind: "transfer"; date: string; data: Transfer }
   | { kind: "cardPayment"; date: string; data: CardPayment }
-  | { kind: "installment"; date: string; data: Installment };
+  | { kind: "installment"; date: string; data: Installment }
+  | { kind: "contactEntry"; date: string; data: ContactEntry };
 
 const DIACRITICS_RE = new RegExp("[\\u0300-\\u036f]", "g");
 
@@ -41,7 +42,7 @@ function cardExtensionLabel(cards: Card[], cardId: string | undefined, extension
 }
 
 /** Junta todo el texto relevante de un movimiento (categoría, nota, fecha, importe, cuenta, tarjeta...) para buscar en él. */
-function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], cards: Card[]): string {
+function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], cards: Card[], contacts: Contact[]): string {
   if (item.kind === "installment") {
     const inst = item.data;
     const card = cards.find((c) => c.id === inst.cardId);
@@ -95,6 +96,22 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       toAcc ? accountLabel(toAcc, banks) : undefined,
     ].filter((x): x is string => !!x).join(" ");
   }
+  if (item.kind === "contactEntry") {
+    const e = item.data;
+    const contact = contacts.find((c) => c.id === e.contactId);
+    const acc = accounts.find((a) => a.id === e.accountId);
+    return [
+      "persona",
+      contact?.name,
+      e.description,
+      e.date,
+      formatDateDMY(e.date),
+      monthLabel(monthKeyOf(e.date)),
+      amountVariants(e.amountMinor),
+      formatMoney(Math.abs(e.amountMinor), e.currency),
+      acc ? accountLabel(acc, banks) : undefined,
+    ].filter((x): x is string => !!x).join(" ");
+  }
   const p = item.data;
   const acc = accounts.find((a) => a.id === p.accountId);
   const card = cards.find((c) => c.id === p.cardId);
@@ -116,11 +133,14 @@ export function Transactions({
   transfers,
   cardPayments,
   installments,
+  contactEntries,
+  contacts,
   cards,
   accounts,
   banks,
   users,
   canEdit,
+  canEditContacts,
   onEdit,
   onDelete,
   onEditTransfer,
@@ -129,17 +149,23 @@ export function Transactions({
   onDeleteCardPayment,
   onEditInstallment,
   onDeleteInstallment,
+  onEditContactEntry,
+  onDeleteContactEntry,
 }: {
   transactions: Transaction[];
   transfers: Transfer[];
   cardPayments: CardPayment[];
   installments: Installment[];
+  contactEntries: ContactEntry[];
+  contacts: Contact[];
   cards: Card[];
   accounts: Account[];
   banks: Bank[];
   /** Para mostrar de quién es cada movimiento (solo tiene sentido mostrarlo si hay más de un perfil). */
   users: AppUser[];
   canEdit: boolean;
+  /** Permiso del módulo Personas: gobierna editar/eliminar los movimientos con personas mostrados acá. */
+  canEditContacts: boolean;
   onEdit: (t: Transaction) => void;
   onDelete: (id: string) => void;
   onEditTransfer: (t: Transfer) => void;
@@ -148,6 +174,8 @@ export function Transactions({
   onDeleteCardPayment: (id: string) => void;
   onEditInstallment: (i: Installment) => void;
   onDeleteInstallment: (id: string) => void;
+  onEditContactEntry: (e: ContactEntry) => void;
+  onDeleteContactEntry: (id: string) => void;
 }) {
   const [filterMonth, setFilterMonth] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -160,6 +188,7 @@ export function Transactions({
     ...transfers.map((t): LedgerItem => ({ kind: "transfer", date: t.date, data: t })),
     ...cardPayments.map((p): LedgerItem => ({ kind: "cardPayment", date: p.date, data: p })),
     ...installments.map((i): LedgerItem => ({ kind: "installment", date: i.date ?? `${i.startMonth}-01`, data: i })),
+    ...contactEntries.map((e): LedgerItem => ({ kind: "contactEntry", date: e.date, data: e })),
   ].sort((a, b) => {
     const byDate = b.date.localeCompare(a.date);
     if (byDate !== 0) return byDate;
@@ -189,7 +218,7 @@ export function Transactions({
   const items =
     searchNorm === ""
       ? byPending
-      : byPending.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards)).includes(searchNorm));
+      : byPending.filter((item) => normalizeText(itemSearchText(item, accounts, banks, cards, contacts)).includes(searchNorm));
 
   // Los movimientos con fecha futura (a partir de mañana) no se muestran de
   // entrada: quedan atrás de un banner ("Ver") para no ensuciar la lista del
@@ -426,6 +455,52 @@ export function Transactions({
             );
           }
 
+          if (item.kind === "contactEntry") {
+            const e = item.data;
+            const contact = contacts.find((c) => c.id === e.contactId);
+            const account = accounts.find((a) => a.id === e.accountId);
+            const favorMio = e.amountMinor >= 0;
+            return (
+              <Fragment key={e.id}>
+                {separator}
+                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
+                    <User size={16} color={C.usd} />
+                  </div>
+                  <div>
+                    <div className="text-sm" style={{ color: C.text }}>
+                      {contact?.name ?? "Persona eliminada"} · {e.description}
+                    </div>
+                    <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
+                      <span>
+                        {formatDateDMY(e.date)} · {favorMio ? "Te debe" : "Le debés"}
+                        {account && ` · ${accountLabel(account, banks)}`}
+                      </span>
+                      {showAuthor && <UserBadge users={users} userId={e.createdByUserId} />}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right">
+                    <div className="font-mono text-sm" style={{ color: favorMio ? C.positive : C.negative }}>
+                      {favorMio ? "+" : "-"}{formatMoney(Math.abs(e.amountMinor), e.currency)}
+                    </div>
+                    <CurrencyPill currency={e.currency} />
+                  </div>
+                  <ReceiptButton paths={receiptPathsOf(e)} />
+                  {canEditContacts && (
+                    <>
+                      <IconBtn label="Editar movimiento con persona" onClick={() => onEditContactEntry(e)}><Pencil size={15} /></IconBtn>
+                      <IconBtn label="Eliminar movimiento con persona" danger onClick={() => onDeleteContactEntry(e.id)}><Trash2 size={15} /></IconBtn>
+                    </>
+                  )}
+                </div>
+                </div>
+              </Fragment>
+            );
+          }
+
           const p = item.data;
           const account = accounts.find((a) => a.id === p.accountId);
           const card = cards.find((c) => c.id === p.cardId);
@@ -472,7 +547,7 @@ export function Transactions({
 }
 
 type PaymentMethod = "ninguno" | "cuenta" | "tarjeta";
-type MovementKind = "gasto" | "ingreso" | "transferencia";
+type MovementKind = "gasto" | "ingreso" | "transferencia" | "persona";
 
 interface FormState {
   kind: MovementKind;
@@ -494,6 +569,11 @@ interface FormState {
   exchangeRate: string;
   // cuotas (solo gasto con tarjeta)
   numInstallments: string;
+  // campos de movimiento con persona
+  contactId: string;
+  /** true = vos pusiste la plata (aumenta lo que te debe); false = ella puso la plata (disminuye lo que te debe). */
+  contactFavorMio: boolean;
+  contactDescription: string;
   // comprobantes
   receiptPaths: string[];
 }
@@ -508,14 +588,18 @@ export function MovementModal({
   initial,
   initialTransfer,
   initialInstallment,
+  initialContactEntry,
   presetCardId,
   accounts,
   banks,
   cards,
   categories,
+  contacts,
+  canEditContacts,
   onSaveTransaction,
   onSaveTransfer,
   onSaveInstallment,
+  onSaveContactEntry,
   onSaveCategory,
   onClose,
 }: {
@@ -525,36 +609,57 @@ export function MovementModal({
   initialTransfer?: Transfer;
   /** Editar una compra en cuotas existente. */
   initialInstallment?: Installment;
+  /** Editar un movimiento con persona existente. */
+  initialContactEntry?: ContactEntry;
   /** Si se abre el modal para cargar un gasto desde una tarjeta puntual (ej. desde Tarjetas), la precarga como medio de pago. */
   presetCardId?: string;
   accounts: Account[];
   banks: Bank[];
   cards: Card[];
   categories: Category[];
+  contacts: Contact[];
+  /** Permiso del módulo Personas: gobierna si se puede elegir "Persona" como tipo de movimiento. */
+  canEditContacts: boolean;
   onSaveTransaction: (t: Transaction) => void;
   onSaveTransfer: (t: Transfer) => void;
   /** Crear una categoría nueva (en cualquier nivel) sin salir del modal de movimiento. */
   onSaveCategory: (c: Category) => void;
   onSaveInstallment: (i: Installment) => void;
+  onSaveContactEntry: (e: ContactEntry) => void;
   onClose: () => void;
 }) {
   const isEditingTransaction = !!initial;
   const isEditingTransfer = !!initialTransfer;
   const isEditingInstallment = !!initialInstallment;
+  const isEditingContactEntry = !!initialContactEntry;
   // Estable durante toda la vida del modal, aunque el movimiento sea nuevo: sirve como prefijo
   // del archivo del comprobante en Storage y después se usa como id real al guardar.
-  const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? initialInstallment?.id ?? crypto.randomUUID());
+  const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? initialInstallment?.id ?? initialContactEntry?.id ?? crypto.randomUUID());
 
   const [form, setForm] = useState<FormState>(() => ({
-    kind: initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
-    amount: initialInstallment ? String(fromMinor(initialInstallment.totalAmountMinor)) : initial ? String(fromMinor(initial.amountMinor)) : "",
-    currency: initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
+    kind: initialContactEntry ? "persona" : initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
+    amount: initialContactEntry
+      ? String(fromMinor(Math.abs(initialContactEntry.amountMinor)))
+      : initialInstallment
+      ? String(fromMinor(initialInstallment.totalAmountMinor))
+      : initial
+      ? String(fromMinor(initial.amountMinor))
+      : "",
+    currency: initialContactEntry ? initialContactEntry.currency : initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
     // Nueva: arranca sin categoría a propósito, para poder cargar rápido y
     // categorizar después (ver el filtro de "pendientes" en la lista).
     category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category ?? "" : "",
-    date: initialTransfer ? initialTransfer.date : initial ? initial.date : initialInstallment ? initialInstallment.date ?? `${initialInstallment.startMonth}-01` : todayISO(),
+    date: initialContactEntry
+      ? initialContactEntry.date
+      : initialTransfer
+      ? initialTransfer.date
+      : initial
+      ? initial.date
+      : initialInstallment
+      ? initialInstallment.date ?? `${initialInstallment.startMonth}-01`
+      : todayISO(),
     note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
-    accountId: initial?.accountId ?? "",
+    accountId: initialContactEntry?.accountId ?? initial?.accountId ?? "",
     paymentMethod: initialInstallment ? "tarjeta" : initial?.cardId ? "tarjeta" : initial?.accountId ? "cuenta" : presetCardId ? "tarjeta" : "ninguno",
     cardId: initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
     cardExtensionId: initialInstallment?.cardExtensionId ?? initial?.cardExtensionId ?? "",
@@ -564,7 +669,10 @@ export function MovementModal({
     toAmount: initialTransfer ? String(fromMinor(initialTransfer.toAmountMinor)) : "",
     exchangeRate: initialTransfer?.exchangeRate ? String(initialTransfer.exchangeRate) : "",
     numInstallments: initialInstallment ? String(initialInstallment.numInstallments) : "1",
-    receiptPaths: receiptPathsOf(initialTransfer ?? initial ?? initialInstallment),
+    contactId: initialContactEntry?.contactId ?? contacts[0]?.id ?? "",
+    contactFavorMio: initialContactEntry ? initialContactEntry.amountMinor >= 0 : true,
+    contactDescription: initialContactEntry?.description ?? "",
+    receiptPaths: receiptPathsOf(initialTransfer ?? initial ?? initialInstallment ?? initialContactEntry),
   }));
   const [error, setError] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -645,6 +753,27 @@ export function MovementModal({
       return;
     }
 
+    if (form.kind === "persona") {
+      if (!form.contactId) return setError("Elegí una persona.");
+      const amountAbs = parseAmountInput(form.amount);
+      if (amountAbs === null || amountAbs === 0) return setError("Ingresá un monto válido, mayor a cero.");
+      if (!form.contactDescription.trim()) return setError("Ingresá una descripción.");
+      if (!form.date) return setError("Elegí una fecha.");
+
+      onSaveContactEntry({
+        id: movementId,
+        contactId: form.contactId,
+        date: form.date,
+        amountMinor: form.contactFavorMio ? amountAbs : -amountAbs,
+        currency: form.currency,
+        description: form.contactDescription.trim(),
+        accountId: form.accountId || undefined,
+        receiptPaths: form.receiptPaths,
+        createdByUserId: initialContactEntry?.createdByUserId,
+      });
+      return;
+    }
+
     const amountMinor = parseAmountInput(form.amount);
     if (amountMinor === null || amountMinor === 0) return setError("Ingresá un monto válido, mayor a cero.");
     if (!form.date) return setError("Elegí una fecha.");
@@ -698,11 +827,16 @@ export function MovementModal({
   const kindOptions =
     presetCardId || isEditingTransaction || isEditingInstallment
       ? [{ value: "gasto" as const, label: "Gasto" }, { value: "ingreso" as const, label: "Ingreso" }]
-      : [{ value: "gasto" as const, label: "Gasto" }, { value: "ingreso" as const, label: "Ingreso" }, { value: "transferencia" as const, label: "Transferencia" }];
+      : [
+          { value: "gasto" as const, label: "Gasto" },
+          { value: "ingreso" as const, label: "Ingreso" },
+          { value: "transferencia" as const, label: "Transferencia" },
+          ...(canEditContacts ? [{ value: "persona" as const, label: "Persona" }] : []),
+        ];
 
   const title = isEditingTransfer
     ? "Editar transferencia"
-    : isEditingTransaction || isEditingInstallment
+    : isEditingTransaction || isEditingInstallment || isEditingContactEntry
     ? "Editar movimiento"
     : presetCardId
     ? "Nuevo gasto con tarjeta"
@@ -710,12 +844,12 @@ export function MovementModal({
 
   return (
     <Modal title={title} onClose={onClose}>
-      {!isEditingTransfer && (
+      {!isEditingTransfer && !isEditingContactEntry && (
         <Field label="Tipo">
           {() => (
             <Segment
               value={form.kind}
-              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" ? f.category : "" }))}
+              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" || v === "persona" ? f.category : "" }))}
               options={kindOptions}
             />
           )}
@@ -808,6 +942,75 @@ export function MovementModal({
             <Field label="Nota (opcional)">
               {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
             </Field>
+          </>
+        )
+      ) : form.kind === "persona" ? (
+        contacts.length === 0 ? (
+          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+            Todavía no tenés personas cargadas. Creá una en Personas.
+          </p>
+        ) : (
+          <>
+            <Field label="Persona">
+              {(id) => (
+                <Select id={id} value={form.contactId} onChange={(e) => setForm((f) => ({ ...f, contactId: e.target.value }))}>
+                  {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </Select>
+              )}
+            </Field>
+            <Field label="Tipo de movimiento">
+              {() => (
+                <Segment
+                  value={form.contactFavorMio ? "favor" : "contra"}
+                  onChange={(v) => setForm((f) => ({ ...f, contactFavorMio: v === "favor" }))}
+                  options={[
+                    { value: "favor", label: "A favor mío" },
+                    { value: "contra", label: "A favor suyo" },
+                  ]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              {form.contactFavorMio
+                ? "Vos pusiste la plata (pagaste algo suyo, le prestaste, o le devolviste lo que le debías). Aumenta lo que te debe."
+                : "Ella puso la plata (te pagó, te devolvió algo, o pagó algo tuyo). Disminuye lo que te debe."}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Monto">
+                {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+              </Field>
+              <Field label="Moneda">
+                {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
+              </Field>
+            </div>
+            <Field label="Descripción">
+              {(id) => <TextInput id={id} value={form.contactDescription} onChange={(e) => setForm((f) => ({ ...f, contactDescription: e.target.value }))} placeholder="Cena, nafta, adelanto..." />}
+            </Field>
+            <Field label="Fecha">
+              {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+            </Field>
+            <Field label="Cuenta vinculada (opcional)">
+              {(id) =>
+                eligibleAccounts.length === 0 ? (
+                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}.</p>
+                ) : (
+                  <Combobox
+                    id={id}
+                    value={form.accountId}
+                    placeholder="Sin vincular (no mueve ninguna cuenta)"
+                    onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
+                    options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                  />
+                )
+              }
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              {form.accountId
+                ? form.contactFavorMio
+                  ? "Se va a descontar de esa cuenta (salió plata real)."
+                  : "Se va a sumar a esa cuenta (entró plata real)."
+                : "Si no elegís cuenta, queda solo como registro informativo (ej. pagó algo directamente, sin pasar por tu plata)."}
+            </p>
           </>
         )
       ) : (

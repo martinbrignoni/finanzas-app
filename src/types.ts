@@ -332,6 +332,12 @@ export interface ContactEntry {
   description: string;
   accountId?: string;
   receiptPaths?: string[];
+  /** Perfil (AppUser.id) que cargó este movimiento. `undefined` en movimientos guardados antes de este campo. */
+  createdByUserId?: string;
+  /** Fecha/hora ISO de creación del registro (no la fecha del movimiento). Usado para desempatar el orden en Movimientos. */
+  createdAt?: string;
+  /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
+  updatedAt?: string;
 }
 
 /**
