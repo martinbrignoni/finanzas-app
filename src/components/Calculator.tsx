@@ -229,16 +229,6 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
 
       <div className="grid grid-cols-2 gap-2 mb-2">
         <button
-          onClick={addIvaToggle}
-          className="py-2.5 rounded-lg text-xs font-semibold"
-          style={{ background: ivaToggle?.kind === "add" ? C.surface3 : C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}
-        >
-          +IVA / IVA
-          <div className="text-[10px] font-normal" style={{ color: C.textFaint }}>
-            {ivaToggle?.kind === "add" && ivaToggle.state === 2 ? "mostrando IVA" : "×1.22"}
-          </div>
-        </button>
-        <button
           onClick={removeIvaToggle}
           className="py-2.5 rounded-lg text-xs font-semibold"
           style={{ background: ivaToggle?.kind === "remove" ? C.surface3 : C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}
@@ -246,6 +236,16 @@ export function CalculatorModal({ onClose }: { onClose: () => void }) {
           −IVA / IVA
           <div className="text-[10px] font-normal" style={{ color: C.textFaint }}>
             {ivaToggle?.kind === "remove" && ivaToggle.state === 2 ? "mostrando IVA" : "÷1.22"}
+          </div>
+        </button>
+        <button
+          onClick={addIvaToggle}
+          className="py-2.5 rounded-lg text-xs font-semibold"
+          style={{ background: ivaToggle?.kind === "add" ? C.surface3 : C.surface2, color: C.uyu, border: `1px solid ${C.border}` }}
+        >
+          +IVA / IVA
+          <div className="text-[10px] font-normal" style={{ color: C.textFaint }}>
+            {ivaToggle?.kind === "add" && ivaToggle.state === 2 ? "mostrando IVA" : "×1.22"}
           </div>
         </button>
       </div>

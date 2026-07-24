@@ -9,7 +9,8 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { formatDateDMY, todayISO } from "../../lib/dates";
 import { contactBalance, contactCategories, contactKind, isContactSettled } from "../../lib/contacts";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
-import type { Contact, ContactEntry, Account, Bank, Currency, Category } from "../../types";
+import { canEditOwnRecord } from "../../lib/permissions";
+import type { Contact, ContactEntry, Account, Bank, Currency, Category, AppUser } from "../../types";
 
 /** Resumen de saldo de una persona: "Te debe $X" (verde), "Le debés $X" (rojo), o "Saldado" si está en cero en todas las monedas. */
 function BalanceSummary({ balance, size = "sm" }: { balance: Record<Currency, number>; size?: "sm" | "lg" }) {
@@ -35,6 +36,7 @@ export function Contacts({
   accounts,
   banks,
   canEdit,
+  activeUser,
   onAddContact,
   onEditContact,
   onDeleteContact,
@@ -48,6 +50,8 @@ export function Contacts({
   accounts: Account[];
   banks: Bank[];
   canEdit: boolean;
+  /** Perfil activo: decide, junto con canEdit, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
+  activeUser: AppUser | null;
   onAddContact: () => void;
   onEditContact: (c: Contact) => void;
   onDeleteContact: (id: string) => void;
@@ -218,6 +222,7 @@ export function Contacts({
           accounts={accounts}
           banks={banks}
           canEdit={canEdit}
+          activeUser={activeUser}
           onAddEntry={() => onAddEntry(viewContact.id)}
           onEditEntry={onEditEntry}
           onDeleteEntry={onDeleteEntry}
@@ -236,6 +241,7 @@ function ContactLedgerModal({
   accounts,
   banks,
   canEdit,
+  activeUser,
   onAddEntry,
   onEditEntry,
   onDeleteEntry,
@@ -248,6 +254,8 @@ function ContactLedgerModal({
   accounts: Account[];
   banks: Bank[];
   canEdit: boolean;
+  /** Perfil activo: decide, junto con canEdit, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
+  activeUser: AppUser | null;
   onAddEntry: () => void;
   onEditEntry: (e: ContactEntry) => void;
   onDeleteEntry: (id: string) => void;
@@ -328,7 +336,7 @@ function ContactLedgerModal({
                       {e.amountMinor >= 0 ? "+" : "-"}{formatMoney(Math.abs(e.amountMinor), e.currency)}
                     </span>
                     <ReceiptButton paths={receiptPathsOf(e)} />
-                    {canEdit && (
+                    {canEdit && canEditOwnRecord(activeUser, e) && (
                       <>
                         <IconBtn label="Editar movimiento" onClick={() => onEditEntry(e)}><Pencil size={13} /></IconBtn>
                         <IconBtn label="Eliminar movimiento" danger onClick={() => onDeleteEntry(e.id)}><Trash2 size={13} /></IconBtn>

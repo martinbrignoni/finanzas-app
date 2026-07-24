@@ -849,6 +849,7 @@ export default function App() {
                 accounts={data.accounts}
                 banks={data.banks}
                 users={data.users}
+                activeUser={activeUser}
                 canEdit={has("movimientos", "edit")}
                 canEditContacts={has("personas", "edit")}
                 onEdit={(t) => setModal({ type: "movement", payload: { transaction: t } })}
@@ -875,6 +876,7 @@ export default function App() {
                 cards={data.cards}
                 canEdit={has("cuentas", "edit")}
                 canEditMovements={has("movimientos", "edit")}
+                activeUser={activeUser}
                 sortOrders={data.sortOrders}
                 onReorderBanks={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, banks: order } } : d))}
                 onReorderAccountsByBank={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByBank: order } } : d))}
@@ -944,6 +946,7 @@ export default function App() {
                 accounts={data.accounts}
                 banks={data.banks}
                 canEdit={has("personas", "edit")}
+                activeUser={activeUser}
                 onAddContact={() => setModal({ type: "contact" })}
                 onEditContact={(c) => setModal({ type: "contact", payload: c })}
                 onDeleteContact={confirmDeleteContact}

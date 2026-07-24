@@ -12,6 +12,7 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind } from "../../lib/contacts";
+import { canEditOwnRecord } from "../../lib/permissions";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { UserBadge } from "../../components/UserBadge";
 import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry } from "../../types";
@@ -141,6 +142,7 @@ export function Transactions({
   accounts,
   banks,
   users,
+  activeUser,
   canEdit,
   canEditContacts,
   onEdit,
@@ -165,6 +167,8 @@ export function Transactions({
   banks: Bank[];
   /** Para mostrar de quién es cada movimiento (solo tiene sentido mostrarlo si hay más de un perfil). */
   users: AppUser[];
+  /** Perfil activo: junto con `canEdit`/`canEditContacts`, decide si puede editar/eliminar cada registro puntual (ver `canEditOwnRecord`). */
+  activeUser: AppUser | null;
   canEdit: boolean;
   /** Permiso del módulo Personas: gobierna editar/eliminar los movimientos con personas mostrados acá. */
   canEditContacts: boolean;
@@ -354,7 +358,7 @@ export function Transactions({
                     <CurrencyPill currency={t.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(t)} />
-                  {canEdit && (
+                  {canEdit && canEditOwnRecord(activeUser, t) && (
                     <>
                       <IconBtn label="Editar movimiento" onClick={() => onEdit(t)}><Pencil size={15} /></IconBtn>
                       <IconBtn label="Eliminar movimiento" danger onClick={() => onDelete(t.id)}><Trash2 size={15} /></IconBtn>
@@ -401,7 +405,7 @@ export function Transactions({
                     )}
                   </div>
                   <ReceiptButton paths={receiptPathsOf(tr)} />
-                  {canEdit && (
+                  {canEdit && canEditOwnRecord(activeUser, tr) && (
                     <>
                       <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
                       <IconBtn label="Eliminar transferencia" danger onClick={() => onDeleteTransfer(tr.id)}><Trash2 size={15} /></IconBtn>
@@ -445,7 +449,7 @@ export function Transactions({
                     <CurrencyPill currency={inst.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(inst)} />
-                  {canEdit && (
+                  {canEdit && canEditOwnRecord(activeUser, inst) && (
                     <>
                       <IconBtn label="Editar compra en cuotas" onClick={() => onEditInstallment(inst)}><Pencil size={15} /></IconBtn>
                       <IconBtn label="Eliminar compra en cuotas" danger onClick={() => onDeleteInstallment(inst.id)}><Trash2 size={15} /></IconBtn>
@@ -492,7 +496,7 @@ export function Transactions({
                     <CurrencyPill currency={e.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(e)} />
-                  {canEditContacts && (
+                  {canEditContacts && canEditOwnRecord(activeUser, e) && (
                     <>
                       <IconBtn label="Editar movimiento con persona" onClick={() => onEditContactEntry(e)}><Pencil size={15} /></IconBtn>
                       <IconBtn label="Eliminar movimiento con persona" danger onClick={() => onDeleteContactEntry(e.id)}><Trash2 size={15} /></IconBtn>
@@ -532,7 +536,7 @@ export function Transactions({
                   <CurrencyPill currency={p.currency} />
                 </div>
                 <ReceiptButton paths={receiptPathsOf(p)} />
-                {canEdit && (
+                {canEdit && canEditOwnRecord(activeUser, p) && (
                   <>
                     <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={15} /></IconBtn>
                     <IconBtn label="Eliminar pago" danger onClick={() => onDeleteCardPayment(p.id)}><Trash2 size={15} /></IconBtn>

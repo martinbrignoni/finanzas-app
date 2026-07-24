@@ -11,7 +11,8 @@ import { orderItems, moveWithinGroup } from "../../lib/order";
 import { pendingStatementMonths, getStatement } from "../../lib/accountStatements";
 import { exportBankToExcel } from "../../lib/excelExport";
 import { formatDateDMY, currentMonthKey, addMonths, monthLabel, capitalize, todayISO } from "../../lib/dates";
-import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders, AccountStatement, Contact, ContactEntry } from "../../types";
+import { canEditOwnRecord } from "../../lib/permissions";
+import type { Bank, Account, Transaction, Currency, Transfer, CardPayment, Card, SortOrders, AccountStatement, Contact, ContactEntry, AppUser } from "../../types";
 
 export function Accounts({
   banks,
@@ -24,6 +25,7 @@ export function Accounts({
   cards,
   canEdit,
   canEditMovements,
+  activeUser,
   sortOrders,
   onReorderBanks,
   onReorderAccountsByBank,
@@ -53,6 +55,8 @@ export function Accounts({
   cards: Card[];
   canEdit: boolean;
   canEditMovements: boolean;
+  /** Perfil activo: decide, junto con canEditMovements, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
+  activeUser: AppUser | null;
   sortOrders: SortOrders;
   onReorderBanks: (order: string[]) => void;
   onReorderAccountsByBank: (order: string[]) => void;
@@ -451,6 +455,7 @@ export function Accounts({
           contactEntries={contactEntries}
           cards={cards}
           canEdit={canEditMovements}
+          activeUser={activeUser}
           asOfDate={asOfDate}
           accountStatements={accountStatements}
           onSaveAccountStatement={onSaveAccountStatement}
@@ -478,6 +483,7 @@ function AccountLedgerModal({
   contactEntries,
   cards,
   canEdit,
+  activeUser,
   asOfDate,
   accountStatements,
   onSaveAccountStatement,
@@ -499,6 +505,8 @@ function AccountLedgerModal({
   contactEntries: ContactEntry[];
   cards: Card[];
   canEdit: boolean;
+  /** Perfil activo: decide, junto con canEdit, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
+  activeUser: AppUser | null;
   /** Fecha (YYYY-MM-DD) hasta la que se muestran saldo y movimientos; hoy por defecto. */
   asOfDate: string;
   accountStatements: AccountStatement[];
@@ -665,6 +673,8 @@ function AccountLedgerModal({
               : `${entry.transaction!.category ?? "Sin categorizar"}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
             const note = isCardPayment ? entry.cardPayment!.note : isContactEntry ? entry.contactEntry!.description : isTransfer ? entry.transfer!.note : undefined;
             const receiptPaths = receiptPathsOf(entry.transaction ?? entry.transfer ?? entry.cardPayment ?? entry.contactEntry);
+            // Registro real detrás de esta fila (no aplica a las dos patas de una transferencia por separado: ambas comparten el mismo Transfer).
+            const record = entry.transaction ?? entry.cardPayment ?? entry.transfer;
 
             return (
               <div key={key} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
@@ -707,7 +717,7 @@ function AccountLedgerModal({
                       <div className="text-[10px] font-mono" style={{ color: C.textFaint }}>saldo {formatMoney(entry.runningBalanceMinor, account.currency)}</div>
                     </div>
                     <ReceiptButton paths={receiptPaths} />
-                    {canEdit && !isContactEntry && (
+                    {canEdit && !isContactEntry && record && canEditOwnRecord(activeUser, record) && (
                       <>
                         <IconBtn
                           label="Editar movimiento"

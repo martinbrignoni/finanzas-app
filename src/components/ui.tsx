@@ -3,16 +3,27 @@ import { X } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import type { Currency } from "../types";
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  background: C.surface2,
-  border: `1px solid ${C.border}`,
-  borderRadius: "8px",
-  padding: "9px 10px",
-  color: C.text,
-  fontSize: "15px",
-  outline: "none",
-};
+/**
+ * OJO: esto tiene que ser una función, no un objeto fijo. `theme` (importado
+ * como `C`) es mutable y se pisa en el lugar al cambiar de modo claro/oscuro
+ * (ver styles/theme.ts), pero si arma­mos este objeto una sola vez al cargar
+ * el módulo, queda "congelado" con los colores del modo que estaba activo en
+ * ese momento y nunca más se entera de los cambios de tema, aunque el resto
+ * de la app sí se vuelva a pintar. Llamando a la función en cada render se
+ * lee `C.xxx` siempre al día.
+ */
+function getInputStyle(): React.CSSProperties {
+  return {
+    width: "100%",
+    background: C.surface2,
+    border: `1px solid ${C.border}`,
+    borderRadius: "8px",
+    padding: "9px 10px",
+    color: C.text,
+    fontSize: "15px",
+    outline: "none",
+  };
+}
 
 export function Segment<T extends string>({
   value,
@@ -60,7 +71,7 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      style={{ ...inputStyle, ...(props.style || {}) }}
+      style={{ ...getInputStyle(), ...(props.style || {}) }}
       onFocus={(e) => { e.currentTarget.style.borderColor = C.usd; props.onFocus?.(e); }}
       onBlur={(e) => { e.currentTarget.style.borderColor = C.border; props.onBlur?.(e); }}
     />
@@ -68,7 +79,7 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 }
 
 export function Select({ children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} style={inputStyle}>{children}</select>;
+  return <select {...props} style={{ ...getInputStyle(), ...(props.style || {}) }}>{children}</select>;
 }
 
 export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
@@ -76,7 +87,7 @@ export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
     <textarea
       rows={4}
       {...props}
-      style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit", ...(props.style || {}) }}
+      style={{ ...getInputStyle(), resize: "vertical", fontFamily: "inherit", ...(props.style || {}) }}
       onFocus={(e) => { e.currentTarget.style.borderColor = C.usd; props.onFocus?.(e); }}
       onBlur={(e) => { e.currentTarget.style.borderColor = C.border; props.onBlur?.(e); }}
     />
@@ -155,7 +166,7 @@ export function Combobox({
         value={open ? query : selected?.label ?? ""}
         placeholder={placeholder ?? selected?.label ?? "Escribí para buscar..."}
         autoComplete="off"
-        style={inputStyle}
+        style={getInputStyle()}
         onFocus={(e) => { setOpen(true); setQuery(""); e.currentTarget.style.borderColor = C.usd; }}
         onBlur={(e) => { e.currentTarget.style.borderColor = C.border; }}
         onChange={(e) => setQuery(e.target.value)}

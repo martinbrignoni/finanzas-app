@@ -9,7 +9,8 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthsBetween, monthKeyOf, addMonths, monthLabel, capitalize, todayISO, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
-import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement } from "../../types";
+import { canEditOwnRecord } from "../../lib/permissions";
+import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser } from "../../types";
 
 /** Nombre a mostrar para quién hizo un gasto con tarjeta: el titular (undefined) o una extensión puntual. */
 function cardHolderLabel(card: Card | undefined, extensionId: string | undefined): string | null {
@@ -150,6 +151,7 @@ export function Cards({
   const mk = currentMonthKey();
   const [viewCardId, setViewCardId] = useState<string | null>(null);
   const viewCard = data.cards.find((c) => c.id === viewCardId) ?? null;
+  const activeUser = data.users.find((u) => u.id === data.activeUserId) ?? null;
 
   const cardSummaryProps = { data, mk, canEdit, canEditMovements, onEditCard, onDeleteCard, onAddCardExpense, onAddCardPayment, onView: setViewCardId };
   const unassignedCards = data.cards.filter((c) => !c.bankId || !data.banks.some((b) => b.id === c.bankId));
@@ -213,6 +215,7 @@ export function Cards({
       {viewCard && (
         <CardDetailModal
           card={viewCard}
+          activeUser={activeUser}
           installments={data.installments.filter((i) => i.cardId === viewCard.id)}
           expenses={data.transactions.filter((t) => t.type === "gasto" && t.cardId === viewCard.id)}
           payments={data.cardPayments.filter((p) => p.cardId === viewCard.id)}
@@ -356,6 +359,7 @@ function CardDetailModal({
   cardStatements,
   canEdit,
   canEditMovements,
+  activeUser,
   onSaveCardStatement,
   onAddCardExpense,
   onAddCardPayment,
@@ -376,6 +380,8 @@ function CardDetailModal({
   cardStatements: CardStatement[];
   canEdit: boolean;
   canEditMovements: boolean;
+  /** Perfil activo: decide, junto con canEdit/canEditMovements, si puede editar/eliminar cada registro puntual (ver `canEditOwnRecord`). */
+  activeUser: AppUser | null;
   onSaveCardStatement: (s: CardStatement) => void;
   onAddCardExpense: (cardId: string) => void;
   onAddCardPayment: (cardId: string) => void;
@@ -550,7 +556,7 @@ function CardDetailModal({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-mono" style={{ color: C.textMuted }}>{formatMoney(p.installmentAmountMinor, p.currency)}</span>
-                  {canEditMovements && (
+                  {canEditMovements && canEditOwnRecord(activeUser, p) && (
                     <>
                       <IconBtn label="Editar cuota" onClick={() => onEditInstallment(p)}><Pencil size={13} /></IconBtn>
                       <IconBtn label="Eliminar cuota" danger onClick={() => onDeleteInstallment(p.id)}><Trash2 size={13} /></IconBtn>
@@ -583,7 +589,7 @@ function CardDetailModal({
               <div className="flex items-center gap-2">
                 <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(t.amountMinor, t.currency)}</span>
                 <ReceiptButton paths={receiptPathsOf(t)} />
-                {canEditMovements && (
+                {canEditMovements && canEditOwnRecord(activeUser, t) && (
                   <>
                     <IconBtn label="Editar gasto" onClick={() => onEditTransaction(t)}><Pencil size={13} /></IconBtn>
                     <IconBtn label="Eliminar gasto" danger onClick={() => onDeleteTransaction(t.id)}><Trash2 size={13} /></IconBtn>
@@ -625,7 +631,7 @@ function CardDetailModal({
                 <div className="flex items-center gap-2">
                   <span className="font-mono" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</span>
                   <ReceiptButton paths={receiptPathsOf(p)} />
-                  {canEdit && (
+                  {canEdit && canEditOwnRecord(activeUser, p) && (
                     <>
                       <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={13} /></IconBtn>
                       <IconBtn label="Eliminar pago" danger onClick={() => onDeleteCardPayment(p.id)}><Trash2 size={13} /></IconBtn>
