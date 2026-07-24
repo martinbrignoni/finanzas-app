@@ -307,6 +307,18 @@ export interface Contact {
    */
   category?: string;
   note?: string;
+  /**
+   * "persona" (default, sin definir = "persona"): alguien con quien llevás
+   * una cuenta corriente duradera (amigo, familiar, cliente); sigue
+   * apareciendo en Personas aunque el saldo llegue a cero.
+   * "concepto": una discriminación puntual para agrupar un gasto que vas a
+   * cobrar de una o varias fuentes sin que te importe demasiado quiénes son
+   * (ej. "Regalo cumpleaños Juan"). Una vez que el saldo llega a cero en
+   * todas las monedas, deja de mostrarse en la lista principal de Personas
+   * (ver `lib/contacts.ts#isContactSettled`); los movimientos ya cargados
+   * siguen visibles en Movimientos como cualquier otro.
+   */
+  kind?: "persona" | "concepto";
 }
 
 /**

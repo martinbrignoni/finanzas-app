@@ -474,6 +474,10 @@ export default function App() {
   }, []);
 
   // --- personas ---
+  /** Alta rápida de una persona/concepto desde dentro de otro modal (ej. "Nuevo movimiento"), sin cerrarlo. */
+  const addContact = useCallback((c: Contact) => {
+    setData((d) => (d ? { ...d, contacts: [...d.contacts, c] } : d));
+  }, []);
   const upsertContact = useCallback((c: Contact) => {
     const commit = () => {
       setData((d) => {
@@ -1046,6 +1050,7 @@ export default function App() {
           onSaveTransfer={upsertTransfer}
           onSaveInstallment={upsertInstallment}
           onSaveContactEntry={upsertContactEntry}
+          onSaveContact={addContact}
           onSaveCategory={saveCategory}
           onClose={closeModal}
         />

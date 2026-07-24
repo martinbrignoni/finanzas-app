@@ -1,5 +1,23 @@
 import type { Contact, ContactEntry, Currency } from "../types";
 
+/** `contact.kind`, con "persona" como default para contactos cargados antes de este campo. */
+export function contactKind(contact: Contact): "persona" | "concepto" {
+  return contact.kind ?? "persona";
+}
+
+/**
+ * Un "concepto" se considera saldado (y deja de mostrarse en la lista
+ * principal de Personas) cuando su saldo llega a cero en todas las monedas.
+ * Las "persona" (personas, familia, clientes) siempre se consideran
+ * vigentes, tengan saldo o no: son una relación duradera, no una
+ * discriminación puntual.
+ */
+export function isContactSettled(contact: Contact, entries: ContactEntry[]): boolean {
+  if (contactKind(contact) !== "concepto") return false;
+  const balance = contactBalance(contact, entries);
+  return balance.UYU === 0 && balance.USD === 0;
+}
+
 /**
  * Saldo de un contacto: suma de sus entries por moneda. Positivo = te debe,
  * negativo = le debés, cero = está saldado.

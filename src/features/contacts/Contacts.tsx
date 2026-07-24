@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark } from "lucide-react";
+import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, Tag, ChevronDown } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -7,7 +7,7 @@ import { CategoryPicker, defaultLeafCategoryValue } from "../../components/Categ
 import { receiptPathsOf } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { formatDateDMY, todayISO } from "../../lib/dates";
-import { contactBalance, contactCategories } from "../../lib/contacts";
+import { contactBalance, contactCategories, contactKind, isContactSettled } from "../../lib/contacts";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import type { Contact, ContactEntry, Account, Bank, Currency, Category } from "../../types";
 
@@ -60,10 +60,16 @@ export function Contacts({
   const viewContact = contacts.find((c) => c.id === viewContactId) ?? null;
   const [filter, setFilter] = useState<string>("Todos");
   const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [showSettled, setShowSettled] = useState(false);
 
   const usedCategories = Array.from(new Set(contacts.map((c) => c.category).filter((c): c is string => !!c)));
   const filterOptions = ["Todos", ...usedCategories];
-  const filtered = filter === "Todos" ? contacts : contacts.filter((c) => c.category === filter);
+  const filteredAll = filter === "Todos" ? contacts : contacts.filter((c) => c.category === filter);
+  // Los "conceptos" (discriminaciones puntuales) se sacan de la lista principal en cuanto
+  // se saldan: ya cumplieron su función y no hace falta seguir viéndolos. Las personas,
+  // familia o clientes siguen apareciendo siempre, tengan saldo o no.
+  const filtered = filteredAll.filter((c) => !isContactSettled(c, contactEntries));
+  const settled = filteredAll.filter((c) => isContactSettled(c, contactEntries));
 
   return (
     <div className="pb-24">
@@ -136,6 +142,7 @@ export function Contacts({
       <div className="space-y-2 mb-4">
         {filtered.map((contact) => {
           const balance = contactBalance(contact, contactEntries);
+          const isConcepto = contactKind(contact) === "concepto";
           return (
             <button
               key={contact.id}
@@ -146,11 +153,15 @@ export function Contacts({
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
                   <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: C.surface3 }}>
-                    <User size={16} color={C.usd} />
+                    {isConcepto ? <Tag size={16} color={C.usd} /> : <User size={16} color={C.usd} />}
                   </div>
                   <div>
                     <div className="text-sm font-semibold" style={{ color: C.text }}>{contact.name}</div>
-                    {contact.category && <div className="text-[10px]" style={{ color: C.textFaint }}>{contact.category}</div>}
+                    <div className="text-[10px] flex items-center gap-1" style={{ color: C.textFaint }}>
+                      {isConcepto && <span>Concepto</span>}
+                      {isConcepto && contact.category && <span>·</span>}
+                      {contact.category && <span>{contact.category}</span>}
+                    </div>
                   </div>
                 </div>
                 <ChevronRight size={16} color={C.textFaint} />
@@ -160,6 +171,35 @@ export function Contacts({
           );
         })}
       </div>
+
+      {settled.length > 0 && (
+        <div className="mb-4">
+          <button
+            onClick={() => setShowSettled((v) => !v)}
+            className="w-full text-left flex items-center justify-between text-xs font-semibold px-1 py-2"
+            style={{ color: C.textFaint }}
+          >
+            <span>{settled.length} concepto{settled.length === 1 ? "" : "s"} saldado{settled.length === 1 ? "" : "s"}</span>
+            <ChevronDown size={14} style={{ transform: showSettled ? "rotate(180deg)" : undefined }} />
+          </button>
+          {showSettled && (
+            <div className="space-y-2 mt-1">
+              {settled.map((contact) => (
+                <button
+                  key={contact.id}
+                  onClick={() => setViewContactId(contact.id)}
+                  className="w-full text-left rounded-xl p-3 flex items-center gap-2"
+                  style={{ background: C.surface, border: `1px solid ${C.border}`, opacity: 0.7 }}
+                >
+                  <Tag size={14} color={C.textFaint} />
+                  <span className="text-sm flex-1" style={{ color: C.textMuted }}>{contact.name}</span>
+                  <span className="text-[10px]" style={{ color: C.textFaint }}>Saldado</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {canEdit && (
         <button
@@ -217,10 +257,17 @@ function ContactLedgerModal({
 }) {
   const balance = contactBalance(contact, entries);
   const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
+  const isConcepto = contactKind(contact) === "concepto";
 
   return (
     <Modal title={contact.name} onClose={onClose}>
-      {contact.category && <p className="text-xs mb-3" style={{ color: C.textFaint }}>{contact.category}</p>}
+      {(isConcepto || contact.category) && (
+        <p className="text-xs mb-3 flex items-center gap-1" style={{ color: C.textFaint }}>
+          {isConcepto && <span>Concepto</span>}
+          {isConcepto && contact.category && <span>·</span>}
+          {contact.category && <span>{contact.category}</span>}
+        </p>
+      )}
 
       <div className="rounded-lg p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
         <BalanceSummary balance={balance} size="lg" />
@@ -310,6 +357,7 @@ export function ContactModal({
   onClose: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
+  const [kind, setKind] = useState<"persona" | "concepto">(initial ? contactKind(initial) : "persona");
   const [category, setCategory] = useState(initial?.category ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -320,6 +368,7 @@ export function ContactModal({
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
       name: name.trim(),
+      kind,
       category: category.trim() || undefined,
       note: note.trim() || undefined,
     });
@@ -327,7 +376,24 @@ export function ContactModal({
 
   return (
     <Modal title={initial ? "Editar persona" : "Nueva persona"} onClose={onClose}>
-      <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Juan Pérez" />}</Field>
+      <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Juan Pérez, o Regalo cumpleaños Juan" />}</Field>
+      <Field label="Tipo">
+        {() => (
+          <Segment
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: "persona", label: "Persona, familia o cliente" },
+              { value: "concepto", label: "Concepto puntual" },
+            ]}
+          />
+        )}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        {kind === "persona"
+          ? "Cuenta corriente duradera: sigue apareciendo en Personas aunque el saldo llegue a cero."
+          : "Discriminación puntual (ej. un gasto que te van a devolver entre varios). Cuando el saldo llegue a cero, deja de aparecer en la lista."}
+      </p>
       <Field label="Categoría (opcional)">
         {(id) => (
           <>

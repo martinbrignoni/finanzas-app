@@ -1,15 +1,17 @@
 import { useState, useEffect, Fragment } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
-import { CategoryPicker } from "../../components/CategoryPicker";
+import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
 import { categoryFullPath } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
+import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
+import { contactKind } from "../../lib/contacts";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { UserBadge } from "../../components/UserBadge";
 import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry } from "../../types";
@@ -460,13 +462,14 @@ export function Transactions({
             const contact = contacts.find((c) => c.id === e.contactId);
             const account = accounts.find((a) => a.id === e.accountId);
             const favorMio = e.amountMinor >= 0;
+            const isConcepto = !!contact && contactKind(contact) === "concepto";
             return (
               <Fragment key={e.id}>
                 {separator}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
-                    <User size={16} color={C.usd} />
+                    {isConcepto ? <Tag size={16} color={C.usd} /> : <User size={16} color={C.usd} />}
                   </div>
                   <div>
                     <div className="text-sm" style={{ color: C.text }}>
@@ -574,6 +577,10 @@ interface FormState {
   /** true = vos pusiste la plata (aumenta lo que te debe); false = ella puso la plata (disminuye lo que te debe). */
   contactFavorMio: boolean;
   contactDescription: string;
+  /** Si una parte de lo pagado es un gasto tuyo real (no recuperable), se carga aparte con su propia categoría. */
+  contactOwnShare: boolean;
+  contactOwnAmount: string;
+  contactOwnCategory: string;
   // comprobantes
   receiptPaths: string[];
 }
@@ -600,6 +607,7 @@ export function MovementModal({
   onSaveTransfer,
   onSaveInstallment,
   onSaveContactEntry,
+  onSaveContact,
   onSaveCategory,
   onClose,
 }: {
@@ -626,6 +634,8 @@ export function MovementModal({
   onSaveCategory: (c: Category) => void;
   onSaveInstallment: (i: Installment) => void;
   onSaveContactEntry: (e: ContactEntry) => void;
+  /** Crear una persona o concepto nuevo (sin salir del modal de movimiento). */
+  onSaveContact: (c: Contact) => void;
   onClose: () => void;
 }) {
   const isEditingTransaction = !!initial;
@@ -672,10 +682,15 @@ export function MovementModal({
     contactId: initialContactEntry?.contactId ?? contacts[0]?.id ?? "",
     contactFavorMio: initialContactEntry ? initialContactEntry.amountMinor >= 0 : true,
     contactDescription: initialContactEntry?.description ?? "",
+    contactOwnShare: false,
+    contactOwnAmount: "",
+    contactOwnCategory: defaultLeafCategoryValue(categories, "gasto"),
     receiptPaths: receiptPathsOf(initialTransfer ?? initial ?? initialInstallment ?? initialContactEntry),
   }));
   const [error, setError] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showOwnCategoryModal, setShowOwnCategoryModal] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
   // Las cajas inactivas (Configuración → Bancos) no se ofrecen para movimientos nuevos, pero
   // si el movimiento ya tenía una asignada (edición), se mantiene disponible para no romperlo.
   const eligibleAccounts = accounts.filter((a) => a.currency === form.currency && (isAccountActive(a) || a.id === form.accountId));
@@ -754,11 +769,31 @@ export function MovementModal({
     }
 
     if (form.kind === "persona") {
-      if (!form.contactId) return setError("Elegí una persona.");
+      if (!form.contactId) return setError("Elegí una persona o concepto.");
       const amountAbs = parseAmountInput(form.amount);
       if (amountAbs === null || amountAbs === 0) return setError("Ingresá un monto válido, mayor a cero.");
       if (!form.contactDescription.trim()) return setError("Ingresá una descripción.");
       if (!form.date) return setError("Elegí una fecha.");
+
+      let ownAmountMinor: number | null = null;
+      if (form.contactOwnShare) {
+        ownAmountMinor = parseAmountInput(form.contactOwnAmount);
+        if (ownAmountMinor === null || ownAmountMinor === 0) return setError("Ingresá el monto de tu parte, mayor a cero.");
+        if (!form.contactOwnCategory) return setError("Elegí una categoría para tu parte.");
+      }
+
+      if (ownAmountMinor !== null) {
+        onSaveTransaction({
+          id: crypto.randomUUID(),
+          type: "gasto",
+          amountMinor: ownAmountMinor,
+          currency: form.currency,
+          category: form.contactOwnCategory || undefined,
+          date: form.date,
+          note: form.contactDescription.trim() ? `${form.contactDescription.trim()} (tu parte)` : undefined,
+          accountId: form.accountId || undefined,
+        });
+      }
 
       onSaveContactEntry({
         id: movementId,
@@ -945,74 +980,130 @@ export function MovementModal({
           </>
         )
       ) : form.kind === "persona" ? (
-        contacts.length === 0 ? (
-          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
-            Todavía no tenés personas cargadas. Creá una en Personas.
-          </p>
-        ) : (
-          <>
-            <Field label="Persona">
+        <>
+          {contacts.length === 0 ? (
+            <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+              Todavía no tenés personas ni conceptos cargados. Creá uno con el botón de abajo.
+            </p>
+          ) : (
+            <Field label="Persona o concepto">
               {(id) => (
-                <Select id={id} value={form.contactId} onChange={(e) => setForm((f) => ({ ...f, contactId: e.target.value }))}>
-                  {contacts.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </Select>
-              )}
-            </Field>
-            <Field label="Tipo de movimiento">
-              {() => (
-                <Segment
-                  value={form.contactFavorMio ? "favor" : "contra"}
-                  onChange={(v) => setForm((f) => ({ ...f, contactFavorMio: v === "favor" }))}
-                  options={[
-                    { value: "favor", label: "A favor mío" },
-                    { value: "contra", label: "A favor suyo" },
-                  ]}
+                <Combobox
+                  id={id}
+                  value={form.contactId}
+                  placeholder="Elegí a quién o qué"
+                  onChange={(contactId) => setForm((f) => ({ ...f, contactId }))}
+                  options={[...contacts]
+                    .sort((a, b) => (contactKind(a) === contactKind(b) ? 0 : contactKind(a) === "persona" ? -1 : 1))
+                    .map((c) => ({ value: c.id, label: c.name, group: contactKind(c) === "concepto" ? "Conceptos" : "Personas" }))}
                 />
               )}
             </Field>
-            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-              {form.contactFavorMio
-                ? "Vos pusiste la plata (pagaste algo suyo, le prestaste, o le devolviste lo que le debías). Aumenta lo que te debe."
-                : "Ella puso la plata (te pagó, te devolvió algo, o pagó algo tuyo). Disminuye lo que te debe."}
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Monto">
-                {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
-              </Field>
-              <Field label="Moneda">
-                {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
-              </Field>
+          )}
+          {!isEditingContactEntry && (
+            <div className="flex justify-end -mt-1 mb-3">
+              <button type="button" onClick={() => setShowContactModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
+                + Nueva persona o concepto
+              </button>
             </div>
-            <Field label="Descripción">
-              {(id) => <TextInput id={id} value={form.contactDescription} onChange={(e) => setForm((f) => ({ ...f, contactDescription: e.target.value }))} placeholder="Cena, nafta, adelanto..." />}
+          )}
+
+          <Field label="Tipo de movimiento">
+            {() => (
+              <Segment
+                value={form.contactFavorMio ? "favor" : "contra"}
+                onChange={(v) => setForm((f) => ({ ...f, contactFavorMio: v === "favor" }))}
+                options={[
+                  { value: "favor", label: "A favor mío" },
+                  { value: "contra", label: "A favor suyo" },
+                ]}
+              />
+            )}
+          </Field>
+          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+            {form.contactFavorMio
+              ? "Vos pusiste la plata (pagaste algo suyo, le prestaste, o le devolviste lo que le debías). Aumenta lo que te debe."
+              : "Ella puso la plata (te pagó, te devolvió algo, o pagó algo tuyo). Disminuye lo que te debe."}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={form.contactOwnShare ? "Monto a cobrar/pagar" : "Monto"}>
+              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
             </Field>
-            <Field label="Fecha">
-              {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+            <Field label="Moneda">
+              {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
             </Field>
-            <Field label="Cuenta vinculada (opcional)">
-              {(id) =>
-                eligibleAccounts.length === 0 ? (
-                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}.</p>
-                ) : (
-                  <Combobox
-                    id={id}
-                    value={form.accountId}
-                    placeholder="Sin vincular (no mueve ninguna cuenta)"
-                    onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
-                    options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+          </div>
+          <Field label="Descripción">
+            {(id) => <TextInput id={id} value={form.contactDescription} onChange={(e) => setForm((f) => ({ ...f, contactDescription: e.target.value }))} placeholder="Cena, nafta, regalo..." />}
+          </Field>
+          <Field label="Fecha">
+            {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+          </Field>
+
+          {!isEditingContactEntry && (
+            <>
+              <Field label="¿Una parte es un gasto tuyo?">
+                {() => (
+                  <Segment
+                    value={form.contactOwnShare ? "on" : "off"}
+                    onChange={(v) => setForm((f) => ({ ...f, contactOwnShare: v === "on" }))}
+                    options={[{ value: "off", label: "No, es todo a cobrar/pagar" }, { value: "on", label: "Sí, hay una parte mía" }]}
                   />
-                )
-              }
-            </Field>
-            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-              {form.accountId
-                ? form.contactFavorMio
-                  ? "Se va a descontar de esa cuenta (salió plata real)."
-                  : "Se va a sumar a esa cuenta (entró plata real)."
-                : "Si no elegís cuenta, queda solo como registro informativo (ej. pagó algo directamente, sin pasar por tu plata)."}
-            </p>
-          </>
-        )
+                )}
+              </Field>
+              {form.contactOwnShare && (
+                <>
+                  <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                    Se carga como un gasto tuyo real, con categoría propia, separado del monto de arriba (que es lo que le vas a cobrar o pagar a esta persona o concepto).
+                  </p>
+                  <Field label={`Monto que es tuyo${form.currency ? ` (${form.currency})` : ""}`}>
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={form.contactOwnAmount}
+                        onChange={(e) => setForm((f) => ({ ...f, contactOwnAmount: e.target.value }))}
+                        placeholder="0"
+                      />
+                    )}
+                  </Field>
+                  <CategoryPicker categories={categories} type="gasto" value={form.contactOwnCategory} onChange={(name) => setForm((f) => ({ ...f, contactOwnCategory: name }))} />
+                  <div className="flex justify-end -mt-1 mb-3">
+                    <button type="button" onClick={() => setShowOwnCategoryModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
+                      + Nueva categoría
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+
+          <Field label="Cuenta vinculada (opcional)">
+            {(id) =>
+              eligibleAccounts.length === 0 ? (
+                <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}.</p>
+              ) : (
+                <Combobox
+                  id={id}
+                  value={form.accountId}
+                  placeholder="Sin vincular (no mueve ninguna cuenta)"
+                  onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
+                  options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                />
+              )
+            }
+          </Field>
+          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+            {form.accountId
+              ? form.contactFavorMio
+                ? "Se va a descontar de esa cuenta (salió plata real)."
+                : "Se va a sumar a esa cuenta (entró plata real)."
+              : "Si no elegís cuenta, queda solo como registro informativo (ej. pagó algo directamente, sin pasar por tu plata)."}
+          </p>
+        </>
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3">
@@ -1162,6 +1253,29 @@ export function MovementModal({
             setShowCategoryModal(false);
           }}
           onClose={() => setShowCategoryModal(false)}
+        />
+      )}
+      {showOwnCategoryModal && (
+        <CategoryModal
+          categories={categories}
+          defaultType="gasto"
+          onSave={(c) => {
+            onSaveCategory(c);
+            setForm((f) => ({ ...f, contactOwnCategory: categoryFullPath(c, [...categories, c]) }));
+            setShowOwnCategoryModal(false);
+          }}
+          onClose={() => setShowOwnCategoryModal(false)}
+        />
+      )}
+      {showContactModal && (
+        <ContactModal
+          contacts={contacts}
+          onSave={(c) => {
+            onSaveContact(c);
+            setForm((f) => ({ ...f, contactId: c.id }));
+            setShowContactModal(false);
+          }}
+          onClose={() => setShowContactModal(false)}
         />
       )}
     </Modal>
