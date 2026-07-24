@@ -4,6 +4,7 @@ import type {
 } from "../types";
 import { supabase } from "./supabaseClient";
 import { formatMoney } from "./money";
+import { formatDateDMY } from "./dates";
 
 /** Qué campos de FinanceData corresponden a cada módulo notificable. */
 const FIELDS_BY_CATEGORY: Record<NotifiableModuleKey, (keyof FinanceData)[]> = {
@@ -53,19 +54,54 @@ function diffArray<T extends { id: string }>(prevArr: T[], nextArr: T[]): { adde
 
 const lastSegment = (path?: string) => (path ? path.split(">").pop()!.trim() : undefined);
 
-function describeTransaction(t: Transaction, verb: string): string {
+/** Cuentas/tarjetas del estado actual, para poder nombrar la forma de pago en vez de solo mostrar el id. */
+interface PaymentContext {
+  accounts: Account[];
+  banks: Bank[];
+  cards: Card[];
+}
+
+function accountLabel(accountId: string | undefined, ctx: PaymentContext): string | null {
+  if (!accountId) return null;
+  const acc = ctx.accounts.find((a) => a.id === accountId);
+  if (!acc) return null;
+  const bank = ctx.banks.find((b) => b.id === acc.bankId);
+  return bank ? `${bank.name} · ${acc.name}` : acc.name;
+}
+function cardLabel(cardId: string | undefined, ctx: PaymentContext): string | null {
+  if (!cardId) return null;
+  return ctx.cards.find((c) => c.id === cardId)?.name ?? null;
+}
+
+function describeTransaction(t: Transaction, verb: string, ctx: PaymentContext): string {
   const kind = t.type === "gasto" ? "gasto" : "ingreso";
   const cat = lastSegment(t.category);
-  return `${verb} un ${kind} de ${formatMoney(t.amountMinor, t.currency)}${cat ? ` en ${cat}` : ""}`;
+  const pago = accountLabel(t.accountId, ctx) ?? cardLabel(t.cardId, ctx);
+  const parts = [`${verb} un ${kind} de ${formatMoney(t.amountMinor, t.currency)}`];
+  if (cat) parts.push(`en ${cat}`);
+  parts.push(`el ${formatDateDMY(t.date)}`);
+  parts.push(pago ? `(${pago})` : "(sin medio de pago)");
+  return parts.join(" ");
 }
-function describeTransfer(t: Transfer, verb: string): string {
-  return `${verb} una transferencia de ${formatMoney(t.fromAmountMinor, "UYU")}`;
+function describeTransfer(t: Transfer, verb: string, ctx: PaymentContext): string {
+  const from = accountLabel(t.fromAccountId, ctx);
+  const to = accountLabel(t.toAccountId, ctx);
+  const parts = [`${verb} una transferencia de ${formatMoney(t.fromAmountMinor, "UYU")}`, `el ${formatDateDMY(t.date)}`];
+  if (from && to) parts.push(`(${from} → ${to})`);
+  return parts.join(" ");
 }
-function describeInstallment(i: Installment, verb: string): string {
-  return `${verb} una compra en cuotas: ${i.description} (${formatMoney(i.totalAmountMinor, i.currency)}, ${i.numInstallments} cuotas)`;
+function describeInstallment(i: Installment, verb: string, ctx: PaymentContext): string {
+  const card = cardLabel(i.cardId, ctx);
+  const [startYear, startMonthNum] = i.startMonth.split("-");
+  const date = i.date ? formatDateDMY(i.date) : `${startMonthNum}/${startYear}`;
+  return `${verb} una compra en cuotas: ${i.description} (${formatMoney(i.totalAmountMinor, i.currency)}, ${i.numInstallments} cuotas) el ${date}${card ? ` (${card})` : ""}`;
 }
-function describeCardPayment(p: CardPayment, verb: string): string {
-  return `${verb} un pago de tarjeta de ${formatMoney(p.amountMinor, p.currency)}`;
+function describeCardPayment(p: CardPayment, verb: string, ctx: PaymentContext): string {
+  const card = cardLabel(p.cardId, ctx);
+  const account = accountLabel(p.accountId, ctx);
+  const parts = [`${verb} un pago de tarjeta${card ? ` (${card})` : ""} de ${formatMoney(p.amountMinor, p.currency)}`, `el ${formatDateDMY(p.date)}`];
+  if (account) parts.push(`(${account})`);
+  return parts.join(" ");
 }
 function describeNote(n: Note, verb: string): string {
   const preview = n.text.trim().slice(0, 60);
@@ -120,10 +156,11 @@ export function describeChangesByCategory(prev: FinanceData, next: FinanceData):
     edited.forEach((item) => result[category].push(describe(item, "Editó")));
   };
 
-  pushDiff("movimientos", prev.transactions, next.transactions, describeTransaction);
-  pushDiff("movimientos", prev.transfers, next.transfers, describeTransfer);
-  pushDiff("movimientos", prev.installments, next.installments, describeInstallment);
-  pushDiff("movimientos", prev.cardPayments, next.cardPayments, describeCardPayment);
+  const ctx: PaymentContext = { accounts: next.accounts, banks: next.banks, cards: next.cards };
+  pushDiff("movimientos", prev.transactions, next.transactions, (t, verb) => describeTransaction(t, verb, ctx));
+  pushDiff("movimientos", prev.transfers, next.transfers, (t, verb) => describeTransfer(t, verb, ctx));
+  pushDiff("movimientos", prev.installments, next.installments, (i, verb) => describeInstallment(i, verb, ctx));
+  pushDiff("movimientos", prev.cardPayments, next.cardPayments, (p, verb) => describeCardPayment(p, verb, ctx));
 
   pushDiff("cuentas", prev.banks, next.banks, describeBank);
   pushDiff("cuentas", prev.accounts, next.accounts, describeAccount);
