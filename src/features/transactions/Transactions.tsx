@@ -13,6 +13,7 @@ import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
+import { cardLabel } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { UserBadge } from "../../components/UserBadge";
 import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry } from "../../types";
@@ -342,7 +343,7 @@ export function Transactions({
                       <span>
                         {formatDateDMY(t.date)}
                         {t.accountId && ` · ${accountLabel(accounts.find((a) => a.id === t.accountId), banks)}`}
-                        {t.cardId && ` · ${cards.find((c) => c.id === t.cardId)?.name ?? "tarjeta eliminada"}`}
+                        {t.cardId && ` · ${cardLabel(cards.find((c) => c.id === t.cardId), banks)}`}
                         {cardExtensionLabel(cards, t.cardId, t.cardExtensionId) && ` (${cardExtensionLabel(cards, t.cardId, t.cardExtensionId)})`}
                         {!t.accountId && !t.cardId && <span style={{ color: C.uyu }}> · Sin medio de pago</span>}
                       </span>
@@ -435,7 +436,7 @@ export function Transactions({
                     <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
                       <span>
                         {formatDateDMY(instDate)}
-                        {card && ` · ${card.name}`}
+                        {card && ` · ${cardLabel(card, banks)}`}
                         {cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId) && ` (${cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId)})`}
                         {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
                       </span>
@@ -521,7 +522,7 @@ export function Transactions({
                 </div>
                 <div>
                   <div className="text-sm" style={{ color: C.text }}>
-                    Pago tarjeta {card?.name ?? "eliminada"} · {accountLabel(account, banks)}
+                    Pago tarjeta {card ? cardLabel(card, banks) : "eliminada"} · {accountLabel(account, banks)}
                     {p.note ? ` · ${p.note}` : ""}
                   </div>
                   <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
@@ -1192,7 +1193,7 @@ export function MovementModal({
                         value={form.cardId}
                         placeholder="Elegí una tarjeta"
                         onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: "" }))}
-                        options={cards.map((c) => ({ value: c.id, label: c.name }))}
+                        options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                       />
                     )
                   }

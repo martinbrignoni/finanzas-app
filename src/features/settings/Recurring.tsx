@@ -8,6 +8,7 @@ import { CategoryModal } from "./Categories";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { formatDateDMY, todayISO } from "../../lib/dates";
 import { accountSelectLabel } from "../../lib/accounts";
+import { cardLabel } from "../../lib/cards";
 import type { Account, Bank, Card, Category, Currency, RecurrencePeriod, RecurringRule, TransactionType } from "../../types";
 import { RECURRENCE_PERIOD_LABELS } from "../../types";
 
@@ -39,7 +40,7 @@ export function RecurringRulesSettings({
   onDelete: (id: string) => void;
 }) {
   const paymentLabel = (r: RecurringRule): string | null => {
-    if (r.type === "gasto" && r.cardId) return cards.find((c) => c.id === r.cardId)?.name ?? "tarjeta eliminada";
+    if (r.type === "gasto" && r.cardId) return cardLabel(cards.find((c) => c.id === r.cardId), banks);
     if (r.accountId) {
       const acc = accounts.find((a) => a.id === r.accountId);
       return acc ? accountSelectLabel(acc, banks) : "cuenta eliminada";
@@ -314,7 +315,7 @@ export function RecurringRuleModal({
                 value={form.cardId}
                 placeholder="Elegí una tarjeta"
                 onChange={(cardId) => setForm((f) => ({ ...f, cardId }))}
-                options={cards.map((c) => ({ value: c.id, label: c.name }))}
+                options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
               />
             )
           }

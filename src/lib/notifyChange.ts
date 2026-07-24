@@ -70,7 +70,10 @@ function accountLabel(accountId: string | undefined, ctx: PaymentContext): strin
 }
 function cardLabel(cardId: string | undefined, ctx: PaymentContext): string | null {
   if (!cardId) return null;
-  return ctx.cards.find((c) => c.id === cardId)?.name ?? null;
+  const card = ctx.cards.find((c) => c.id === cardId);
+  if (!card) return null;
+  const bank = ctx.banks.find((b) => b.id === card.bankId);
+  return bank ? `${bank.name} ${card.name}` : card.name;
 }
 
 function describeTransaction(t: Transaction, verb: string, ctx: PaymentContext): string {
@@ -123,8 +126,9 @@ function describeBank(b: Bank, verb: string): string {
 function describeAccount(a: Account, verb: string): string {
   return `${verb} la caja "${a.name}"`;
 }
-function describeCard(c: Card, verb: string): string {
-  return `${verb} la tarjeta "${c.name}"`;
+function describeCard(c: Card, verb: string, ctx: PaymentContext): string {
+  const bank = ctx.banks.find((b) => b.id === c.bankId);
+  return `${verb} la tarjeta "${bank ? `${bank.name} ${c.name}` : c.name}"`;
 }
 
 /**
@@ -169,7 +173,7 @@ export function describeChangesByCategory(prev: FinanceData, next: FinanceData):
     if (added.length || edited.length) result.cuentas.push("Actualizó un estado de cuenta");
   }
 
-  pushDiff("tarjetas", prev.cards, next.cards, describeCard);
+  pushDiff("tarjetas", prev.cards, next.cards, (c, verb) => describeCard(c, verb, ctx));
   if (JSON.stringify(prev.cardStatements) !== JSON.stringify(next.cardStatements)) {
     const { added, edited } = diffArray<CardStatement>(prev.cardStatements, next.cardStatements);
     if (added.length || edited.length) result.tarjetas.push("Actualizó un estado de cuenta de tarjeta");

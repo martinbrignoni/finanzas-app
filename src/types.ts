@@ -193,6 +193,14 @@ export interface Card {
    * y sumar una más adelante, o al revés.
    */
   extensions?: CardExtension[];
+  /**
+   * Límite de crédito de la tarjeta, como dato informativo: no bloquea ni
+   * valida gastos, solo se muestra en Tarjetas para tenerlo a mano. Opcional
+   * (no todas las tarjetas lo tienen cargado) y editable en cualquier momento.
+   */
+  creditLimitMinor?: number;
+  /** Moneda del límite de crédito. Solo se usa si `creditLimitMinor` está cargado. */
+  creditLimitCurrency?: Currency;
 }
 
 /**

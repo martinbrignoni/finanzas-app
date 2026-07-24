@@ -10,6 +10,7 @@ import { currentMonthKey, monthsBetween, monthKeyOf, addMonths, monthLabel, capi
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
 import { canEditOwnRecord } from "../../lib/permissions";
+import { cardLabel } from "../../lib/cards";
 import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser } from "../../types";
 
 /** Nombre a mostrar para quién hizo un gasto con tarjeta: el titular (undefined) o una extensión puntual. */
@@ -277,9 +278,10 @@ function CardSummaryCard({
             <CreditCard size={16} color={C.usd} />
           </div>
           <div>
-            <div className="text-sm font-semibold" style={{ color: C.text }}>{card.name}</div>
+            <div className="text-sm font-semibold" style={{ color: C.text }}>{cardLabel(card, data.banks)}</div>
             <div className="text-xs" style={{ color: C.textFaint }}>
               Cierre día {card.closingDay} · Vence {currentStatement?.dueDate ? formatDateDMY(currentStatement.dueDate) : `día ${card.dueDay}`}
+              {card.creditLimitMinor != null && ` · Límite ${formatMoney(card.creditLimitMinor, card.creditLimitCurrency ?? "UYU")}`}
             </div>
           </div>
         </div>
@@ -457,7 +459,7 @@ function CardDetailModal({
   const sortedPayments = [...payments].sort((a, b) => b.date.localeCompare(a.date));
 
   return (
-    <Modal title={card.name} onClose={onClose}>
+    <Modal title={cardLabel(card, banks)} onClose={onClose}>
       <div className="rounded-xl p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
         <div className="mb-2">
           <Select aria-label="Período" value={statementMonth} onChange={(e) => handleMonthChange(e.target.value)}>
@@ -468,6 +470,11 @@ function CardDetailModal({
             ))}
           </Select>
         </div>
+        {card.creditLimitMinor != null && (
+          <div className="text-xs font-mono mb-1.5" style={{ color: C.textMuted }}>
+            Límite de crédito: <span style={{ color: C.text }}>{formatMoney(card.creditLimitMinor, card.creditLimitCurrency ?? "UYU")}</span>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-mono" style={{ color: C.textMuted }}>
           <span>Consumo del período:</span>
           {consumption.UYU === 0 && consumption.USD === 0 ? (
@@ -665,6 +672,8 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
   const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
   const [hasExtensions, setHasExtensions] = useState((initial?.extensions?.length ?? 0) > 0);
   const [extensions, setExtensions] = useState<CardExtension[]>(initial?.extensions ?? []);
+  const [creditLimit, setCreditLimit] = useState(initial?.creditLimitMinor != null ? String(fromMinor(initial.creditLimitMinor)) : "");
+  const [creditLimitCurrency, setCreditLimitCurrency] = useState<Currency>(initial?.creditLimitCurrency ?? "UYU");
   const [error, setError] = useState<string | null>(null);
 
   const addExtension = () => setExtensions((list) => [...list, { id: crypto.randomUUID(), name: "" }]);
@@ -680,6 +689,13 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
     }
     if (hasExtensions && extensions.some((e) => !e.name.trim())) {
       return setError("Completá el nombre de cada extensión, o quitá la que quedó vacía.");
+    }
+    // El límite de crédito es opcional: vacío = no cargado. Si se completa, tiene que ser un número válido.
+    let creditLimitMinor: number | undefined;
+    if (creditLimit.trim()) {
+      const parsed = parseAmountInput(creditLimit);
+      if (parsed === null || parsed <= 0) return setError("El límite de crédito tiene que ser un número mayor a cero (o dejalo vacío).");
+      creditLimitMinor = parsed;
     }
     // Si se prende el recordatorio (y antes estaba apagado), empieza a contar desde el mes
     // actual: no reclama retroactivamente estados de cuenta de antes de haberlo activado.
@@ -698,6 +714,8 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
       statementReminders,
       statementRemindersSince,
       extensions: hasExtensions ? extensions.map((e) => ({ ...e, name: e.name.trim() })) : [],
+      creditLimitMinor,
+      creditLimitCurrency: creditLimitMinor != null ? creditLimitCurrency : undefined,
     });
   };
 
@@ -716,6 +734,17 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
         <Field label="Día de cierre">{(id) => <TextInput id={id} type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />}</Field>
         <Field label="Día de vencimiento">{(id) => <TextInput id={id} type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}</Field>
       </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Límite de crédito (opcional)">
+          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="Sin cargar" />}
+        </Field>
+        <Field label="Moneda del límite">
+          {() => <Segment value={creditLimitCurrency} onChange={setCreditLimitCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
+        </Field>
+      </div>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        Es solo un dato informativo: no bloquea gastos ni se usa para ningún cálculo.
+      </p>
       <Field label="Recordatorio de estado de cuenta">
         {() => (
           <Segment
@@ -831,7 +860,7 @@ export function CardPaymentModal({
       <Field label="Tarjeta">
         {(id) => (
           <Select id={id} value={selectedCardId} onChange={(e) => setSelectedCardId(e.target.value)}>
-            {cards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {cards.map((c) => <option key={c.id} value={c.id}>{cardLabel(c, banks)}</option>)}
           </Select>
         )}
       </Field>
@@ -846,7 +875,7 @@ export function CardPaymentModal({
 
       {(dueThisMonth.UYU > 0 || dueThisMonth.USD > 0) && (
         <p className="text-xs mb-3" style={{ color: C.textMuted }}>
-          Vencimiento de {card?.name ?? "esta tarjeta"} este mes: {dueThisMonth.UYU > 0 && <span className="font-mono">{formatMoney(dueThisMonth.UYU, "UYU")}</span>}
+          Vencimiento de {card ? cardLabel(card, banks) : "esta tarjeta"} este mes: {dueThisMonth.UYU > 0 && <span className="font-mono">{formatMoney(dueThisMonth.UYU, "UYU")}</span>}
           {dueThisMonth.UYU > 0 && dueThisMonth.USD > 0 && " · "}
           {dueThisMonth.USD > 0 && <span className="font-mono">{formatMoney(dueThisMonth.USD, "USD")}</span>}
         </p>

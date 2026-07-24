@@ -4,6 +4,7 @@ import { theme as C } from "../../styles/theme";
 import { Select } from "../../components/ui";
 import { formatMoney } from "../../lib/money";
 import { currentMonthKey, monthKeyOf, monthLabel, monthsBetween, addMonths, capitalize } from "../../lib/dates";
+import { cardLabel } from "../../lib/cards";
 import type { FinanceData, Currency } from "../../types";
 
 /** Ventana de meses seleccionables: un año para atrás y un año para adelante del mes actual, más reciente primero. */
@@ -34,7 +35,7 @@ export function Dashboard({ data }: { data: FinanceData }) {
       const idx = monthsBetween(inst.startMonth, mk);
       if (idx < 0 || idx >= inst.numInstallments) return null;
       const card = data.cards.find((c) => c.id === inst.cardId);
-      return { ...inst, cuotaNum: idx + 1, cardName: card ? card.name : "—" };
+      return { ...inst, cuotaNum: idx + 1, cardName: card ? cardLabel(card, data.banks) : "—" };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
