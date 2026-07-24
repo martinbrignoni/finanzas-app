@@ -573,6 +573,10 @@ export default function App() {
       return { ...d, users };
     });
   }, []);
+  const handleSignOut = useCallback(
+    () => requestConfirm("¿Cerrar sesión?", () => supabase.auth.signOut()),
+    [requestConfirm]
+  );
   // Actualiza la preferencia de notificaciones del perfil actualmente activo.
   const updateActiveUserNotifications = useCallback((partial: Partial<NotificationPrefs>) => {
     setData((d) => {
@@ -850,6 +854,7 @@ export default function App() {
                 onUpdateUserNotifications={updateActiveUserNotifications}
                 onUpdateBank={updateBankFields}
                 onUpdateAccount={updateAccountFields}
+                onSignOut={handleSignOut}
               />
             )}
           </>

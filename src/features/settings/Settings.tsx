@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LogOut } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Segment } from "../../components/ui";
 import { CategoriesSettings } from "./Categories";
@@ -35,6 +36,7 @@ export function Settings({
   onUpdateUserNotifications,
   onUpdateBank,
   onUpdateAccount,
+  onSignOut,
 }: {
   users: AppUser[];
   activeUserId: string | null;
@@ -63,6 +65,7 @@ export function Settings({
   onUpdateUserNotifications: (partial: Partial<NotificationPrefs>) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
+  onSignOut: () => void;
 }) {
   const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "seguridad" | "notificaciones">("usuarios");
 
@@ -128,6 +131,16 @@ export function Settings({
       {section === "notificaciones" && activeUser && (
         <NotificationsSettings user={activeUser} onUpdateUserNotifications={onUpdateUserNotifications} />
       )}
+
+      <div className="mt-8 pt-4" style={{ borderTop: `1px solid ${C.border}` }}>
+        <button
+          onClick={onSignOut}
+          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
+          style={{ background: C.surface2, color: C.negative }}
+        >
+          <LogOut size={15} /> Cerrar sesión
+        </button>
+      </div>
     </div>
   );
 }
