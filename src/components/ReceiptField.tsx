@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Upload, X, Paperclip, Loader2 } from "lucide-react";
 import { theme as C } from "../styles/theme";
+import { ConfirmDialog } from "./ui";
 import { uploadReceipt, getReceiptUrl, deleteReceipt } from "../lib/receipts";
 
 /**
@@ -38,6 +39,7 @@ export function ReceiptField({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmPath, setConfirmPath] = useState<string | null>(null);
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -81,7 +83,7 @@ export function ReceiptField({
               <button type="button" onClick={() => handleView(path)} className="flex-1 flex items-center gap-2 text-xs text-left" style={{ color: C.text }}>
                 <Paperclip size={14} color={C.textMuted} /> {receiptLabel(path, i)}
               </button>
-              <button type="button" onClick={() => handleRemove(path)} aria-label={`Quitar comprobante ${i + 1}`} className="shrink-0" style={{ color: C.negative }}>
+              <button type="button" onClick={() => setConfirmPath(path)} aria-label={`Quitar comprobante ${i + 1}`} className="shrink-0" style={{ color: C.negative }}>
                 <X size={14} />
               </button>
             </div>
@@ -109,6 +111,14 @@ export function ReceiptField({
       </label>
 
       {error && <p className="text-xs mt-1" style={{ color: C.negative }}>{error}</p>}
+
+      {confirmPath && (
+        <ConfirmDialog
+          message="¿Eliminar este comprobante? No se puede deshacer."
+          onConfirm={() => { handleRemove(confirmPath); setConfirmPath(null); }}
+          onCancel={() => setConfirmPath(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { FileText, FileSpreadsheet, Check, X, Upload, Loader2 } from "lucide-react";
 import { theme as C } from "../styles/theme";
-import { IconBtn } from "./ui";
+import { IconBtn, ConfirmDialog } from "./ui";
 
 /**
  * Fila de un slot de archivo (PDF o Excel) para el estado de cuenta de un
@@ -24,6 +25,8 @@ export function StatementFileRow({
   onView: (path: string) => void;
   onRemove: () => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
+
   return (
     <div className="flex items-center justify-between rounded-lg px-3 py-2 mb-2" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
       <div className="flex items-center gap-2 text-xs" style={{ color: C.text }}>
@@ -33,7 +36,14 @@ export function StatementFileRow({
       {path ? (
         <div className="flex items-center gap-1">
           <IconBtn label={`Ver ${label}`} onClick={() => onView(path)}><Check size={13} color={C.positive} /></IconBtn>
-          <IconBtn label={`Quitar ${label}`} danger onClick={onRemove}><X size={13} /></IconBtn>
+          <IconBtn label={`Quitar ${label}`} danger onClick={() => setConfirming(true)}><X size={13} /></IconBtn>
+          {confirming && (
+            <ConfirmDialog
+              message={`¿Eliminar el ${label} adjunto? No se puede deshacer.`}
+              onConfirm={() => { onRemove(); setConfirming(false); }}
+              onCancel={() => setConfirming(false)}
+            />
+          )}
         </div>
       ) : (
         <label
