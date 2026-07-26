@@ -1,5 +1,5 @@
 import { toMinor, fromMinor, formatMoney } from "./money";
-import { addMonthsToDate, todayISO } from "./dates";
+import { addMonthsToDate, daysBetween, todayISO } from "./dates";
 import type { MortgageLoan, MortgageCurrency, MortgagePrepayment } from "../types";
 
 /**
@@ -22,10 +22,69 @@ const EPSILON = 0.005; // medio centavo: tolerancia para dar por saldado el pré
  * calculada no coincida con la real de un préstamo hipotecario: los bancos
  * en Uruguay casi siempre cotizan el hipotecario como TEA.
  */
-function monthlyRateOf(loan: MortgageLoan): number {
+export function monthlyRateOf(loan: MortgageLoan): number {
   const annual = loan.annualRatePct / 100;
   if (loan.rateType === "effective") return Math.pow(1 + annual, 1 / 12) - 1;
   return annual / 12;
+}
+
+/**
+ * TNA (tasa nominal anual, en fracción) equivalente a `loan.annualRatePct`,
+ * la que se usa para prorratear interés por días corridos con
+ * `dayCountConvention: "actual365"`: interés = saldo × (TNA/365) × días.
+ * Si la tasa ya es nominal (`rateType !== "effective"`), es la tasa tal
+ * cual; si es efectiva (TEA), es la nominal equivalente capitalizable
+ * mensualmente: `TNA = 12 × ((1+TEA)^(1/12) - 1)` = `12 × monthlyRateOf`.
+ * Esta es la fórmula que, verificada contra dos vales reales de un
+ * hipotecario UI de Santander (capital y cuota antes y después de una
+ * amortización extraordinaria real), reproduce el interés de cada cuota con
+ * un error menor a 1 UI acumulado en 240 cuotas, y la cuota nueva tras una
+ * amortización con un error de centésimos de UI.
+ */
+export function annualNominalRateOf(loan: MortgageLoan): number {
+  return monthlyRateOf(loan) * 12;
+}
+
+/** `count` vencimientos mensuales consecutivos a partir de `firstDueDate` (incluida), todos el mismo día del mes que ella. */
+function generateDueDates(firstDueDate: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => addMonthsToDate(firstDueDate, i));
+}
+
+/**
+ * Cuota fija (sistema francés) que cancela exactamente `principal` en las
+ * fechas de vencimiento `dueDates` (una por cuota, ya generadas, no
+ * necesariamente equiespaciadas en días), devengando interés día a día sobre
+ * saldo a la tasa nominal anual `annualRate` con año de 365 días — interés
+ * del período i = saldo × (annualRate/365) × días entre el vencimiento
+ * anterior (o `fromDate` para el primero) y `dueDates[i]`.
+ *
+ * Es la variante de `frenchPayment` para `dayCountConvention: "actual365"`.
+ * A diferencia de esa (que asume una tasa mensual fija, como si todos los
+ * meses tuvieran la misma duración), esta calcula la cuota exacta que
+ * cierra el saldo en $0 en la última fecha con los días reales de cada mes
+ * (28 a 31): con `frenchPayment` sobre un préstamo real, típicamente queda
+ * un saldo residual de más de una cuota entera al cabo del plazo, porque los
+ * bancos en Uruguay sí liquidan el interés por días corridos aunque la
+ * cuota sea fija en unidades monetarias.
+ *
+ * Fórmula cerrada: si `factor_i = 1 + (annualRate/365)*días_i`, entonces
+ * `cuota = principal × Π(factor_i) / Σ_j Π_{i>j}(factor_i)`.
+ */
+export function frenchPaymentActual365(principal: number, annualRate: number, fromDate: string, dueDates: string[]): number {
+  if (dueDates.length === 0 || principal <= 0) return 0;
+  const factors = dueDates.map((d, i) => 1 + (annualRate / 365) * daysBetween(i === 0 ? fromDate : dueDates[i - 1], d));
+
+  let prodTotal = 1;
+  for (const f of factors) prodTotal *= f;
+
+  let sumPartial = 0;
+  let suffixProd = 1; // producto de los factores DESPUÉS de la posición actual
+  for (let i = factors.length - 1; i >= 0; i--) {
+    sumPartial += suffixProd;
+    suffixProd *= factors[i];
+  }
+
+  return (principal * prodTotal) / sumPartial;
 }
 
 /** Cuota fija (sistema francés) para cancelar `principal` en `months` cuotas a una tasa mensual `monthlyRate` (ej. 0.004 = 0.4%/mes). */
@@ -70,6 +129,15 @@ export interface AmortizationRow {
   isPast: boolean;
   /** Si esta cuota es parte del período de gracia (antes de que arranque la amortización regular). */
   isGrace?: boolean;
+  /**
+   * Solo con `dayCountConvention: "actual365"`: esta fila no es una cuota
+   * regular, sino la liquidación de una amortización extraordinaria que cayó
+   * en una fecha distinta a un vencimiento (`principalMinor`/`paymentMinor`
+   * son el monto amortizado; `interestMinor` es 0 porque el interés de esos
+   * días queda capitalizado en el saldo, no se paga aparte). A partir de la
+   * cuota siguiente, los vencimientos corren al día del mes de esta fecha.
+   */
+  isPrepaymentSettlement?: boolean;
 }
 
 /**
@@ -79,6 +147,8 @@ export interface AmortizationRow {
  * restante; "reduceTerm" mantiene la cuota y recalcula cuántas cuotas faltan.
  */
 function buildFrenchSchedule(loan: MortgageLoan): AmortizationRow[] {
+  if ((loan.dayCountConvention ?? "monthly") === "actual365") return buildFrenchScheduleActual365(loan);
+
   const monthlyRate = monthlyRateOf(loan);
   const principal = fromMinor(loan.principalMinor);
   const today = todayISO();
@@ -134,6 +204,169 @@ function buildFrenchSchedule(loan: MortgageLoan): AmortizationRow[] {
     });
 
     balance = newBalance;
+  }
+
+  return rows;
+}
+
+/**
+ * Sistema francés con `dayCountConvention: "actual365"`: interés por días
+ * corridos reales (28 a 31 según el mes) sobre una tasa nominal anual con
+ * año de 365 días, en vez de una tasa mensual fija aplicada por igual sin
+ * importar cuántos días tenga el mes (ver `buildFrenchSchedule`).
+ *
+ * Validado contra dos vales reales de un hipotecario UI de Santander:
+ * - Vale original: capital 698.407,00 UI, TEA 6,68%, 240 cuotas de
+ *   5.201,82 UI, vencimientos el día 15, año de 365 días (así lo dice
+ *   textualmente el vale: "cómputo de días: meses calendario, año de 365
+ *   días"). Con `annualNominalRateOf` (6,483805% TNA) y esta fórmula, el
+ *   interés de cada una de las 240 cuotas reales se reproduce con un error
+ *   promedio de 0,13 UI y máximo de 0,74 UI (redondeo de centésimos
+ *   acumulado en 240 filas, no una tasa distinta).
+ * - Segundo vale, tras una amortización real de ≈131.145,90 UI el
+ *   19/08/2020 (a mitad del período 15/08→15/09, "reduceInstallment"): el
+ *   vencimiento pasó del día 15 al día 19, quedaron 212 cuotas de
+ *   4.164,61 UI. Reconstruyendo el saldo al 19/08/2020 (día a día, desde la
+ *   última cuota vieja) y resolviendo la cuota nueva con
+ *   `frenchPaymentActual365` sobre 212 vencimientos reales anclados al 19,
+ *   da 4.164,6047 UI — 0,005 UI de diferencia con la cuota real.
+ *
+ * Por eso, ante una amortización extraordinaria que no coincide con un
+ * vencimiento, esta función NO reparte el interés del período "a mitad de
+ * camino": corta ahí (liquida esa amortización en su propia fila, con el
+ * saldo devengado día a día desde la última cuota) y arranca una anualidad
+ * nueva, con vencimientos anclados al día de esa fecha, exactamente como
+ * hizo el banco en el caso real de arriba.
+ *
+ * OJO al reconstruir un préstamo REAL con una amortización YA hecha: si el
+ * préstamo necesita `paymentAdjustmentMinor` para que la cuota calculada
+ * coincida con la real del banco (pasa seguido: nuestra fórmula suele quedar
+ * a un ~0,02% de la real, ver ejemplo arriba), ese ajuste es solo de
+ * presentación — no se filtra al saldo que se usa internamente para calcular
+ * la cuota nueva tras la amortización. Con un ajuste de más de un puñado de
+ * unidades por cuota y muchos períodos antes de la amortización, la cuota
+ * nueva calculada acá puede quedar por encima de la real por un margen algo
+ * mayor al de antes de amortizar (en el caso real documentado arriba, sin
+ * ajuste, queda ≈0,9 UI por encima en vez de los ≈0,005 UI que da reconstruir
+ * el cálculo con el saldo real exacto de cada cuota vieja).
+ */
+function buildFrenchScheduleActual365(loan: MortgageLoan): AmortizationRow[] {
+  const annualRate = annualNominalRateOf(loan);
+  const monthlyRate = monthlyRateOf(loan); // solo para estimar el plazo restante en "reduceTerm" (ver más abajo)
+  const principal = fromMinor(loan.principalMinor);
+  const today = todayISO();
+
+  const prepayments = [...loan.prepayments].sort((a, b) => a.date.localeCompare(b.date));
+  let nextPrepaymentIdx = 0;
+
+  let balance = principal;
+  let anchorDate = loan.startDate; // fecha del PRIMER vencimiento vigente; cambia si se amortiza fuera de fecha
+  let indexSinceAnchor = 0; // cuántos vencimientos ya se generaron desde que se fijó `anchorDate`
+  let remainingCount = loan.termMonths; // cuotas REGULARES que faltan generar (no cuenta las filas de liquidación)
+  // Punto de partida para contar los días de la CUOTA 1: `requestDate` (fecha de desembolso/solicitud) si está
+  // cargada, porque con días corridos sí importa el desfasaje real hasta la primera cuota (no es solo informativo
+  // como en la convención "monthly" — ver `MortgageLoan.requestDate`). Sin ese dato, se asume un mes exacto antes.
+  const firstPeriodStart = loan.requestDate ?? addMonthsToDate(anchorDate, -1);
+  let payment = frenchPaymentActual365(balance, annualRate, firstPeriodStart, generateDueDates(anchorDate, remainingCount));
+  let lastDueDate = firstPeriodStart; // último vencimiento ya pagado (o la fecha de desembolso, al arrancar)
+
+  const rows: AmortizationRow[] = [];
+  let rowNumber = 0;
+  let guard = 0; // tope de filas de seguridad: nunca colgar la UI aunque los datos del préstamo sean inconsistentes
+
+  while (remainingCount > 0 && balance > EPSILON && guard < 1000) {
+    guard++;
+    const dueDate = addMonthsToDate(anchorDate, indexSinceAnchor);
+
+    const pre = prepayments[nextPrepaymentIdx];
+    if (pre && pre.date > lastDueDate && pre.date < dueDate) {
+      // Cae a mitad del período: se liquida en su propia fila (no se genera la cuota regular de este período;
+      // el ancla de vencimiento pasa a ser el día del mes de esta fecha desde la próxima cuota).
+      const daysToPrepayment = daysBetween(lastDueDate, pre.date);
+      const balanceAtPrepayment = balance * (1 + (annualRate / 365) * daysToPrepayment);
+      const extra = Math.min(fromMinor(pre.amountMinor), balanceAtPrepayment);
+      const newBalance = balanceAtPrepayment - extra;
+      nextPrepaymentIdx++;
+      // OJO: no se incrementa `rowNumber` acá. Esta fila no es una cuota — es
+      // la liquidación de la amortización — así que no debe "gastar" un
+      // número de cuota: si lo hiciera, todas las cuotas regulares
+      // posteriores quedarían corridas +1 (la cuota 29 real pasaría a
+      // mostrarse como 30, etc.). La UI ya la muestra como "—", no como un
+      // número, así que el valor exacto de `number` en esta fila no importa.
+
+      rows.push({
+        number: rowNumber,
+        dueDate: pre.date,
+        paymentMinor: toMinor(extra),
+        interestMinor: 0,
+        principalMinor: toMinor(extra),
+        balanceMinor: toMinor(Math.max(0, newBalance)),
+        extraPaymentMinor: toMinor(extra),
+        isPast: pre.date < today,
+        isPrepaymentSettlement: true,
+      });
+
+      balance = newBalance;
+      lastDueDate = pre.date;
+      anchorDate = addMonthsToDate(pre.date, 1);
+      indexSinceAnchor = 0;
+
+      if (balance > EPSILON) {
+        if (pre.strategy === "reduceInstallment") {
+          payment = frenchPaymentActual365(balance, annualRate, pre.date, generateDueDates(anchorDate, remainingCount));
+        } else {
+          // reduceTerm: la cuota no cambia; se re-estima (con la tasa mensual "monthly", una aproximación
+          // razonable) cuántas cuotas más hacen falta, con margen — el corte real lo decide el `while` por saldo.
+          const approx = monthsForPayment(balance, monthlyRate, payment);
+          remainingCount = Number.isFinite(approx) ? Math.ceil(approx) + 6 : remainingCount;
+        }
+      }
+      continue; // no se genera cuota regular esta vuelta: ya se liquidó la amortización, se re-arranca con el ancla nueva
+    }
+
+    const days = daysBetween(lastDueDate, dueDate);
+    const interest = balance * (annualRate / 365) * days;
+    let principalPortion = payment - interest;
+    if (principalPortion < 0) principalPortion = 0;
+    if (principalPortion > balance) principalPortion = balance;
+    let newBalance = balance - principalPortion;
+
+    // Si la amortización cae justo EN este vencimiento (no a mitad de período), se liquida junto con la
+    // cuota, sin correr el ancla (comportamiento histórico, igual que la convención "monthly").
+    let extraOnDueDate = 0;
+    if (pre && pre.date === dueDate && newBalance > EPSILON) {
+      const extra = Math.min(fromMinor(pre.amountMinor), newBalance);
+      newBalance -= extra;
+      extraOnDueDate = extra;
+      nextPrepaymentIdx++;
+
+      if (newBalance > EPSILON) {
+        if (pre.strategy === "reduceInstallment") {
+          payment = frenchPaymentActual365(newBalance, annualRate, dueDate, generateDueDates(addMonthsToDate(dueDate, 1), remainingCount - 1));
+        } else {
+          // +1 porque esta misma fila (la que se está armando ahora) todavía no se descontó de `remainingCount`.
+          const approx = monthsForPayment(newBalance, monthlyRate, payment);
+          remainingCount = Number.isFinite(approx) ? 1 + Math.ceil(approx) + 6 : remainingCount;
+        }
+      }
+    }
+
+    rowNumber++;
+    rows.push({
+      number: rowNumber,
+      dueDate,
+      paymentMinor: toMinor(principalPortion + interest),
+      interestMinor: toMinor(interest),
+      principalMinor: toMinor(principalPortion),
+      balanceMinor: toMinor(Math.max(0, newBalance)),
+      extraPaymentMinor: extraOnDueDate > 0 ? toMinor(extraOnDueDate) : undefined,
+      isPast: dueDate < today,
+    });
+
+    balance = newBalance;
+    lastDueDate = dueDate;
+    indexSinceAnchor++;
+    remainingCount--;
   }
 
   return rows;
@@ -384,6 +617,16 @@ export interface LoanSummary {
   nextDueDate: string | null;
   totalInterestMinor: number;
   totalPrepaidMinor: number;
+  /** Suma de intereses de las cuotas que todavía no vencieron (a hoy). No incluye lo ya devengado/pagado. */
+  remainingInterestMinor: number;
+  /**
+   * Suma de la porción de capital de las cuotas que todavía no vencieron (a
+   * hoy), incluidas las filas de liquidación de amortización futuras si las
+   * hubiera. Por construcción de la tabla, esto tiene que coincidir con
+   * `balanceMinor` (salvo algún centésimo de redondeo) — se muestra aparte
+   * como forma de reconciliar/auditar que la tabla cierra bien.
+   */
+  remainingPrincipalMinor: number;
   isPaidOff: boolean;
 }
 
@@ -394,6 +637,8 @@ export function loanSummary(schedule: AmortizationRow[]): LoanSummary {
   const next = future[0] ?? schedule[schedule.length - 1];
   const totalInterestMinor = schedule.reduce((s, r) => s + r.interestMinor, 0);
   const totalPrepaidMinor = schedule.reduce((s, r) => s + (r.extraPaymentMinor ?? 0), 0);
+  const remainingInterestMinor = future.reduce((s, r) => s + r.interestMinor, 0);
+  const remainingPrincipalMinor = future.reduce((s, r) => s + r.principalMinor, 0);
 
   return {
     currentPaymentMinor: next?.paymentMinor ?? 0,
@@ -401,6 +646,8 @@ export function loanSummary(schedule: AmortizationRow[]): LoanSummary {
     remainingInstallments: future.length,
     totalInstallments: schedule.length,
     nextDueDate: future[0]?.dueDate ?? null,
+    remainingInterestMinor,
+    remainingPrincipalMinor,
     totalInterestMinor,
     totalPrepaidMinor,
     isPaidOff: schedule.length > 0 && future.length === 0,

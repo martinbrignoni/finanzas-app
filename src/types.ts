@@ -369,14 +369,41 @@ export interface ContactEntry {
  * - "reduceTerm": la cuota queda igual, pero el préstamo se cancela antes
  *   (se recalcula cuántas cuotas hacen falta con ese mismo importe).
  * No se puede bajar cuota y plazo a la vez con un mismo pago extra.
+ *
+ * Con `dayCountConvention: "actual365"` (ver `MortgageLoan`), `date` no tiene
+ * que coincidir con un vencimiento existente: si cae entre dos vencimientos,
+ * se liquida en una fila propia (interés devengado día a día desde el último
+ * vencimiento pagado) y TODOS los vencimientos siguientes pasan a caer en el
+ * mismo día del mes que esta fecha (igual que hace el banco al restructurar:
+ * ver ejemplo real documentado en `mortgage.ts#buildFrenchScheduleActual365`).
+ * Con la convención "monthly" (default), en cambio, se sigue aplicando junto
+ * con la primera cuota cuyo vencimiento sea igual o posterior, sin correr el
+ * día del mes.
  */
 export interface MortgagePrepayment {
   id: string;
-  date: string; // YYYY-MM-DD. Se aplica junto con la primera cuota cuyo vencimiento sea igual o posterior.
+  date: string; // YYYY-MM-DD.
   amountMinor: number;
   strategy: "reduceInstallment" | "reduceTerm";
   note?: string;
 }
+
+/**
+ * Cómo se calcula el interés de cada cuota de un préstamo francés:
+ * - "monthly" (default): interés = saldo × tasa mensual, sin importar cuántos
+ *   días tenga ese mes en particular (todos los meses "pesan" igual). Es la
+ *   convención de la mayoría de los préstamos personales/prendarios.
+ * - "actual365": interés = saldo × (TNA/365) × días corridos reales entre
+ *   vencimientos (28, 29, 30 o 31 según el mes). Es la convención real que
+ *   usan los préstamos hipotecarios en UI en Uruguay (verificada contra dos
+ *   vales reales de Santander — ver comentario largo en
+ *   `mortgage.ts#buildFrenchScheduleActual365`). Con esta convención, una
+ *   amortización extraordinaria que no coincide con un vencimiento corre el
+ *   día de vencimiento de ahí en adelante (ver `MortgagePrepayment`).
+ * Solo tiene efecto con `system: "frances"` (o sin definir, que es lo mismo);
+ * se ignora en "aleman"/"americano".
+ */
+export type DayCountConvention = "monthly" | "actual365";
 
 /**
  * Moneda de un préstamo. Además de pesos y dólares, los préstamos
@@ -432,11 +459,17 @@ export interface MortgageLoan {
   /** Fecha de la primera cuota (de gracia, si hay, o si no la primera regular). Las siguientes vencen el mismo día de cada mes. */
   startDate: string; // YYYY-MM-DD
   /**
-   * Fecha en que se solicitó/desembolsó el préstamo. Informativa: sirve para
-   * ver cuánto tiempo pasa hasta la primera cuota (lo normal es ~1 mes). El
-   * cálculo de intereses de la primera cuota siempre asume ese mes completo
-   * a partir de `startDate` hacia atrás, así que si el desfasaje real no es
-   * de un mes exacto, este dato es solo de referencia y no ajusta la tabla.
+   * Fecha en que se solicitó/desembolsó el préstamo.
+   * - Con `dayCountConvention: "monthly"` (default): informativa, no ajusta
+   *   la tabla — el cálculo de intereses de la primera cuota siempre asume
+   *   un mes completo exacto a partir de `startDate` hacia atrás.
+   * - Con `"actual365"`: SÍ afecta el cálculo — el interés de la primera
+   *   cuota se devenga por los días reales entre esta fecha y `startDate`
+   *   (que casi nunca es exactamente un mes: en el hipotecario UI real que
+   *   se usó para validar esta convención, fueron 29 días, no 30). Cargarla
+   *   bien acá es importante para que la cuota 1 (y por lo tanto toda la
+   *   tabla, que arrastra el saldo de ahí) cierre lo más cerca posible de la
+   *   real del banco.
    */
   requestDate?: string; // YYYY-MM-DD
   /** Cantidad de cuotas de gracia al inicio del préstamo, antes de que arranque la amortización regular. 0 o sin definir = sin gracia. */
@@ -452,6 +485,13 @@ export interface MortgageLoan {
   graceType?: "interestOnly" | "capitalized";
   /** Sin definir = "frances" (préstamos cargados antes de agregar este campo). */
   system?: AmortizationSystem;
+  /**
+   * Cómo se calcula el interés de cada cuota (solo tiene efecto con
+   * `system: "frances"`). Ver `DayCountConvention`. Sin definir = "monthly"
+   * (préstamos cargados antes de agregar este campo, y la convención
+   * correcta para préstamos que no son el hipotecario UI en Uruguay).
+   */
+  dayCountConvention?: DayCountConvention;
   /**
    * Ajuste manual, en centésimos, para reconciliar contra la cuota real que
    * cobra el banco cuando queda una diferencia mínima que no se puede

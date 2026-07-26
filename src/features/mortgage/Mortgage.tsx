@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { Building2, Plus, Pencil, Trash2, ChevronRight, Scissors } from "lucide-react";
+import { Building2, Plus, Pencil, Trash2, ChevronRight, Scissors, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { formatMoney, parseAmountInput, fromMinor, toMinor } from "../../lib/money";
 import { formatDateDMY, todayISO, daysBetween, addMonthsToDate } from "../../lib/dates";
 import { buildSchedule, loanSummary, formatMortgageAmount, formatUiAmount, convertUsdReference } from "../../lib/mortgage";
+import { exportMortgageLoanToExcel } from "../../lib/mortgageExcelExport";
 import { fetchRateForDate } from "../../lib/exchangeRates";
-import type { MortgageLoan, MortgagePrepayment, MortgageCurrency, AmortizationSystem } from "../../types";
+import type { MortgageLoan, MortgagePrepayment, MortgageCurrency, AmortizationSystem, DayCountConvention } from "../../types";
 
 const SYSTEM_LABELS: Record<AmortizationSystem, string> = {
   frances: "Sistema francés",
@@ -193,6 +194,7 @@ function LoanDetailModal({
         <MortgageCurrencyPill currency={loan.currency} />
         <span className="text-xs" style={{ color: C.textFaint }}>
           {SYSTEM_LABELS[system]} · {loan.annualRatePct}% {(loan.rateType ?? "nominal") === "effective" ? "TEA" : "TNA"}
+          {system === "frances" && loan.dayCountConvention === "actual365" && " · días corridos"}
         </span>
       </div>
 
@@ -247,6 +249,18 @@ function LoanDetailModal({
             <span className="font-mono" style={{ color: C.positive }}>{formatMortgageAmount(summary.totalPrepaidMinor, loan.currency)}</span>
           </div>
         )}
+        {!summary.isPaidOff && (
+          <>
+            <div className="flex items-center justify-between text-sm pt-1.5" style={{ borderTop: `1px solid ${C.border}` }}>
+              <span style={{ color: C.textMuted }}>Interés pendiente de vencer</span>
+              <span className="font-mono" style={{ color: C.negative }}>{formatMortgageAmount(summary.remainingInterestMinor, loan.currency)}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span style={{ color: C.textMuted }}>Capital pendiente de vencer</span>
+              <span className="font-mono" style={{ color: C.positive }}>{formatMortgageAmount(summary.remainingPrincipalMinor, loan.currency)}</span>
+            </div>
+          </>
+        )}
       </div>
 
       {hasUsdInfo && (
@@ -280,6 +294,14 @@ function LoanDetailModal({
       )}
 
       {loan.note && <p className="text-xs mb-3" style={{ color: C.textFaint }}>{loan.note}</p>}
+
+      <button
+        onClick={() => exportMortgageLoanToExcel(loan, schedule, summary)}
+        className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-3"
+        style={{ border: `1px solid ${C.border}`, color: C.textMuted }}
+      >
+        <Download size={13} /> Descargar modelo en Excel
+      </button>
 
       {canEdit && (
         <div className="flex gap-2 mb-3">
@@ -353,9 +375,9 @@ function LoanDetailModal({
               </tr>
             </thead>
             <tbody>
-              {schedule.map((row) => (
+              {schedule.map((row, i) => (
                 <tr
-                  key={row.number}
+                  key={`${row.dueDate}-${i}`}
                   style={{
                     opacity: row.isPast ? 0.55 : 1,
                     background: row.extraPaymentMinor
@@ -366,8 +388,11 @@ function LoanDetailModal({
                     borderTop: `1px solid ${C.border}`,
                   }}
                 >
-                  <td className="py-1.5 px-2" style={{ color: C.textFaint }}>{row.number}{row.isGrace ? " (g)" : ""}</td>
-                  <td className="py-1.5 px-2" style={{ color: C.text }}>{formatDateDMY(row.dueDate)}</td>
+                  <td className="py-1.5 px-2" style={{ color: C.textFaint }}>{row.isPrepaymentSettlement ? "—" : row.number}{row.isGrace ? " (g)" : ""}</td>
+                  <td className="py-1.5 px-2" style={{ color: C.text }}>
+                    {formatDateDMY(row.dueDate)}
+                    {row.isPrepaymentSettlement && <span className="ml-1" style={{ color: C.textFaint }}>(amort.)</span>}
+                  </td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMortgageAmount(row.paymentMinor, loan.currency)}</td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.negative }}>{formatMortgageAmount(row.interestMinor, loan.currency)}</td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.positive }}>{formatMortgageAmount(row.principalMinor, loan.currency)}</td>
@@ -381,7 +406,9 @@ function LoanDetailModal({
       {(schedule.some((r) => r.extraPaymentMinor) || schedule.some((r) => r.isGrace)) && (
         <p className="text-[10px] mt-1.5" style={{ color: C.textFaint }}>
           {schedule.some((r) => r.isGrace) && "Las filas marcadas \"(g)\" y en amarillo son cuotas de gracia. "}
-          {schedule.some((r) => r.extraPaymentMinor) && "Las filas en verde incluyen una amortización extraordinaria aplicada junto con esa cuota."}
+          {schedule.some((r) => r.isPrepaymentSettlement)
+            ? "Las filas \"(amort.)\" en verde son la liquidación de una amortización extraordinaria en una fecha que no coincidía con un vencimiento (interés capitalizado, no se paga aparte); de ahí en adelante los vencimientos corren al día del mes de esa fecha."
+            : schedule.some((r) => r.extraPaymentMinor) && "Las filas en verde incluyen una amortización extraordinaria aplicada junto con esa cuota."}
         </p>
       )}
     </Modal>
@@ -403,6 +430,7 @@ export function LoanModal({
   const [principal, setPrincipal] = useState(initial ? String(fromMinor(initial.principalMinor)) : "");
   const [annualRate, setAnnualRate] = useState(initial ? String(initial.annualRatePct) : "");
   const [rateType, setRateType] = useState<"nominal" | "effective">(initial?.rateType ?? "effective");
+  const [dayCountConvention, setDayCountConvention] = useState<DayCountConvention>(initial?.dayCountConvention ?? "monthly");
   const [termUnit, setTermUnit] = useState<"years" | "months">(
     initial && initial.termMonths % 12 === 0 ? "years" : "months"
   );
@@ -488,6 +516,7 @@ export function LoanModal({
       system,
       annualRatePct: rate,
       rateType,
+      dayCountConvention: system === "frances" && dayCountConvention === "actual365" ? "actual365" : undefined,
       termMonths,
       startDate,
       requestDate: requestDate || undefined,
@@ -544,6 +573,24 @@ export function LoanModal({
           ? "TEA: la tasa mensual se obtiene componiendo (no dividiendo entre 12). Es como casi siempre cotizan los hipotecarios en Uruguay — si tu cuota no te cierra, probá acá antes que nada."
           : "TNA: la tasa mensual es la anual dividida entre 12, sin componer. Más común en préstamos personales/prendarios."}
       </p>
+      {system === "frances" && (
+        <>
+          <Field label="Cómputo de intereses">
+            {() => (
+              <Segment
+                value={dayCountConvention}
+                onChange={setDayCountConvention}
+                options={[{ value: "monthly", label: "Meses iguales" }, { value: "actual365", label: "Días corridos" }]}
+              />
+            )}
+          </Field>
+          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+            {dayCountConvention === "actual365"
+              ? "Interés = saldo × (tasa nominal anual / 365) × días reales entre vencimientos (28 a 31, según el mes). Es la convención real de los hipotecarios en UI en Uruguay: si es tu caso, elegí esto para que la tabla coincida con la del banco cuota a cuota, no solo en el total. Con esta opción, una amortización extraordinaria que no caiga justo en un vencimiento corre el día de vencimiento de ahí en adelante al día de esa amortización."
+              : "Interés = saldo × tasa mensual, igual sin importar cuántos días tenga el mes. Más simple, es la convención de la mayoría de los préstamos personales/prendarios."}
+          </p>
+        </>
+      )}
       <Field label="Unidad del plazo">
         {() => (
           <Segment
@@ -562,6 +609,13 @@ export function LoanModal({
         <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
           {daysBetween(requestDate, startDate)} días hasta la primera cuota
           {Math.abs(daysBetween(requestDate, startDate) - 30) <= 3 ? " (≈ 1 mes, el caso más común)." : "."}
+          {system === "frances" && dayCountConvention === "actual365" && " Con \"Días corridos\" esto sí afecta el interés de la cuota 1 — cargala exacta."}
+        </p>
+      )}
+      {!requestDate && system === "frances" && dayCountConvention === "actual365" && (
+        <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+          Sin esta fecha, el interés de la cuota 1 asume un mes exacto antes de la primera cuota — cargala si sabés
+          la fecha real de desembolso, para que la tabla arranque más cerca de la del banco.
         </p>
       )}
 
@@ -712,7 +766,9 @@ export function PrepaymentModal({
   return (
     <Modal title={initial ? "Editar amortización" : "Nueva amortización extraordinaria"} onClose={onClose}>
       <p className="text-xs mb-3" style={{ color: C.textFaint }}>
-        Se aplica sobre el saldo del préstamo junto con la primera cuota que venza a partir de esta fecha.
+        {loan.dayCountConvention === "actual365"
+          ? "Se aplica sobre el saldo a esta fecha exacta (no hace falta que coincida con un vencimiento). Si no coincide, los vencimientos siguientes van a pasar a caer el mismo día del mes que esta fecha."
+          : "Se aplica sobre el saldo del préstamo junto con la primera cuota que venza a partir de esta fecha."}
         {!isAmerican && " Elegí si preferís bajar el valor de la cuota o el plazo restante: no se puede hacer las dos cosas con el mismo pago."}
       </p>
       <Field label="Fecha">{(id) => <TextInput id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
