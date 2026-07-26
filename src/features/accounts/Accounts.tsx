@@ -30,6 +30,7 @@ export function Accounts({
   onReorderBanks,
   onReorderAccountsByBank,
   onReorderAccountsByCurrency,
+  onSetAccountsViewMode,
   accountStatements,
   onSaveAccountStatement,
   onAddBank,
@@ -61,6 +62,8 @@ export function Accounts({
   onReorderBanks: (order: string[]) => void;
   onReorderAccountsByBank: (order: string[]) => void;
   onReorderAccountsByCurrency: (order: string[]) => void;
+  /** Persiste la vista elegida ("Por banco" / "Por moneda") para que se mantenga entre pestañas y sesiones. */
+  onSetAccountsViewMode: (mode: "banco" | "moneda") => void;
   accountStatements: AccountStatement[];
   onSaveAccountStatement: (s: AccountStatement) => void;
   onAddBank: () => void;
@@ -78,7 +81,10 @@ export function Accounts({
 }) {
   const [viewAccountId, setViewAccountId] = useState<string | null>(null);
   const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
-  const [sortBy, setSortBy] = useState<"banco" | "moneda">("banco");
+  // Persistido en el perfil activo (AppUser.accountsViewMode), no en sortOrders: así cada
+  // usuario mantiene su propia vista elegida, independiente de la de otros perfiles, y se
+  // mantiene al cambiar de pestaña o reabrir la app.
+  const sortBy = activeUser?.accountsViewMode ?? "banco";
   const [reordering, setReordering] = useState(false);
   const [asOfDate, setAsOfDate] = useState(todayISO());
   const isToday = asOfDate === todayISO();
@@ -203,7 +209,7 @@ export function Accounts({
 
       {banks.length > 0 && (
         <div className="flex items-center gap-2 mb-4">
-          <Segment value={sortBy} onChange={setSortBy} options={[{ value: "banco", label: "Por banco" }, { value: "moneda", label: "Por moneda" }]} />
+          <Segment value={sortBy} onChange={onSetAccountsViewMode} options={[{ value: "banco", label: "Por banco" }, { value: "moneda", label: "Por moneda" }]} />
           {canEdit && (
             <button
               onClick={() => setReordering((v) => !v)}

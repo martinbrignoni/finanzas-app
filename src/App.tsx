@@ -881,6 +881,12 @@ export default function App() {
                 onReorderBanks={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, banks: order } } : d))}
                 onReorderAccountsByBank={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByBank: order } } : d))}
                 onReorderAccountsByCurrency={(order) => setData((d) => (d ? { ...d, sortOrders: { ...d.sortOrders, accountsByCurrency: order } } : d))}
+                onSetAccountsViewMode={(mode) =>
+                  setData((d) => {
+                    if (!d || !d.activeUserId) return d;
+                    return { ...d, users: d.users.map((u) => (u.id === d.activeUserId ? { ...u, accountsViewMode: mode } : u)) };
+                  })
+                }
                 accountStatements={data.accountStatements}
                 onSaveAccountStatement={saveAccountStatement}
                 onAddBank={() => setModal({ type: "bank" })}

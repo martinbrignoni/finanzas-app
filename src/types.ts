@@ -614,6 +614,13 @@ export interface AppUser {
   color?: string;
   /** Preferencia de notificaciones push de este perfil. Sin definir = desactivadas. */
   notifications?: NotificationPrefs;
+  /**
+   * Qué vista quedó elegida en Cuentas ("Por banco" o "Por moneda") para este
+   * perfil en particular (cada perfil la mantiene de forma independiente).
+   * `undefined` (perfil nuevo o dato guardado antes de este campo) se trata
+   * como "banco".
+   */
+  accountsViewMode?: "banco" | "moneda";
 }
 
 /**
