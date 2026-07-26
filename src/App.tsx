@@ -1046,13 +1046,17 @@ export default function App() {
           accounts={data.accounts}
           banks={data.banks}
           cards={data.cards}
+          installments={data.installments}
           categories={data.categories}
           contacts={data.contacts}
+          mortgageLoans={data.mortgageLoans}
           canEditContacts={has("personas", "edit")}
+          canEditCards={has("tarjetas", "edit")}
           onSaveTransaction={upsertTransaction}
           onSaveTransfer={upsertTransfer}
           onSaveInstallment={upsertInstallment}
           onSaveContactEntry={upsertContactEntry}
+          onSaveCardPayment={upsertCardPayment}
           onSaveContact={addContact}
           onSaveCategory={saveCategory}
           onClose={closeModal}

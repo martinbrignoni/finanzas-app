@@ -1,6 +1,6 @@
 import { toMinor, fromMinor, formatMoney } from "./money";
-import { addMonthsToDate, daysBetween, todayISO } from "./dates";
-import type { MortgageLoan, MortgageCurrency, MortgagePrepayment } from "../types";
+import { addMonthsToDate, daysBetween, todayISO, monthKeyOf } from "./dates";
+import type { MortgageLoan, MortgageCurrency, MortgagePrepayment, Transaction } from "../types";
 
 /**
  * Cálculo de préstamos por sistema francés, alemán o americano (ver
@@ -662,6 +662,35 @@ export function loanSummary(schedule: AmortizationRow[]): LoanSummary {
     totalPrepaidMinor,
     isPaidOff: regularRows.length > 0 && future.length === 0,
   };
+}
+
+export interface MortgageDueItem {
+  loanId: string;
+  loanName: string;
+  currency: MortgageCurrency;
+  amountMinor: number;
+  dueDate: string; // YYYY-MM-DD
+}
+
+/**
+ * Cuota(s) regular(es) de cada préstamo cuyo vencimiento cae en `mk`, para
+ * "Vencimientos" de Inicio (no incluye filas de liquidación de una
+ * amortización extraordinaria fuera de fecha: no son "la cuota del mes").
+ * Si un préstamo ya tiene un `Transaction` cargado en Movimientos con
+ * `mortgageLoanId` igual al del préstamo y fecha dentro de `mk`, se excluye:
+ * se interpreta que esa cuota ya se registró como pagada.
+ */
+export function mortgageDueInMonth(loans: MortgageLoan[], transactions: Transaction[], mk: string): MortgageDueItem[] {
+  const items: MortgageDueItem[] = [];
+  for (const loan of loans) {
+    const alreadyRecorded = transactions.some((t) => t.mortgageLoanId === loan.id && monthKeyOf(t.date) === mk);
+    if (alreadyRecorded) continue;
+    const rows = buildSchedule(loan).filter((r) => !r.isPrepaymentSettlement && monthKeyOf(r.dueDate) === mk);
+    const amountMinor = rows.reduce((s, r) => s + r.paymentMinor, 0);
+    if (amountMinor <= 0) continue;
+    items.push({ loanId: loan.id, loanName: loan.name, currency: loan.currency, amountMinor, dueDate: rows[rows.length - 1].dueDate });
+  }
+  return items;
 }
 
 /** Formatea un monto según la moneda del préstamo. UI no es una `Currency` de cuentas/movimientos, así que no puede pasar por `formatMoney`. */

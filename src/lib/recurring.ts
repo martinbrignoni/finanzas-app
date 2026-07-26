@@ -1,5 +1,5 @@
-import type { FinanceData, RecurringRule, Transaction } from "../types";
-import { todayISO, addMonthsToDate, addDaysToDate, addYearsToDate } from "./dates";
+import type { Currency, FinanceData, RecurringRule, Transaction } from "../types";
+import { todayISO, addMonthsToDate, addDaysToDate, addYearsToDate, monthKeyOf } from "./dates";
 
 /** Devuelve la fecha de la próxima ocurrencia de una regla, según su período. */
 function advance(date: string, period: RecurringRule["period"]): string {
@@ -59,4 +59,39 @@ export function generateDueRecurringTransactions(d: FinanceData): FinanceData {
 
   if (!changed) return d;
   return { ...d, transactions, recurringRules: rules };
+}
+
+export interface RecurringDueItem {
+  ruleId: string;
+  label: string;
+  amountMinor: number;
+  currency: Currency;
+  date: string; // YYYY-MM-DD
+}
+
+/**
+ * Ocurrencias de reglas recurrentes de GASTO activas que van a cargarse en
+ * algún día de `mk` pero todavía no se generaron como `Transaction` (porque
+ * su fecha es posterior a hoy: `generateDueRecurringTransactions`, que corre
+ * al abrir la app, todavía no llegó a esa fecha — `rule.nextDueDate` siempre
+ * queda en el futuro después de esa función). Pensada para "Vencimientos"
+ * de Inicio: apenas se generan, dejan de aparecer acá solas y pasan a
+ * contarse en "Gastos" del mes como cualquier otro movimiento (siguen
+ * visibles en Movimientos, con el ícono de recurrente).
+ */
+export function upcomingRecurringExpensesInMonth(rules: RecurringRule[], mk: string): RecurringDueItem[] {
+  const items: RecurringDueItem[] = [];
+  for (const rule of rules) {
+    if (!rule.active || rule.type !== "gasto") continue;
+    let date = rule.nextDueDate;
+    let guard = 0; // tope de seguridad, igual que en generateDueRecurringTransactions
+    while (monthKeyOf(date) <= mk && guard < 500) {
+      if (monthKeyOf(date) === mk) {
+        items.push({ ruleId: rule.id, label: rule.description, amountMinor: rule.amountMinor, currency: rule.currency, date });
+      }
+      date = advance(date, rule.period);
+      guard++;
+    }
+  }
+  return items.sort((a, b) => a.date.localeCompare(b.date));
 }

@@ -10,8 +10,8 @@ import { currentMonthKey, monthsBetween, monthKeyOf, addMonths, monthLabel, capi
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
 import { canEditOwnRecord } from "../../lib/permissions";
-import { cardLabel } from "../../lib/cards";
-import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser } from "../../types";
+import { cardLabel, dueForCardInMonth, cardConsumptionForMonth } from "../../lib/cards";
+import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser, ContactEntry } from "../../types";
 
 /** Nombre a mostrar para quién hizo un gasto con tarjeta: el titular (undefined) o una extensión puntual. */
 function cardHolderLabel(card: Card | undefined, extensionId: string | undefined): string | null {
@@ -21,13 +21,15 @@ function cardHolderLabel(card: Card | undefined, extensionId: string | undefined
 
 /**
  * Deuda real de la tarjeta: cuotas restantes (proyección) + gastos de pago
- * único cargados a la tarjeta, menos los pagos ya registrados. A diferencia
- * de una proyección pura, esto sí se reduce cuando registrás un pago.
+ * único cargados a la tarjeta + movimientos con personas pagados con esta
+ * tarjeta (ver `ContactEntry.cardId`), menos los pagos ya registrados. A
+ * diferencia de una proyección pura, esto sí se reduce cuando registrás un pago.
  */
 function cardDebt(
   cardId: string,
   installments: Installment[],
   transactions: Transaction[],
+  contactEntries: ContactEntry[],
   cardPayments: CardPayment[],
   mk: string
 ): Record<Currency, number> {
@@ -40,40 +42,13 @@ function cardDebt(
   transactions.filter((t) => t.type === "gasto" && t.cardId === cardId).forEach((t) => {
     debt[t.currency] += t.amountMinor;
   });
+  contactEntries.filter((e) => e.cardId === cardId).forEach((e) => {
+    debt[e.currency] += Math.abs(e.amountMinor);
+  });
   cardPayments.filter((p) => p.cardId === cardId).forEach((p) => {
     debt[p.currency] -= p.amountMinor;
   });
   return debt;
-}
-
-/** Cuota (por moneda) que vence este mes puntualmente para una tarjeta, para sugerir el monto de pago. */
-function dueForCardInMonth(cardId: string, installments: Installment[], mk: string): Record<Currency, number> {
-  const due: Record<Currency, number> = { UYU: 0, USD: 0 };
-  installments.filter((i) => i.cardId === cardId).forEach((inst) => {
-    const idx = monthsBetween(inst.startMonth, mk);
-    if (idx >= 0 && idx < inst.numInstallments) due[inst.currency] += inst.installmentAmountMinor;
-  });
-  return due;
-}
-
-/**
- * Consumo total de un período puntual (mes) para una tarjeta: cuotas que
- * vencen ese mes + gastos de pago único fechados ese mes. Es lo que
- * debería figurar en el estado de cuenta de ese período.
- */
-function cardConsumptionForMonth(
-  cardId: string,
-  installments: Installment[],
-  transactions: Transaction[],
-  mk: string
-): Record<Currency, number> {
-  const total = dueForCardInMonth(cardId, installments, mk);
-  transactions
-    .filter((t) => t.type === "gasto" && t.cardId === cardId && monthKeyOf(t.date) === mk)
-    .forEach((t) => {
-      total[t.currency] += t.amountMinor;
-    });
-  return total;
 }
 
 /**
@@ -219,6 +194,7 @@ export function Cards({
           activeUser={activeUser}
           installments={data.installments.filter((i) => i.cardId === viewCard.id)}
           expenses={data.transactions.filter((t) => t.type === "gasto" && t.cardId === viewCard.id)}
+          contactEntries={data.contactEntries.filter((e) => e.cardId === viewCard.id)}
           payments={data.cardPayments.filter((p) => p.cardId === viewCard.id)}
           accounts={data.accounts}
           banks={data.banks}
@@ -265,8 +241,8 @@ function CardSummaryCard({
   onAddCardPayment: (cardId: string) => void;
   onView: (id: string) => void;
 }) {
-  const debt = cardDebt(card.id, data.installments, data.transactions, data.cardPayments, mk);
-  const consumption = cardConsumptionForMonth(card.id, data.installments, data.transactions, mk);
+  const debt = cardDebt(card.id, data.installments, data.transactions, data.contactEntries, data.cardPayments, mk);
+  const consumption = cardConsumptionForMonth(card.id, data.installments, data.transactions, data.contactEntries, mk);
   const pendingMonths = pendingCardStatementMonths(card, data.cardStatements);
   const currentStatement = getCardStatement(data.cardStatements, card.id, mk);
 
@@ -355,6 +331,7 @@ function CardDetailModal({
   card,
   installments,
   expenses,
+  contactEntries,
   payments,
   accounts,
   banks,
@@ -376,6 +353,8 @@ function CardDetailModal({
   card: Card;
   installments: Installment[];
   expenses: Transaction[];
+  /** Movimientos con personas pagados con esta tarjeta (ver `ContactEntry.cardId`); solo se usan para el total de consumo del período, no aparecen desglosados en las listas de abajo. */
+  contactEntries: ContactEntry[];
   payments: CardPayment[];
   accounts: Account[];
   banks: Bank[];
@@ -404,7 +383,7 @@ function CardDetailModal({
   const currentStatement = getCardStatement(cardStatements, card.id, statementMonth);
   const [dueDate, setDueDate] = useState(currentStatement?.dueDate ?? "");
   const statementMonthOptions = Array.from({ length: 25 }, (_, i) => addMonths(mk, -i));
-  const consumption = cardConsumptionForMonth(card.id, installments, expenses, statementMonth);
+  const consumption = cardConsumptionForMonth(card.id, installments, expenses, contactEntries, statementMonth);
   const byHolder = (card.extensions?.length ?? 0) > 0 ? cardConsumptionByHolder(card, installments, expenses, statementMonth) : [];
   const hasAnyFile = !!(currentStatement?.pdfPath || currentStatement?.excelPath);
 

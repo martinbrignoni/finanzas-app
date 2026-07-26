@@ -4,19 +4,19 @@ import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
-import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
+import { CategoryPicker } from "../../components/CategoryPicker";
 import { categoryFullPath } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY, currentMonthKey } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
-import { cardLabel } from "../../lib/cards";
+import { cardLabel, dueForCardInMonth } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, MortgageLoan } from "../../types";
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
@@ -104,6 +104,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
     const e = item.data;
     const contact = contacts.find((c) => c.id === e.contactId);
     const acc = accounts.find((a) => a.id === e.accountId);
+    const card = cards.find((c) => c.id === e.cardId);
     return [
       "persona",
       contact?.name,
@@ -114,6 +115,7 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       amountVariants(e.amountMinor),
       formatMoney(Math.abs(e.amountMinor), e.currency),
       acc ? accountLabel(acc, banks) : undefined,
+      card?.name,
     ].filter((x): x is string => !!x).join(" ");
   }
   const p = item.data;
@@ -466,6 +468,7 @@ export function Transactions({
             const e = item.data;
             const contact = contacts.find((c) => c.id === e.contactId);
             const account = accounts.find((a) => a.id === e.accountId);
+            const card = cards.find((c) => c.id === e.cardId);
             const favorMio = e.amountMinor >= 0;
             const isConcepto = !!contact && contactKind(contact) === "concepto";
             return (
@@ -484,6 +487,7 @@ export function Transactions({
                       <span>
                         {formatDateDMY(e.date)} · {favorMio ? "Te debe" : "Le debés"}
                         {account && ` · ${accountLabel(account, banks)}`}
+                        {card && ` · ${cardLabel(card, banks)}`}
                       </span>
                       {showAuthor && <UserBadge users={users} userId={e.createdByUserId} />}
                     </div>
@@ -554,11 +558,14 @@ export function Transactions({
   );
 }
 
-type PaymentMethod = "ninguno" | "cuenta" | "tarjeta";
-type MovementKind = "gasto" | "ingreso" | "transferencia" | "persona";
+type PaymentMethod = "ninguno" | "cuenta" | "tarjeta" | "persona";
+type MovementKind = "gasto" | "ingreso" | "transferencia";
+type TransferKind = "cuentas" | "tarjeta" | "personas";
 
 interface FormState {
   kind: MovementKind;
+  /** Sub-tipo, solo cuando `kind === "transferencia"`. */
+  transferKind: TransferKind;
   // campos de gasto/ingreso
   amount: string;
   currency: Currency;
@@ -566,10 +573,18 @@ interface FormState {
   date: string;
   note: string;
   accountId: string; // "" significa sin cuenta asignada
-  paymentMethod: PaymentMethod; // solo aplica a gastos
+  paymentMethod: PaymentMethod;
   cardId: string; // "" significa sin tarjeta elegida
   cardExtensionId: string; // "" significa el titular (solo aplica si la tarjeta elegida tiene extensiones)
-  // campos de transferencia
+  /** Préstamo hipotecario al que corresponde este gasto (pago de cuota), si aplica. "" = no vinculado. */
+  mortgageLoanId: string;
+  /**
+   * Monto (en la moneda del gasto/ingreso) que puso la persona elegida como
+   * medio de pago. Vacío = se asume el 100% del monto. Solo aplica a un
+   * Gasto/Ingreso NUEVO con medio de pago "persona".
+   */
+  personaAmount: string;
+  // campos de transferencia entre cuentas
   fromAccountId: string;
   toAccountId: string;
   fromAmount: string;
@@ -577,24 +592,20 @@ interface FormState {
   exchangeRate: string;
   // cuotas (solo gasto con tarjeta)
   numInstallments: string;
-  // campos de movimiento con persona
+  // campos de Transferencia > Personas (y del medio de pago "persona" de Gasto/Ingreso)
   contactId: string;
-  /** true = vos pusiste la plata (aumenta lo que te debe); false = ella puso la plata (disminuye lo que te debe). */
+  /** true = vos pusiste la plata (aumenta lo que te debe); false = ella puso la plata (disminuye lo que te debe). Solo aplica a Transferencia > Personas. */
   contactFavorMio: boolean;
   contactDescription: string;
-  /** Si una parte de lo pagado es un gasto tuyo real (no recuperable), se carga aparte con su propia categoría. */
-  contactOwnShare: boolean;
-  contactOwnAmount: string;
-  contactOwnCategory: string;
   // comprobantes
   receiptPaths: string[];
 }
 
 /**
- * Modal único para cargar cualquier movimiento: gasto, ingreso o
- * transferencia entre cuentas propias. Unifica lo que antes eran dos modales
- * separados (TransactionModal + TransferModal) para que el usuario elija el
- * tipo desde un mismo lugar, como una entrada más del libro diario.
+ * Modal único para cargar cualquier movimiento. Tipo (Gasto / Ingreso /
+ * Transferencia) y, dentro de Transferencia, sub-tipo (Entre cuentas /
+ * Tarjeta / Personas). Unifica lo que antes eran varios modales separados,
+ * como una entrada más del libro diario.
  */
 export function MovementModal({
   initial,
@@ -605,20 +616,24 @@ export function MovementModal({
   accounts,
   banks,
   cards,
+  installments,
   categories,
   contacts,
+  mortgageLoans,
   canEditContacts,
+  canEditCards,
   onSaveTransaction,
   onSaveTransfer,
   onSaveInstallment,
   onSaveContactEntry,
+  onSaveCardPayment,
   onSaveContact,
   onSaveCategory,
   onClose,
 }: {
   /** Editar un gasto/ingreso existente. */
   initial?: Transaction;
-  /** Editar una transferencia existente. */
+  /** Editar una transferencia entre cuentas existente. */
   initialTransfer?: Transfer;
   /** Editar una compra en cuotas existente. */
   initialInstallment?: Installment;
@@ -629,16 +644,23 @@ export function MovementModal({
   accounts: Account[];
   banks: Bank[];
   cards: Card[];
+  /** Para sugerir la cuota que vence este mes al registrar un pago de tarjeta (Transferencia > Tarjeta). */
+  installments: Installment[];
   categories: Category[];
   contacts: Contact[];
-  /** Permiso del módulo Personas: gobierna si se puede elegir "Persona" como tipo de movimiento. */
+  /** Préstamos hipotecarios cargados, para poder vincular un gasto como el pago de su cuota (ver `Transaction.mortgageLoanId`). */
+  mortgageLoans: MortgageLoan[];
+  /** Permiso del módulo Personas: gobierna si se puede elegir "Persona" como medio de pago o como sub-tipo de transferencia. */
   canEditContacts: boolean;
+  /** Permiso del módulo Tarjetas: gobierna si se puede registrar un pago de tarjeta desde acá (Transferencia > Tarjeta). */
+  canEditCards: boolean;
   onSaveTransaction: (t: Transaction) => void;
   onSaveTransfer: (t: Transfer) => void;
   /** Crear una categoría nueva (en cualquier nivel) sin salir del modal de movimiento. */
   onSaveCategory: (c: Category) => void;
   onSaveInstallment: (i: Installment) => void;
   onSaveContactEntry: (e: ContactEntry) => void;
+  onSaveCardPayment: (p: CardPayment) => void;
   /** Crear una persona o concepto nuevo (sin salir del modal de movimiento). */
   onSaveContact: (c: Contact) => void;
   onClose: () => void;
@@ -652,7 +674,8 @@ export function MovementModal({
   const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? initialInstallment?.id ?? initialContactEntry?.id ?? crypto.randomUUID());
 
   const [form, setForm] = useState<FormState>(() => ({
-    kind: initialContactEntry ? "persona" : initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
+    kind: initialContactEntry || initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
+    transferKind: initialContactEntry ? "personas" : "cuentas",
     amount: initialContactEntry
       ? String(fromMinor(Math.abs(initialContactEntry.amountMinor)))
       : initialInstallment
@@ -675,9 +698,25 @@ export function MovementModal({
       : todayISO(),
     note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
     accountId: initialContactEntry?.accountId ?? initial?.accountId ?? "",
-    paymentMethod: initialInstallment ? "tarjeta" : initial?.cardId ? "tarjeta" : initial?.accountId ? "cuenta" : presetCardId ? "tarjeta" : "ninguno",
-    cardId: initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
-    cardExtensionId: initialInstallment?.cardExtensionId ?? initial?.cardExtensionId ?? "",
+    paymentMethod: initialContactEntry
+      ? initialContactEntry.cardId
+        ? "tarjeta"
+        : initialContactEntry.accountId
+        ? "cuenta"
+        : "ninguno"
+      : initialInstallment
+      ? "tarjeta"
+      : initial?.cardId
+      ? "tarjeta"
+      : initial?.accountId
+      ? "cuenta"
+      : presetCardId
+      ? "tarjeta"
+      : "ninguno",
+    cardId: initialContactEntry?.cardId ?? initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
+    cardExtensionId: initialContactEntry?.cardExtensionId ?? initialInstallment?.cardExtensionId ?? initial?.cardExtensionId ?? "",
+    mortgageLoanId: initial?.mortgageLoanId ?? "",
+    personaAmount: "",
     fromAccountId: initialTransfer ? initialTransfer.fromAccountId : accounts[0]?.id ?? "",
     toAccountId: initialTransfer ? initialTransfer.toAccountId : accounts[1]?.id ?? accounts[0]?.id ?? "",
     fromAmount: initialTransfer ? String(fromMinor(initialTransfer.fromAmountMinor)) : "",
@@ -687,20 +726,18 @@ export function MovementModal({
     contactId: initialContactEntry?.contactId ?? contacts[0]?.id ?? "",
     contactFavorMio: initialContactEntry ? initialContactEntry.amountMinor >= 0 : true,
     contactDescription: initialContactEntry?.description ?? "",
-    contactOwnShare: false,
-    contactOwnAmount: "",
-    contactOwnCategory: defaultLeafCategoryValue(categories, "gasto"),
     receiptPaths: receiptPathsOf(initialTransfer ?? initial ?? initialInstallment ?? initialContactEntry),
   }));
   const [error, setError] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [showOwnCategoryModal, setShowOwnCategoryModal] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
   // Las cajas inactivas (Configuración → Bancos) no se ofrecen para movimientos nuevos, pero
   // si el movimiento ya tenía una asignada (edición), se mantiene disponible para no romperlo.
   const eligibleAccounts = accounts.filter((a) => a.currency === form.currency && (isAccountActive(a) || a.id === form.accountId));
   const transferAccountOptions = (selectedId: string) => accounts.filter((a) => isAccountActive(a) || a.id === selectedId);
   const selectedCard = cards.find((c) => c.id === form.cardId);
+  const selectedContact = contacts.find((c) => c.id === form.contactId);
+  const cardDueThisMonth = form.cardId ? dueForCardInMonth(form.cardId, installments, currentMonthKey()) : null;
 
   const fromAcc = accounts.find((a) => a.id === form.fromAccountId);
   const toAcc = accounts.find((a) => a.id === form.toAccountId);
@@ -724,7 +761,7 @@ export function MovementModal({
   // pisarla aunque cambie la cuenta o la fecha.
   const [rateAutoSuggested, setRateAutoSuggested] = useState(() => !initialTransfer);
   useEffect(() => {
-    if (form.kind !== "transferencia" || !needsRate || !rateAutoSuggested) return;
+    if (form.kind !== "transferencia" || form.transferKind !== "cuentas" || !needsRate || !rateAutoSuggested) return;
     let cancelado = false;
     fetchRateForDate("USD", form.date).then((row) => {
       if (cancelado || !row) return;
@@ -734,10 +771,10 @@ export function MovementModal({
       cancelado = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.kind, needsRate, form.date, rateAutoSuggested]);
+  }, [form.kind, form.transferKind, needsRate, form.date, rateAutoSuggested]);
 
   const handleSave = () => {
-    if (form.kind === "transferencia") {
+    if (form.kind === "transferencia" && form.transferKind === "cuentas") {
       if (!fromAcc || !toAcc) return setError("Elegí cuenta de origen y destino.");
       if (fromAcc.id === toAcc.id) return setError("La cuenta de origen y destino no pueden ser la misma.");
       const fromAmountMinor = parseAmountInput(form.fromAmount);
@@ -773,32 +810,33 @@ export function MovementModal({
       return;
     }
 
-    if (form.kind === "persona") {
+    if (form.kind === "transferencia" && form.transferKind === "tarjeta") {
+      if (!form.cardId) return setError("Elegí una tarjeta.");
+      const amountMinor = parseAmountInput(form.amount);
+      if (amountMinor === null || amountMinor === 0) return setError("Ingresá un monto válido, mayor a cero.");
+      if (!form.accountId) return setError("Elegí desde qué cuenta se paga.");
+      if (!form.date) return setError("Elegí una fecha.");
+
+      onSaveCardPayment({
+        id: movementId,
+        cardId: form.cardId,
+        accountId: form.accountId,
+        date: form.date,
+        amountMinor,
+        currency: form.currency,
+        note: form.note.trim() || undefined,
+        receiptPaths: form.receiptPaths,
+      });
+      return;
+    }
+
+    if (form.kind === "transferencia" && form.transferKind === "personas") {
       if (!form.contactId) return setError("Elegí una persona o concepto.");
       const amountAbs = parseAmountInput(form.amount);
       if (amountAbs === null || amountAbs === 0) return setError("Ingresá un monto válido, mayor a cero.");
       if (!form.contactDescription.trim()) return setError("Ingresá una descripción.");
       if (!form.date) return setError("Elegí una fecha.");
-
-      let ownAmountMinor: number | null = null;
-      if (form.contactOwnShare) {
-        ownAmountMinor = parseAmountInput(form.contactOwnAmount);
-        if (ownAmountMinor === null || ownAmountMinor === 0) return setError("Ingresá el monto de tu parte, mayor a cero.");
-        if (!form.contactOwnCategory) return setError("Elegí una categoría para tu parte.");
-      }
-
-      if (ownAmountMinor !== null) {
-        onSaveTransaction({
-          id: crypto.randomUUID(),
-          type: "gasto",
-          amountMinor: ownAmountMinor,
-          currency: form.currency,
-          category: form.contactOwnCategory || undefined,
-          date: form.date,
-          note: form.contactDescription.trim() ? `${form.contactDescription.trim()} (tu parte)` : undefined,
-          accountId: form.accountId || undefined,
-        });
-      }
+      if (form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
 
       onSaveContactEntry({
         id: movementId,
@@ -807,19 +845,34 @@ export function MovementModal({
         amountMinor: form.contactFavorMio ? amountAbs : -amountAbs,
         currency: form.currency,
         description: form.contactDescription.trim(),
-        accountId: form.accountId || undefined,
+        accountId: form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
+        cardId: form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
+        cardExtensionId: form.paymentMethod === "tarjeta" ? form.cardExtensionId || undefined : undefined,
         receiptPaths: form.receiptPaths,
         createdByUserId: initialContactEntry?.createdByUserId,
       });
       return;
     }
 
+    // Gasto / Ingreso (los otros tres casos, todos "transferencia", ya
+    // devolvieron arriba). TS no puede inferir esto solo a partir de los
+    // `return` condicionales de arriba, así que lo dejamos explícito.
+    const movementType: "gasto" | "ingreso" = form.kind === "ingreso" ? "ingreso" : "gasto";
     const amountMinor = parseAmountInput(form.amount);
     if (amountMinor === null || amountMinor === 0) return setError("Ingresá un monto válido, mayor a cero.");
     if (!form.date) return setError("Elegí una fecha.");
     // La categoría es opcional a propósito: permite cargar rápido y
     // categorizar después (ver el filtro de "pendientes" en Movimientos).
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
+
+    let personaAmountMinor: number | null = null;
+    if (form.paymentMethod === "persona") {
+      if (!form.contactId) return setError("Elegí una persona o concepto.");
+      const raw = form.personaAmount.trim();
+      personaAmountMinor = raw ? parseAmountInput(raw) : amountMinor;
+      if (personaAmountMinor === null || personaAmountMinor <= 0) return setError("Ingresá un monto válido para la persona, mayor a cero.");
+      if (personaAmountMinor > amountMinor) return setError("El monto a cargo de la persona no puede ser mayor al del gasto/ingreso.");
+    }
 
     if (showInstallmentsField) {
       const numCuotas = Math.max(1, parseInt(form.numInstallments) || 1);
@@ -846,18 +899,36 @@ export function MovementModal({
 
     onSaveTransaction({
       id: movementId,
-      type: form.kind,
+      type: movementType,
       amountMinor,
       currency: form.currency,
       category: form.category || undefined,
       date: form.date,
       note: form.note.trim() || undefined,
-      accountId: form.kind === "ingreso" ? form.accountId || undefined : form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
+      accountId: form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
       cardId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
       cardExtensionId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardExtensionId || undefined : undefined,
+      mortgageLoanId: form.kind === "gasto" ? form.mortgageLoanId || undefined : undefined,
       receiptPaths: form.receiptPaths,
       createdByUserId: initial?.createdByUserId,
     });
+
+    // Medio de pago "persona": además del gasto/ingreso de arriba (con su
+    // categoría de siempre), registra por separado en Personas cuánto puso
+    // esa persona — le quedás debiendo eso (o te lo descuenta, si es un
+    // ingreso que te adelantó/prestó).
+    if (personaAmountMinor !== null) {
+      onSaveContactEntry({
+        id: crypto.randomUUID(),
+        contactId: form.contactId,
+        date: form.date,
+        amountMinor: -personaAmountMinor,
+        currency: form.currency,
+        description: form.category
+          ? `${form.category}${form.note.trim() ? ` · ${form.note.trim()}` : ""}`
+          : form.note.trim() || (form.kind === "gasto" ? "Gasto" : "Ingreso"),
+      });
+    }
   };
 
   // La cantidad de cuotas solo se puede elegir al pagar un gasto con tarjeta, y no al
@@ -871,8 +942,26 @@ export function MovementModal({
           { value: "gasto" as const, label: "Gasto" },
           { value: "ingreso" as const, label: "Ingreso" },
           { value: "transferencia" as const, label: "Transferencia" },
-          ...(canEditContacts ? [{ value: "persona" as const, label: "Persona" }] : []),
         ];
+
+  const transferKindOptions = [
+    { value: "cuentas" as const, label: "Entre cuentas" },
+    ...(canEditCards ? [{ value: "tarjeta" as const, label: "Tarjeta" }] : []),
+    ...(canEditContacts ? [{ value: "personas" as const, label: "Personas" }] : []),
+  ];
+
+  const paymentMethodOptions = [
+    { value: "ninguno" as const, label: "Sin asignar" },
+    { value: "cuenta" as const, label: "Cuenta" },
+    ...(form.kind === "gasto" ? [{ value: "tarjeta" as const, label: "Tarjeta" }] : []),
+    ...(!isEditingTransaction && canEditContacts && contacts.length > 0 ? [{ value: "persona" as const, label: "Persona" }] : []),
+  ];
+
+  const transferPersonaPaymentOptions = [
+    { value: "ninguno" as const, label: "Sin vincular" },
+    { value: "cuenta" as const, label: "Cuenta" },
+    { value: "tarjeta" as const, label: "Tarjeta" },
+  ];
 
   const title = isEditingTransfer
     ? "Editar transferencia"
@@ -889,7 +978,7 @@ export function MovementModal({
           {() => (
             <Segment
               value={form.kind}
-              onChange={(v) => setForm((f) => ({ ...f, kind: v, category: v === "transferencia" || v === "persona" ? f.category : "" }))}
+              onChange={(v) => setForm((f) => ({ ...f, kind: v, transferKind: "cuentas", paymentMethod: "ninguno", accountId: "", cardId: "", category: v === "transferencia" ? f.category : "" }))}
               options={kindOptions}
             />
           )}
@@ -897,55 +986,52 @@ export function MovementModal({
       )}
 
       {form.kind === "transferencia" ? (
-        accounts.length < 2 ? (
-          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
-            Necesitás al menos dos cajas creadas (en Cuentas) para poder transferir entre ellas.
-          </p>
-        ) : (
-          <>
-            <Field label="Desde">
-              {(id) => (
-                <Select
-                  id={id}
-                  value={form.fromAccountId}
-                  onChange={(e) => setForm((f) => ({ ...f, fromAccountId: e.target.value, toAmount: applyRate(f.fromAmount, f.exchangeRate, accounts.find((a) => a.id === e.target.value), toAcc) }))}
-                >
-                  {transferAccountOptions(form.fromAccountId).map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
-                </Select>
-              )}
-            </Field>
-            <Field label="Hacia">
-              {(id) => (
-                <Select
-                  id={id}
-                  value={form.toAccountId}
-                  onChange={(e) => setForm((f) => ({ ...f, toAccountId: e.target.value, toAmount: applyRate(f.fromAmount, f.exchangeRate, fromAcc, accounts.find((a) => a.id === e.target.value)) }))}
-                >
-                  {transferAccountOptions(form.toAccountId).map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
-                </Select>
-              )}
-            </Field>
-            <Field label="Fecha">
-              {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
-            </Field>
-            <Field label={`Monto que sale${fromAcc ? ` (${fromAcc.currency})` : ""}`}>
-              {(id) => (
-                <TextInput
-                  id={id}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={form.fromAmount}
-                  onChange={(e) => setForm((f) => ({ ...f, fromAmount: e.target.value, toAmount: applyRate(e.target.value, f.exchangeRate) }))}
-                  placeholder="0"
+        <>
+          {!isEditingTransfer && !isEditingContactEntry && transferKindOptions.length > 1 && (
+            <Field label="¿Qué tipo de transferencia?">
+              {() => (
+                <Segment
+                  value={form.transferKind}
+                  onChange={(v) => setForm((f) => ({ ...f, transferKind: v, paymentMethod: "ninguno", accountId: "", cardId: "" }))}
+                  options={transferKindOptions}
                 />
               )}
             </Field>
+          )}
 
-            {needsRate && (
+          {form.transferKind === "cuentas" &&
+            (accounts.length < 2 ? (
+              <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+                Necesitás al menos dos cajas creadas (en Cuentas) para poder transferir entre ellas.
+              </p>
+            ) : (
               <>
-                <Field label={`Cotización (1 USD = ? UYU)${rateAutoSuggested ? " · sugerida" : ""}`}>
+                <Field label="Desde">
+                  {(id) => (
+                    <Select
+                      id={id}
+                      value={form.fromAccountId}
+                      onChange={(e) => setForm((f) => ({ ...f, fromAccountId: e.target.value, toAmount: applyRate(f.fromAmount, f.exchangeRate, accounts.find((a) => a.id === e.target.value), toAcc) }))}
+                    >
+                      {transferAccountOptions(form.fromAccountId).map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
+                    </Select>
+                  )}
+                </Field>
+                <Field label="Hacia">
+                  {(id) => (
+                    <Select
+                      id={id}
+                      value={form.toAccountId}
+                      onChange={(e) => setForm((f) => ({ ...f, toAccountId: e.target.value, toAmount: applyRate(f.fromAmount, f.exchangeRate, fromAcc, accounts.find((a) => a.id === e.target.value)) }))}
+                    >
+                      {transferAccountOptions(form.toAccountId).map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
+                    </Select>
+                  )}
+                </Field>
+                <Field label="Fecha">
+                  {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+                </Field>
+                <Field label={`Monto que sale${fromAcc ? ` (${fromAcc.currency})` : ""}`}>
                   {(id) => (
                     <TextInput
                       id={id}
@@ -953,215 +1039,174 @@ export function MovementModal({
                       inputMode="decimal"
                       min="0"
                       step="0.01"
-                      value={form.exchangeRate}
-                      onChange={(e) => {
-                        setRateAutoSuggested(false);
-                        setForm((f) => ({ ...f, exchangeRate: e.target.value, toAmount: applyRate(f.fromAmount, e.target.value) }));
-                      }}
-                      placeholder="ej. 40.50"
+                      value={form.fromAmount}
+                      onChange={(e) => setForm((f) => ({ ...f, fromAmount: e.target.value, toAmount: applyRate(e.target.value, f.exchangeRate) }))}
+                      placeholder="0"
                     />
                   )}
                 </Field>
-                <Field label={`Monto que entra${toAcc ? ` (${toAcc.currency})` : ""}`}>
-                  {(id) => (
-                    <TextInput
-                      id={id}
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      value={form.toAmount}
-                      onChange={(e) => setForm((f) => ({ ...f, toAmount: e.target.value }))}
-                      placeholder="Se calcula solo con la cotización, o ingresalo a mano"
-                    />
-                  )}
+
+                {needsRate && (
+                  <>
+                    <Field label={`Cotización (1 USD = ? UYU)${rateAutoSuggested ? " · sugerida" : ""}`}>
+                      {(id) => (
+                        <TextInput
+                          id={id}
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          value={form.exchangeRate}
+                          onChange={(e) => {
+                            setRateAutoSuggested(false);
+                            setForm((f) => ({ ...f, exchangeRate: e.target.value, toAmount: applyRate(f.fromAmount, e.target.value) }));
+                          }}
+                          placeholder="ej. 40.50"
+                        />
+                      )}
+                    </Field>
+                    <Field label={`Monto que entra${toAcc ? ` (${toAcc.currency})` : ""}`}>
+                      {(id) => (
+                        <TextInput
+                          id={id}
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          value={form.toAmount}
+                          onChange={(e) => setForm((f) => ({ ...f, toAmount: e.target.value }))}
+                          placeholder="Se calcula solo con la cotización, o ingresalo a mano"
+                        />
+                      )}
+                    </Field>
+                  </>
+                )}
+
+                <Field label="Nota (opcional)">
+                  {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
                 </Field>
               </>
-            )}
+            ))}
 
-            <Field label="Nota (opcional)">
-              {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
-            </Field>
-          </>
-        )
-      ) : form.kind === "persona" ? (
-        <>
-          {contacts.length === 0 ? (
-            <p className="text-xs mb-3" style={{ color: C.textFaint }}>
-              Todavía no tenés personas ni conceptos cargados. Creá uno con el botón de abajo.
-            </p>
-          ) : (
-            <Field label="Persona o concepto">
-              {(id) => (
-                <Combobox
-                  id={id}
-                  value={form.contactId}
-                  placeholder="Elegí a quién o qué"
-                  onChange={(contactId) => setForm((f) => ({ ...f, contactId }))}
-                  options={[...contacts]
-                    .sort((a, b) => (contactKind(a) === contactKind(b) ? 0 : contactKind(a) === "persona" ? -1 : 1))
-                    .map((c) => ({ value: c.id, label: c.name, group: contactKind(c) === "concepto" ? "Conceptos" : "Personas" }))}
-                />
-              )}
-            </Field>
-          )}
-          {!isEditingContactEntry && (
-            <div className="flex justify-end -mt-1 mb-3">
-              <button type="button" onClick={() => setShowContactModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
-                + Nueva persona o concepto
-              </button>
-            </div>
-          )}
+          {form.transferKind === "tarjeta" &&
+            (cards.length === 0 ? (
+              <p className="text-xs mb-3" style={{ color: C.textFaint }}>No tenés tarjetas creadas. Creá una en Tarjetas.</p>
+            ) : (
+              <>
+                <Field label="Tarjeta">
+                  {(id) => (
+                    <Combobox
+                      id={id}
+                      value={form.cardId}
+                      placeholder="Elegí una tarjeta"
+                      onChange={(cardId) => setForm((f) => ({ ...f, cardId }))}
+                      options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                    />
+                  )}
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Monto">
+                    {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+                  </Field>
+                  <Field label="Moneda">
+                    {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
+                  </Field>
+                </div>
+                {cardDueThisMonth && (cardDueThisMonth.UYU > 0 || cardDueThisMonth.USD > 0) && (
+                  <p className="text-xs mb-3" style={{ color: C.textMuted }}>
+                    Cuota que vence este mes: {cardDueThisMonth.UYU > 0 && <span className="font-mono">{formatMoney(cardDueThisMonth.UYU, "UYU")}</span>}
+                    {cardDueThisMonth.UYU > 0 && cardDueThisMonth.USD > 0 && " · "}
+                    {cardDueThisMonth.USD > 0 && <span className="font-mono">{formatMoney(cardDueThisMonth.USD, "USD")}</span>}
+                  </p>
+                )}
+                <Field label="Cuenta de origen">
+                  {(id) =>
+                    eligibleAccounts.length === 0 ? (
+                      <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}. Creá una en Cuentas.</p>
+                    ) : (
+                      <Select id={id} value={form.accountId} onChange={(e) => setForm((f) => ({ ...f, accountId: e.target.value }))}>
+                        <option value="">Elegí una cuenta</option>
+                        {eligibleAccounts.map((a) => <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>)}
+                      </Select>
+                    )
+                  }
+                </Field>
+                <Field label="Fecha">
+                  {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+                </Field>
+                <Field label="Nota (opcional)">
+                  {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Pago mínimo, pago total..." />}
+                </Field>
+              </>
+            ))}
 
-          <Field label="Tipo de movimiento">
-            {() => (
-              <Segment
-                value={form.contactFavorMio ? "favor" : "contra"}
-                onChange={(v) => setForm((f) => ({ ...f, contactFavorMio: v === "favor" }))}
-                options={[
-                  { value: "favor", label: "A favor mío" },
-                  { value: "contra", label: "A favor suyo" },
-                ]}
-              />
-            )}
-          </Field>
-          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-            {form.contactFavorMio
-              ? "Vos pusiste la plata (pagaste algo suyo, le prestaste, o le devolviste lo que le debías). Aumenta lo que te debe."
-              : "Ella puso la plata (te pagó, te devolvió algo, o pagó algo tuyo). Disminuye lo que te debe."}
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={form.contactOwnShare ? "Monto a cobrar/pagar" : "Monto"}>
-              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
-            </Field>
-            <Field label="Moneda">
-              {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
-            </Field>
-          </div>
-          <Field label="Descripción">
-            {(id) => <TextInput id={id} value={form.contactDescription} onChange={(e) => setForm((f) => ({ ...f, contactDescription: e.target.value }))} placeholder="Cena, nafta, regalo..." />}
-          </Field>
-          <Field label="Fecha">
-            {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
-          </Field>
-
-          {!isEditingContactEntry && (
+          {form.transferKind === "personas" && (
             <>
-              <Field label="¿Una parte es un gasto tuyo?">
+              {contacts.length === 0 ? (
+                <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+                  Todavía no tenés personas ni conceptos cargados. Creá uno con el botón de abajo.
+                </p>
+              ) : (
+                <Field label="Persona o concepto">
+                  {(id) => (
+                    <Combobox
+                      id={id}
+                      value={form.contactId}
+                      placeholder="Elegí a quién o qué"
+                      onChange={(contactId) => setForm((f) => ({ ...f, contactId }))}
+                      options={[...contacts]
+                        .sort((a, b) => (contactKind(a) === contactKind(b) ? 0 : contactKind(a) === "persona" ? -1 : 1))
+                        .map((c) => ({ value: c.id, label: c.name, group: contactKind(c) === "concepto" ? "Conceptos" : "Personas" }))}
+                    />
+                  )}
+                </Field>
+              )}
+              {!isEditingContactEntry && (
+                <div className="flex justify-end -mt-1 mb-3">
+                  <button type="button" onClick={() => setShowContactModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
+                    + Nueva persona o concepto
+                  </button>
+                </div>
+              )}
+
+              <Field label="Tipo de movimiento">
                 {() => (
                   <Segment
-                    value={form.contactOwnShare ? "on" : "off"}
-                    onChange={(v) => setForm((f) => ({ ...f, contactOwnShare: v === "on" }))}
-                    options={[{ value: "off", label: "No, es todo a cobrar/pagar" }, { value: "on", label: "Sí, hay una parte mía" }]}
+                    value={form.contactFavorMio ? "favor" : "contra"}
+                    onChange={(v) => setForm((f) => ({ ...f, contactFavorMio: v === "favor" }))}
+                    options={[
+                      { value: "favor", label: "A favor mío" },
+                      { value: "contra", label: "A favor suyo" },
+                    ]}
                   />
                 )}
               </Field>
-              {form.contactOwnShare && (
-                <>
-                  <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-                    Se carga como un gasto tuyo real, con categoría propia, separado del monto de arriba (que es lo que le vas a cobrar o pagar a esta persona o concepto).
-                  </p>
-                  <Field label={`Monto que es tuyo${form.currency ? ` (${form.currency})` : ""}`}>
-                    {(id) => (
-                      <TextInput
-                        id={id}
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={form.contactOwnAmount}
-                        onChange={(e) => setForm((f) => ({ ...f, contactOwnAmount: e.target.value }))}
-                        placeholder="0"
-                      />
-                    )}
-                  </Field>
-                  <CategoryPicker categories={categories} type="gasto" value={form.contactOwnCategory} onChange={(name) => setForm((f) => ({ ...f, contactOwnCategory: name }))} />
-                  <div className="flex justify-end -mt-1 mb-3">
-                    <button type="button" onClick={() => setShowOwnCategoryModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
-                      + Nueva categoría
-                    </button>
-                  </div>
-                </>
-              )}
-            </>
-          )}
+              <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                {form.contactFavorMio
+                  ? "Vos pusiste la plata (pagaste algo suyo, le prestaste, o le devolviste lo que le debías). Aumenta lo que te debe."
+                  : "Ella puso la plata (te pagó, te devolvió algo, o pagó algo tuyo). Disminuye lo que te debe."}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Monto">
+                  {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+                </Field>
+                <Field label="Moneda">
+                  {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
+                </Field>
+              </div>
+              <Field label="Descripción">
+                {(id) => <TextInput id={id} value={form.contactDescription} onChange={(e) => setForm((f) => ({ ...f, contactDescription: e.target.value }))} placeholder="Cena, nafta, regalo..." />}
+              </Field>
+              <Field label="Fecha">
+                {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+              </Field>
 
-          <Field label="Cuenta vinculada (opcional)">
-            {(id) =>
-              eligibleAccounts.length === 0 ? (
-                <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}.</p>
-              ) : (
-                <Combobox
-                  id={id}
-                  value={form.accountId}
-                  placeholder="Sin vincular (no mueve ninguna cuenta)"
-                  onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
-                  options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
-                />
-              )
-            }
-          </Field>
-          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-            {form.accountId
-              ? form.contactFavorMio
-                ? "Se va a descontar de esa cuenta (salió plata real)."
-                : "Se va a sumar a esa cuenta (entró plata real)."
-              : "Si no elegís cuenta, queda solo como registro informativo (ej. pagó algo directamente, sin pasar por tu plata)."}
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Monto">
-              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
-            </Field>
-            <Field label="Moneda">
-              {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
-            </Field>
-          </div>
-          <CategoryPicker
-            categories={categories}
-            type={form.kind === "ingreso" ? "ingreso" : "gasto"}
-            value={form.category}
-            onChange={(name) => setForm((f) => ({ ...f, category: name }))}
-            allowEmpty
-          />
-          <div className="flex justify-end -mt-1 mb-3">
-            <button type="button" onClick={() => setShowCategoryModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
-              + Nueva categoría
-            </button>
-          </div>
-          <Field label="Fecha">
-            {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
-          </Field>
-          <Field label="Nota (opcional)">
-            {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
-          </Field>
-
-          {form.kind === "ingreso" ? (
-            <Field label="Cuenta (opcional)">
-              {(id) => (
-                <Combobox
-                  id={id}
-                  value={form.accountId}
-                  placeholder={form.accountId ? undefined : "Sin cuenta asignada"}
-                  onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
-                  options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
-                />
-              )}
-            </Field>
-          ) : (
-            <>
-              <Field label="Medio de pago">
+              <Field label="Medio de pago (opcional)">
                 {() => (
                   <Segment
                     value={form.paymentMethod}
-                    onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "" }))}
-                    options={[
-                      { value: "ninguno", label: "Sin asignar" },
-                      { value: "cuenta", label: "Cuenta" },
-                      { value: "tarjeta", label: "Tarjeta" },
-                    ]}
+                    onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "", cardExtensionId: "" }))}
+                    options={transferPersonaPaymentOptions}
                   />
                 )}
               </Field>
@@ -1169,7 +1214,7 @@ export function MovementModal({
                 <Field label="Cuenta">
                   {(id) =>
                     eligibleAccounts.length === 0 ? (
-                      <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}. Creá una en Cuentas.</p>
+                      <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}.</p>
                     ) : (
                       <Combobox
                         id={id}
@@ -1213,31 +1258,189 @@ export function MovementModal({
                   )}
                 </Field>
               )}
-              {showInstallmentsField && (
-                <>
-                  <Field label="Cantidad de cuotas">
-                    {(id) => (
-                      <TextInput
-                        id={id}
-                        type="number"
-                        inputMode="numeric"
-                        min="1"
-                        value={form.numInstallments}
-                        onChange={(e) => setForm((f) => ({ ...f, numInstallments: e.target.value }))}
-                        onFocus={(e) => e.currentTarget.select()}
-                      />
-                    )}
-                  </Field>
-                  {Math.max(1, parseInt(form.numInstallments) || 1) > 1 && (
-                    <div className="text-xs mb-2" style={{ color: C.textMuted }}>
-                      {Math.max(1, parseInt(form.numInstallments) || 1)} cuotas de{" "}
-                      <span className="font-mono" style={{ color: C.text }}>
-                        {formatMoney(Math.round((parseAmountInput(form.amount) ?? 0) / Math.max(1, parseInt(form.numInstallments) || 1)), form.currency)}
-                      </span>
-                    </div>
-                  )}
-                </>
+              <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                {form.paymentMethod === "cuenta"
+                  ? form.contactFavorMio
+                    ? "Se va a descontar de esa cuenta (salió plata real)."
+                    : "Se va a sumar a esa cuenta (entró plata real)."
+                  : form.paymentMethod === "tarjeta"
+                  ? "Se suma al consumo y a la deuda pendiente de esa tarjeta, igual que un gasto con tarjeta, pero sin contar como gasto tuyo."
+                  : "Sin vincular cuenta ni tarjeta, queda solo como registro informativo (ej. pagó algo directamente, sin pasar por tu plata)."}
+              </p>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Monto">
+              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+            </Field>
+            <Field label="Moneda">
+              {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
+            </Field>
+          </div>
+          <CategoryPicker
+            categories={categories}
+            type={form.kind === "ingreso" ? "ingreso" : "gasto"}
+            value={form.category}
+            onChange={(name) => setForm((f) => ({ ...f, category: name }))}
+            allowEmpty
+          />
+          <div className="flex justify-end -mt-1 mb-3">
+            <button type="button" onClick={() => setShowCategoryModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
+              + Nueva categoría
+            </button>
+          </div>
+          <Field label="Fecha">
+            {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+          </Field>
+          <Field label="Nota (opcional)">
+            {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
+          </Field>
+
+          {form.kind === "gasto" && mortgageLoans.length > 0 && (
+            <>
+              <Field label="¿Es el pago de una cuota hipotecaria? (opcional)">
+                {(id) => (
+                  <Select id={id} value={form.mortgageLoanId} onChange={(e) => setForm((f) => ({ ...f, mortgageLoanId: e.target.value }))}>
+                    <option value="">No</option>
+                    {mortgageLoans.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </Select>
+                )}
+              </Field>
+              <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                Vinculándolo, Inicio deja de reclamar la cuota de este préstamo en "Vencimientos" una vez que quede cargado este mes.
+              </p>
+            </>
+          )}
+
+          <Field label="Medio de pago">
+            {() => (
+              <Segment
+                value={form.paymentMethod}
+                onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "", cardExtensionId: "" }))}
+                options={paymentMethodOptions}
+              />
+            )}
+          </Field>
+          {form.paymentMethod === "cuenta" && (
+            <Field label="Cuenta">
+              {(id) =>
+                eligibleAccounts.length === 0 ? (
+                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés cajas en {form.currency}. Creá una en Cuentas.</p>
+                ) : (
+                  <Combobox
+                    id={id}
+                    value={form.accountId}
+                    placeholder="Elegí una cuenta"
+                    onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
+                    options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                  />
+                )
+              }
+            </Field>
+          )}
+          {form.kind === "gasto" && form.paymentMethod === "tarjeta" && (
+            <Field label="Tarjeta">
+              {(id) =>
+                cards.length === 0 ? (
+                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés tarjetas creadas. Creá una en Tarjetas.</p>
+                ) : (
+                  <Combobox
+                    id={id}
+                    value={form.cardId}
+                    placeholder="Elegí una tarjeta"
+                    onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: "" }))}
+                    options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                  />
+                )
+              }
+            </Field>
+          )}
+          {form.kind === "gasto" && form.paymentMethod === "tarjeta" && (selectedCard?.extensions?.length ?? 0) > 0 && (
+            <Field label="¿Con qué tarjeta?">
+              {() => (
+                <Segment
+                  value={form.cardExtensionId}
+                  onChange={(v) => setForm((f) => ({ ...f, cardExtensionId: v }))}
+                  options={[
+                    { value: "", label: "Titular" },
+                    ...(selectedCard?.extensions ?? []).map((e) => ({ value: e.id, label: e.name })),
+                  ]}
+                />
               )}
+            </Field>
+          )}
+          {showInstallmentsField && (
+            <>
+              <Field label="Cantidad de cuotas">
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    value={form.numInstallments}
+                    onChange={(e) => setForm((f) => ({ ...f, numInstallments: e.target.value }))}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                )}
+              </Field>
+              {Math.max(1, parseInt(form.numInstallments) || 1) > 1 && (
+                <div className="text-xs mb-2" style={{ color: C.textMuted }}>
+                  {Math.max(1, parseInt(form.numInstallments) || 1)} cuotas de{" "}
+                  <span className="font-mono" style={{ color: C.text }}>
+                    {formatMoney(Math.round((parseAmountInput(form.amount) ?? 0) / Math.max(1, parseInt(form.numInstallments) || 1)), form.currency)}
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+
+          {form.paymentMethod === "persona" && (
+            <>
+              {contacts.length === 0 ? (
+                <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+                  Todavía no tenés personas ni conceptos cargados. Creá uno con el botón de abajo.
+                </p>
+              ) : (
+                <Field label="Persona o concepto">
+                  {(id) => (
+                    <Combobox
+                      id={id}
+                      value={form.contactId}
+                      placeholder="Elegí quién puso la plata"
+                      onChange={(contactId) => setForm((f) => ({ ...f, contactId }))}
+                      options={[...contacts]
+                        .sort((a, b) => (contactKind(a) === contactKind(b) ? 0 : contactKind(a) === "persona" ? -1 : 1))
+                        .map((c) => ({ value: c.id, label: c.name, group: contactKind(c) === "concepto" ? "Conceptos" : "Personas" }))}
+                    />
+                  )}
+                </Field>
+              )}
+              <div className="flex justify-end -mt-1 mb-3">
+                <button type="button" onClick={() => setShowContactModal(true)} className="text-xs font-semibold" style={{ color: C.usd }}>
+                  + Nueva persona o concepto
+                </button>
+              </div>
+              <Field label={`¿Cuánto puso ${selectedContact?.name ?? "esta persona"}? (opcional)`}>
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    value={form.personaAmount}
+                    onChange={(e) => setForm((f) => ({ ...f, personaAmount: e.target.value }))}
+                    placeholder={`Todo (${form.amount || "0"})`}
+                  />
+                )}
+              </Field>
+              <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                El {form.kind === "gasto" ? "gasto" : "ingreso"} completo queda categorizado como arriba. Si dejás este campo vacío, se asume que {selectedContact?.name ?? "esta persona"} puso el 100%; si ponés un monto menor, el resto se considera puesto por vos. Se registra además un movimiento en Personas por ese importe.
+              </p>
             </>
           )}
         </>
@@ -1258,18 +1461,6 @@ export function MovementModal({
             setShowCategoryModal(false);
           }}
           onClose={() => setShowCategoryModal(false)}
-        />
-      )}
-      {showOwnCategoryModal && (
-        <CategoryModal
-          categories={categories}
-          defaultType="gasto"
-          onSave={(c) => {
-            onSaveCategory(c);
-            setForm((f) => ({ ...f, contactOwnCategory: categoryFullPath(c, [...categories, c]) }));
-            setShowOwnCategoryModal(false);
-          }}
-          onClose={() => setShowOwnCategoryModal(false)}
         />
       )}
       {showContactModal && (

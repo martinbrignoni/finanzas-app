@@ -64,6 +64,14 @@ export interface Transaction {
    * movimiento no afecta a la regla ni a otras ocurrencias ya generadas.
    */
   recurringRuleId?: string;
+  /**
+   * Si este movimiento es el pago de la cuota de un préstamo hipotecario
+   * (ver `MortgageLoan`), acá queda su id. Se usa solo para que Inicio deje
+   * de mostrar la cuota de este mes en "Vencimientos" una vez cargado el
+   * movimiento; no afecta el cálculo de la tabla de amortización (siempre
+   * teórica, ver `lib/mortgage.ts`), ni el saldo/proyección del préstamo.
+   */
+  mortgageLoanId?: string;
 }
 
 export interface Bank {
@@ -342,6 +350,14 @@ export interface Contact {
  * (vos pusiste la plata), entra cuando es negativo (recibiste plata). Sin
  * `accountId`, es solo informativo y no mueve ninguna cuenta (ej. "mi papá
  * pagó directamente la luz de mi casa", sin que pase por una cuenta tuya).
+ *
+ * Si en cambio `cardId` está cargado (mutuamente excluyente con `accountId`),
+ * el movimiento se pagó con esa tarjeta de crédito propia: suma al consumo y
+ * a la deuda pendiente de la tarjeta igual que un gasto con tarjeta (ver
+ * `lib/cards.ts#cardConsumptionForMonth`), pero SIN contar como gasto tuyo
+ * (no entra en Ingresos/Gastos, presupuestos ni proyección) — el signo de
+ * `amountMinor` sigue rigiendo solo la cuenta corriente con la persona, no
+ * si hubo o no cargo a la tarjeta.
  */
 export interface ContactEntry {
   id: string;
@@ -351,6 +367,10 @@ export interface ContactEntry {
   currency: Currency;
   description: string;
   accountId?: string;
+  /** Tarjeta de crédito con la que se pagó (ver comentario de la interfaz). Mutuamente excluyente con `accountId`. */
+  cardId?: string;
+  /** Con qué tarjeta física se pagó, si `cardId` tiene extensiones cargadas (ver `Transaction.cardExtensionId`). */
+  cardExtensionId?: string;
   receiptPaths?: string[];
   /** Perfil (AppUser.id) que cargó este movimiento. `undefined` en movimientos guardados antes de este campo. */
   createdByUserId?: string;
