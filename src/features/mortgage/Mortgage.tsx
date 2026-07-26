@@ -250,16 +250,10 @@ function LoanDetailModal({
           </div>
         )}
         {!summary.isPaidOff && (
-          <>
-            <div className="flex items-center justify-between text-sm pt-1.5" style={{ borderTop: `1px solid ${C.border}` }}>
-              <span style={{ color: C.textMuted }}>Interés pendiente de vencer</span>
-              <span className="font-mono" style={{ color: C.negative }}>{formatMortgageAmount(summary.remainingInterestMinor, loan.currency)}</span>
-            </div>
-            <div className="flex items-center justify-between text-sm">
-              <span style={{ color: C.textMuted }}>Capital pendiente de vencer</span>
-              <span className="font-mono" style={{ color: C.positive }}>{formatMortgageAmount(summary.remainingPrincipalMinor, loan.currency)}</span>
-            </div>
-          </>
+          <div className="flex items-center justify-between text-sm pt-1.5" style={{ borderTop: `1px solid ${C.border}` }}>
+            <span style={{ color: C.textMuted }}>Interés pendiente de vencer</span>
+            <span className="font-mono" style={{ color: C.negative }}>{formatMortgageAmount(summary.remainingInterestMinor, loan.currency)}</span>
+          </div>
         )}
       </div>
 
@@ -369,8 +363,8 @@ function LoanDetailModal({
                 <th className="text-left py-1.5 px-2 font-medium">#</th>
                 <th className="text-left py-1.5 px-2 font-medium">Vence</th>
                 <th className="text-right py-1.5 px-2 font-medium">Cuota</th>
-                <th className="text-right py-1.5 px-2 font-medium">Interés</th>
                 <th className="text-right py-1.5 px-2 font-medium">Capital</th>
+                <th className="text-right py-1.5 px-2 font-medium">Interés</th>
                 <th className="text-right py-1.5 px-2 font-medium">Saldo</th>
               </tr>
             </thead>
@@ -394,8 +388,8 @@ function LoanDetailModal({
                     {row.isPrepaymentSettlement && <span className="ml-1" style={{ color: C.textFaint }}>(amort.)</span>}
                   </td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMortgageAmount(row.paymentMinor, loan.currency)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.negative }}>{formatMortgageAmount(row.interestMinor, loan.currency)}</td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.positive }}>{formatMortgageAmount(row.principalMinor, loan.currency)}</td>
+                  <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.negative }}>{formatMortgageAmount(row.interestMinor, loan.currency)}</td>
                   <td className="py-1.5 px-2 text-right font-mono" style={{ color: C.text }}>{formatMortgageAmount(row.balanceMinor, loan.currency)}</td>
                 </tr>
               ))}

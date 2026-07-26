@@ -630,11 +630,21 @@ export interface LoanSummary {
   isPaidOff: boolean;
 }
 
-/** Resumen de estado actual del préstamo (a hoy) a partir de su tabla de amortización. */
+/**
+ * Resumen de estado actual del préstamo (a hoy) a partir de su tabla de
+ * amortización. Las filas de liquidación de amortización
+ * (`isPrepaymentSettlement`) no son "cuotas": no cuentan para
+ * `totalInstallments`/`remainingInstallments` ni pueden ser la cuota
+ * "actual" o "próxima" (si no, "cuotas restantes" queda corrido +1 por cada
+ * amortización extraordinaria que haya en la tabla, y "cuota actual" podría
+ * mostrar el monto de una liquidación en vez de una cuota real). Sí entran en
+ * `totalInterestMinor`/`totalPrepaidMinor` (que suman toda la tabla).
+ */
 export function loanSummary(schedule: AmortizationRow[]): LoanSummary {
   const today = todayISO();
-  const future = schedule.filter((r) => r.dueDate >= today);
-  const next = future[0] ?? schedule[schedule.length - 1];
+  const regularRows = schedule.filter((r) => !r.isPrepaymentSettlement);
+  const future = regularRows.filter((r) => r.dueDate >= today);
+  const next = future[0] ?? regularRows[regularRows.length - 1];
   const totalInterestMinor = schedule.reduce((s, r) => s + r.interestMinor, 0);
   const totalPrepaidMinor = schedule.reduce((s, r) => s + (r.extraPaymentMinor ?? 0), 0);
   const remainingInterestMinor = future.reduce((s, r) => s + r.interestMinor, 0);
@@ -644,13 +654,13 @@ export function loanSummary(schedule: AmortizationRow[]): LoanSummary {
     currentPaymentMinor: next?.paymentMinor ?? 0,
     balanceMinor: next ? next.balanceMinor + next.principalMinor : 0,
     remainingInstallments: future.length,
-    totalInstallments: schedule.length,
+    totalInstallments: regularRows.length,
     nextDueDate: future[0]?.dueDate ?? null,
     remainingInterestMinor,
     remainingPrincipalMinor,
     totalInterestMinor,
     totalPrepaidMinor,
-    isPaidOff: schedule.length > 0 && future.length === 0,
+    isPaidOff: regularRows.length > 0 && future.length === 0,
   };
 }
 

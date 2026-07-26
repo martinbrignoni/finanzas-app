@@ -159,6 +159,17 @@ describe("mortgage - numeración de cuotas tras una amortización (actual365)", 
     expect(schedule[schedule.length - 1].number).toBe(240);
     expect(schedule).toHaveLength(241);
   });
+
+  it("loanSummary no cuenta la liquidación como una cuota más (totalInstallments tiene que ser 240, no 241)", () => {
+    const loan: MortgageLoan = {
+      ...VALE_ORIGINAL,
+      prepayments: [
+        { id: "p1", date: "2020-08-19", amountMinor: Math.round(131145.9 * 100), strategy: "reduceInstallment" },
+      ],
+    };
+    const summary = loanSummary(buildSchedule(loan));
+    expect(summary.totalInstallments).toBe(240);
+  });
 });
 
 describe("mortgage - interés y capital pendiente de vencer (loanSummary)", () => {
