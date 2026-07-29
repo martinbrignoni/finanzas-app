@@ -732,6 +732,44 @@ export interface SortOrders {
   accountsByCurrency: string[];
 }
 
+/** Tipo de registro del libro mayor que puede quedar auditado (ver `AuditEntry`). */
+export type AuditEntityType = "transaction" | "transfer" | "cardPayment" | "installment" | "contactEntry";
+
+export type AuditAction = "create" | "update" | "delete";
+
+/** Un campo que cambió en una modificación, ya en texto listo para mostrar (ver `lib/audit.ts`). */
+export interface AuditFieldChange {
+  field: string;
+  before: string;
+  after: string;
+}
+
+/**
+ * Evento de auditoría: alta, modificación o baja de un movimiento,
+ * transferencia, pago de tarjeta, cuota o movimiento con personas. Se guarda
+ * aparte del registro en sí (no como parte de `Transaction`, etc.) para que
+ * la baja también quede registrada aunque el registro ya no exista, y para
+ * no perder el historial de una edición aunque el registro se borre después.
+ * `summary` y los textos de `changes` quedan fijados en el momento en que
+ * ocurrió el evento (no se recalculan después), para poder seguir
+ * identificando de qué se trataba aunque después se borren o renombren la
+ * cuenta, tarjeta, categoría o persona relacionadas.
+ */
+export interface AuditEntry {
+  id: string;
+  entityType: AuditEntityType;
+  entityId: string;
+  action: AuditAction;
+  /** Fecha/hora ISO en que ocurrió el alta, la modificación o la baja. */
+  at: string;
+  /** Perfil (AppUser.id) que hizo el cambio. `null` si no se pudo determinar. */
+  userId: string | null;
+  /** Texto descriptivo del registro (ej. "Alimentación · $ 1.500 · 12/03/2026"), para identificarlo aunque se haya borrado. */
+  summary: string;
+  /** Solo en "update": qué campos cambiaron, de antes a después. Ausente si la acción no fue una modificación. */
+  changes?: AuditFieldChange[];
+}
+
 export interface FinanceData {
   schemaVersion: number;
   transactions: Transaction[];
@@ -752,12 +790,14 @@ export interface FinanceData {
   notes: Note[];
   appLock: AppLock;
   sortOrders: SortOrders;
+  /** Historial de altas/modificaciones/bajas de movimientos, transferencias, pagos de tarjeta, cuotas y movimientos con personas. Ver "Auditoría" en Configuración. */
+  auditLog: AuditEntry[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 12;
+export const CURRENT_SCHEMA_VERSION = 13;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -810,6 +850,7 @@ export function emptyFinanceData(): FinanceData {
     notes: [],
     appLock: { enabled: false, pinHash: null },
     sortOrders: { banks: [], accountsByBank: [], accountsByCurrency: [] },
+    auditLog: [],
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };

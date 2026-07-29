@@ -1,22 +1,95 @@
 import { useState, useEffect, Fragment } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag, History } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
-import { categoryFullPath } from "../../lib/categories";
+import { categoryFullPath, categoryDisplayName } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY, currentMonthKey } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
 import { cardLabel, dueForCardInMonth } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
+import { auditActionLabel } from "../../lib/audit";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, MortgageLoan } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, MortgageLoan, AuditEntry, AuditEntityType } from "../../types";
+
+/** Modal de solo lectura con el historial de alta/modificación/baja de un registro puntual (ver `AuditEntry`). */
+function AuditTrailModal({
+  title,
+  entries,
+  users,
+  fallbackCreatedAt,
+  fallbackCreatedByUserId,
+  onClose,
+}: {
+  title: string;
+  /** Entradas ya filtradas para este registro (cualquier orden: se reordenan acá). */
+  entries: AuditEntry[];
+  users: AppUser[];
+  /** Si el registro no tiene ninguna entrada (es anterior a esta función), se usa esto como alta "sintética". */
+  fallbackCreatedAt?: string;
+  fallbackCreatedByUserId?: string;
+  onClose: () => void;
+}) {
+  const sorted = [...entries].sort((a, b) => b.at.localeCompare(a.at));
+  const actionColor = (action: AuditEntry["action"]) =>
+    action === "delete" ? C.negative : action === "create" ? C.positive : C.text;
+
+  return (
+    <Modal title={`Auditoría · ${title}`} onClose={onClose}>
+      {sorted.length === 0 && !fallbackCreatedAt && (
+        <p className="text-sm" style={{ color: C.textMuted }}>
+          No hay información de auditoría para este registro: es anterior a esta función.
+        </p>
+      )}
+      <div className="space-y-2">
+        {sorted.length === 0 && fallbackCreatedAt && (
+          <div className="rounded-lg p-3 text-sm" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold" style={{ color: C.positive }}>Alta</span>
+              <span className="text-xs" style={{ color: C.textFaint }}>{formatDateTimeDMY(fallbackCreatedAt)}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <UserBadge users={users} userId={fallbackCreatedByUserId} />
+              <span className="text-xs" style={{ color: C.textFaint }}>
+                {users.find((u) => u.id === fallbackCreatedByUserId)?.name ?? "Perfil desconocido"}
+              </span>
+            </div>
+          </div>
+        )}
+        {sorted.map((entry) => (
+          <div key={entry.id} className="rounded-lg p-3 text-sm" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-semibold" style={{ color: actionColor(entry.action) }}>{auditActionLabel(entry.action)}</span>
+              <span className="text-xs" style={{ color: C.textFaint }}>{formatDateTimeDMY(entry.at)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <UserBadge users={users} userId={entry.userId ?? undefined} />
+              <span className="text-xs" style={{ color: C.textFaint }}>
+                {users.find((u) => u.id === entry.userId)?.name ?? "Perfil eliminado"}
+              </span>
+            </div>
+            {entry.changes && entry.changes.length > 0 && (
+              <ul className="space-y-0.5">
+                {entry.changes.map((c) => (
+                  <li key={c.field} className="text-xs" style={{ color: C.textMuted }}>
+                    <span style={{ color: C.text }}>{c.field}:</span> {c.before} → {c.after}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
+    </Modal>
+  );
+}
 
 type LedgerItem =
   | { kind: "transaction"; date: string; data: Transaction }
@@ -144,6 +217,8 @@ export function Transactions({
   cards,
   accounts,
   banks,
+  categories,
+  auditLog,
   users,
   activeUser,
   canEdit,
@@ -168,6 +243,10 @@ export function Transactions({
   cards: Card[];
   accounts: Account[];
   banks: Bank[];
+  /** Para decidir si mostrar la categoría entera o solo la hoja (ver `categoryDisplayName`). */
+  categories: Category[];
+  /** Historial de alta/modificación/baja de cada registro, ver botón "Auditoría" en cada fila. */
+  auditLog: AuditEntry[];
   /** Para mostrar de quién es cada movimiento (solo tiene sentido mostrarlo si hay más de un perfil). */
   users: AppUser[];
   /** Perfil activo: junto con `canEdit`/`canEditContacts`, decide si puede editar/eliminar cada registro puntual (ver `canEditOwnRecord`). */
@@ -191,6 +270,19 @@ export function Transactions({
   const [pendingOnly, setPendingOnly] = useState(false);
   // Solo tiene sentido marcar de quién es cada movimiento si hay más de un perfil cargando datos.
   const showAuthor = users.length > 1;
+
+  const [auditView, setAuditView] = useState<{
+    title: string;
+    entityType: AuditEntityType;
+    entityId: string;
+    fallbackCreatedAt?: string;
+    fallbackCreatedByUserId?: string;
+  } | null>(null);
+  const openAudit = (
+    title: string,
+    entityType: AuditEntityType,
+    record: { id: string; createdAt?: string; createdByUserId?: string }
+  ) => setAuditView({ title, entityType, entityId: record.id, fallbackCreatedAt: record.createdAt, fallbackCreatedByUserId: record.createdByUserId });
 
   const allItems: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
@@ -337,7 +429,7 @@ export function Transactions({
                     <div className="text-sm flex items-center gap-1" style={{ color: C.text }}>
                       {t.recurringRuleId && <Repeat size={11} color={C.textFaint} aria-label="Movimiento recurrente" />}
                       <span>
-                        {t.category ? t.category : <span style={{ color: C.uyu }}>Sin categorizar</span>}
+                        {t.category ? categoryDisplayName(t.category, categories) : <span style={{ color: C.uyu }}>Sin categorizar</span>}
                         {t.note ? ` · ${t.note}` : ""}
                       </span>
                     </div>
@@ -361,6 +453,9 @@ export function Transactions({
                     <CurrencyPill currency={t.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(t)} />
+                  <IconBtn label="Auditoría del movimiento" onClick={() => openAudit(t.category ? categoryDisplayName(t.category, categories) : "Sin categorizar", "transaction", t)}>
+                    <History size={15} />
+                  </IconBtn>
                   {canEdit && canEditOwnRecord(activeUser, t) && (
                     <>
                       <IconBtn label="Editar movimiento" onClick={() => onEdit(t)}><Pencil size={15} /></IconBtn>
@@ -408,6 +503,9 @@ export function Transactions({
                     )}
                   </div>
                   <ReceiptButton paths={receiptPathsOf(tr)} />
+                  <IconBtn label="Auditoría de la transferencia" onClick={() => openAudit(`${accountLabel(fromAcc, banks)} → ${accountLabel(toAcc, banks)}`, "transfer", tr)}>
+                    <History size={15} />
+                  </IconBtn>
                   {canEdit && canEditOwnRecord(activeUser, tr) && (
                     <>
                       <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
@@ -424,7 +522,7 @@ export function Transactions({
             const inst = item.data;
             const card = cards.find((c) => c.id === inst.cardId);
             const instDate = inst.date ?? `${inst.startMonth}-01`;
-            const title = inst.category ? `${inst.category} · ${inst.description}` : inst.description;
+            const title = inst.category ? `${categoryDisplayName(inst.category, categories)} · ${inst.description}` : inst.description;
             return (
               <Fragment key={inst.id}>
                 {separator}
@@ -452,6 +550,9 @@ export function Transactions({
                     <CurrencyPill currency={inst.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(inst)} />
+                  <IconBtn label="Auditoría de la compra en cuotas" onClick={() => openAudit(inst.description, "installment", inst)}>
+                    <History size={15} />
+                  </IconBtn>
                   {canEdit && canEditOwnRecord(activeUser, inst) && (
                     <>
                       <IconBtn label="Editar compra en cuotas" onClick={() => onEditInstallment(inst)}><Pencil size={15} /></IconBtn>
@@ -501,6 +602,9 @@ export function Transactions({
                     <CurrencyPill currency={e.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(e)} />
+                  <IconBtn label="Auditoría del movimiento con persona" onClick={() => openAudit(`${contact?.name ?? "Persona eliminada"} · ${e.description}`, "contactEntry", e)}>
+                    <History size={15} />
+                  </IconBtn>
                   {canEditContacts && canEditOwnRecord(activeUser, e) && (
                     <>
                       <IconBtn label="Editar movimiento con persona" onClick={() => onEditContactEntry(e)}><Pencil size={15} /></IconBtn>
@@ -541,6 +645,9 @@ export function Transactions({
                   <CurrencyPill currency={p.currency} />
                 </div>
                 <ReceiptButton paths={receiptPathsOf(p)} />
+                <IconBtn label="Auditoría del pago" onClick={() => openAudit(`Pago ${card ? cardLabel(card, banks) : "eliminada"}`, "cardPayment", p)}>
+                  <History size={15} />
+                </IconBtn>
                 {canEdit && canEditOwnRecord(activeUser, p) && (
                   <>
                     <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={15} /></IconBtn>
@@ -554,6 +661,16 @@ export function Transactions({
           });
         })()}
       </div>
+      {auditView && (
+        <AuditTrailModal
+          title={auditView.title}
+          entries={auditLog.filter((a) => a.entityType === auditView.entityType && a.entityId === auditView.entityId)}
+          users={users}
+          fallbackCreatedAt={auditView.fallbackCreatedAt}
+          fallbackCreatedByUserId={auditView.fallbackCreatedByUserId}
+          onClose={() => setAuditView(null)}
+        />
+      )}
     </div>
   );
 }

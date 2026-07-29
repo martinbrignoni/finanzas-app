@@ -9,6 +9,21 @@ import { supabase } from "./lib/supabaseClient";
 import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import { generateDueRecurringTransactions } from "./lib/recurring";
+import {
+  makeCreateEntry,
+  makeUpdateEntry,
+  makeDeleteEntry,
+  transactionAuditSummary,
+  transactionChanges,
+  transferAuditSummary,
+  transferChanges,
+  cardPaymentAuditSummary,
+  cardPaymentChanges,
+  installmentAuditSummary,
+  installmentChanges,
+  contactEntryAuditSummary,
+  contactEntryChanges,
+} from "./lib/audit";
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
@@ -211,7 +226,11 @@ export default function App() {
           ? { ...t, createdAt: d.transactions[idx].createdAt ?? now, updatedAt: now }
           : { ...t, createdByUserId: t.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
         const transactions = idx >= 0 ? d.transactions.map((x) => (x.id === t.id ? withCreator : x)) : [...d.transactions, withCreator];
-        return { ...d, transactions };
+        const summary = transactionAuditSummary(withCreator, d.categories);
+        const auditEntry = idx >= 0
+          ? makeUpdateEntry("transaction", t.id, activeUser?.id, summary, transactionChanges(d.transactions[idx], withCreator, d.categories, d.accounts, d.banks, d.cards))
+          : makeCreateEntry("transaction", t.id, activeUser?.id, summary);
+        return { ...d, transactions, auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
       });
       closeModal();
     };
@@ -219,8 +238,13 @@ export default function App() {
     confirmSave(isEdit, "¿Guardar los cambios en este movimiento?", commit);
   }, [activeUser, data, confirmSave]);
   const deleteTransaction = useCallback((id: string) => {
-    setData((d) => (d ? { ...d, transactions: d.transactions.filter((x) => x.id !== id) } : d));
-  }, []);
+    setData((d) => {
+      if (!d) return d;
+      const record = d.transactions.find((x) => x.id === id);
+      const auditEntry = record ? makeDeleteEntry("transaction", id, activeUser?.id, transactionAuditSummary(record, d.categories)) : null;
+      return { ...d, transactions: d.transactions.filter((x) => x.id !== id), auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
+    });
+  }, [activeUser]);
   const confirmDeleteTransaction = useCallback(
     (id: string) => requestConfirm("¿Eliminar este movimiento? No se puede deshacer.", () => deleteTransaction(id)),
     [requestConfirm, deleteTransaction]
@@ -267,7 +291,11 @@ export default function App() {
           ? { ...inst, createdAt: d.installments[idx].createdAt ?? now, updatedAt: now }
           : { ...inst, createdByUserId: inst.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
         const installments = idx >= 0 ? d.installments.map((x) => (x.id === inst.id ? withCreator : x)) : [...d.installments, withCreator];
-        return { ...d, installments };
+        const summary = installmentAuditSummary(withCreator, d.categories);
+        const auditEntry = idx >= 0
+          ? makeUpdateEntry("installment", inst.id, activeUser?.id, summary, installmentChanges(d.installments[idx], withCreator, d.categories, d.banks, d.cards))
+          : makeCreateEntry("installment", inst.id, activeUser?.id, summary);
+        return { ...d, installments, auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
       });
       closeModal();
     };
@@ -275,8 +303,13 @@ export default function App() {
     confirmSave(isEdit, "¿Guardar los cambios en esta compra en cuotas?", commit);
   }, [activeUser, data, confirmSave]);
   const deleteInstallment = useCallback((id: string) => {
-    setData((d) => (d ? { ...d, installments: d.installments.filter((x) => x.id !== id) } : d));
-  }, []);
+    setData((d) => {
+      if (!d) return d;
+      const record = d.installments.find((x) => x.id === id);
+      const auditEntry = record ? makeDeleteEntry("installment", id, activeUser?.id, installmentAuditSummary(record, d.categories)) : null;
+      return { ...d, installments: d.installments.filter((x) => x.id !== id), auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
+    });
+  }, [activeUser]);
   const confirmDeleteInstallment = useCallback(
     (id: string) => requestConfirm("¿Eliminar esta compra en cuotas? No se puede deshacer.", () => deleteInstallment(id)),
     [requestConfirm, deleteInstallment]
@@ -291,7 +324,11 @@ export default function App() {
           ? { ...p, createdAt: d.cardPayments[idx].createdAt ?? now, updatedAt: now }
           : { ...p, createdByUserId: p.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
         const cardPayments = idx >= 0 ? d.cardPayments.map((x) => (x.id === p.id ? withCreator : x)) : [...d.cardPayments, withCreator];
-        return { ...d, cardPayments };
+        const summary = cardPaymentAuditSummary(withCreator, d.banks, d.cards);
+        const auditEntry = idx >= 0
+          ? makeUpdateEntry("cardPayment", p.id, activeUser?.id, summary, cardPaymentChanges(d.cardPayments[idx], withCreator, d.accounts, d.banks, d.cards))
+          : makeCreateEntry("cardPayment", p.id, activeUser?.id, summary);
+        return { ...d, cardPayments, auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
       });
       closeModal();
     };
@@ -299,8 +336,13 @@ export default function App() {
     confirmSave(isEdit, "¿Guardar los cambios en este pago de tarjeta?", commit);
   }, [activeUser, data, confirmSave]);
   const deleteCardPayment = useCallback((id: string) => {
-    setData((d) => (d ? { ...d, cardPayments: d.cardPayments.filter((x) => x.id !== id) } : d));
-  }, []);
+    setData((d) => {
+      if (!d) return d;
+      const record = d.cardPayments.find((x) => x.id === id);
+      const auditEntry = record ? makeDeleteEntry("cardPayment", id, activeUser?.id, cardPaymentAuditSummary(record, d.banks, d.cards)) : null;
+      return { ...d, cardPayments: d.cardPayments.filter((x) => x.id !== id), auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
+    });
+  }, [activeUser]);
   const confirmDeleteCardPayment = useCallback(
     (id: string) => requestConfirm("¿Eliminar este pago de tarjeta? El saldo de la cuenta se va a recalcular.", () => deleteCardPayment(id)),
     [requestConfirm, deleteCardPayment]
@@ -398,7 +440,11 @@ export default function App() {
           ? { ...tr, createdAt: d.transfers[idx].createdAt ?? now, updatedAt: now }
           : { ...tr, createdByUserId: tr.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
         const transfers = idx >= 0 ? d.transfers.map((x) => (x.id === tr.id ? withCreator : x)) : [...d.transfers, withCreator];
-        return { ...d, transfers };
+        const summary = transferAuditSummary(withCreator, d.accounts, d.banks);
+        const auditEntry = idx >= 0
+          ? makeUpdateEntry("transfer", tr.id, activeUser?.id, summary, transferChanges(d.transfers[idx], withCreator, d.accounts, d.banks))
+          : makeCreateEntry("transfer", tr.id, activeUser?.id, summary);
+        return { ...d, transfers, auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
       });
       closeModal();
     };
@@ -406,8 +452,13 @@ export default function App() {
     confirmSave(isEdit, "¿Guardar los cambios en esta transferencia?", commit);
   }, [activeUser, data, confirmSave]);
   const deleteTransfer = useCallback((id: string) => {
-    setData((d) => (d ? { ...d, transfers: d.transfers.filter((x) => x.id !== id) } : d));
-  }, []);
+    setData((d) => {
+      if (!d) return d;
+      const record = d.transfers.find((x) => x.id === id);
+      const auditEntry = record ? makeDeleteEntry("transfer", id, activeUser?.id, transferAuditSummary(record, d.accounts, d.banks)) : null;
+      return { ...d, transfers: d.transfers.filter((x) => x.id !== id), auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
+    });
+  }, [activeUser]);
   const confirmDeleteTransfer = useCallback(
     (id: string) => requestConfirm("¿Eliminar esta transferencia? No se puede deshacer.", () => deleteTransfer(id)),
     [requestConfirm, deleteTransfer]
@@ -516,7 +567,11 @@ export default function App() {
           ? { ...e, createdAt: d.contactEntries[idx].createdAt ?? now, updatedAt: now }
           : { ...e, createdByUserId: e.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
         const contactEntries = idx >= 0 ? d.contactEntries.map((x) => (x.id === e.id ? withCreator : x)) : [...d.contactEntries, withCreator];
-        return { ...d, contactEntries };
+        const summary = contactEntryAuditSummary(withCreator, d.contacts);
+        const auditEntry = idx >= 0
+          ? makeUpdateEntry("contactEntry", e.id, activeUser?.id, summary, contactEntryChanges(d.contactEntries[idx], withCreator, d.contacts, d.accounts, d.banks, d.cards))
+          : makeCreateEntry("contactEntry", e.id, activeUser?.id, summary);
+        return { ...d, contactEntries, auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
       });
       closeModal();
     };
@@ -524,8 +579,13 @@ export default function App() {
     confirmSave(isEdit, "¿Guardar los cambios en este movimiento?", commit);
   }, [data, confirmSave, activeUser]);
   const deleteContactEntry = useCallback((id: string) => {
-    setData((d) => (d ? { ...d, contactEntries: d.contactEntries.filter((x) => x.id !== id) } : d));
-  }, []);
+    setData((d) => {
+      if (!d) return d;
+      const record = d.contactEntries.find((x) => x.id === id);
+      const auditEntry = record ? makeDeleteEntry("contactEntry", id, activeUser?.id, contactEntryAuditSummary(record, d.contacts)) : null;
+      return { ...d, contactEntries: d.contactEntries.filter((x) => x.id !== id), auditLog: auditEntry ? [...d.auditLog, auditEntry] : d.auditLog };
+    });
+  }, [activeUser]);
   const confirmDeleteContactEntry = useCallback(
     (id: string) => requestConfirm("¿Eliminar este movimiento? No se puede deshacer.", () => deleteContactEntry(id)),
     [requestConfirm, deleteContactEntry]
@@ -533,25 +593,34 @@ export default function App() {
   const saveSplitExpense = useCallback((entries: ContactEntry[], ownExpense?: SplitOwnExpense) => {
     setData((d) => {
       if (!d) return d;
-      const transactions = ownExpense
-        ? [
-            ...d.transactions,
-            {
-              id: crypto.randomUUID(),
-              type: "gasto" as const,
-              amountMinor: ownExpense.amountMinor,
-              currency: ownExpense.currency,
-              category: ownExpense.category,
-              date: ownExpense.date,
-              note: ownExpense.note,
-              accountId: ownExpense.accountId,
-            },
-          ]
-        : d.transactions;
-      return { ...d, contactEntries: [...d.contactEntries, ...entries], transactions };
+      const now = new Date().toISOString();
+      const stampedEntries = entries.map((e) => ({ ...e, createdByUserId: e.createdByUserId ?? activeUser?.id, createdAt: e.createdAt ?? now, updatedAt: now }));
+      let auditLog = [
+        ...d.auditLog,
+        ...stampedEntries.map((e) => makeCreateEntry("contactEntry", e.id, activeUser?.id, contactEntryAuditSummary(e, d.contacts))),
+      ];
+      let transactions = d.transactions;
+      if (ownExpense) {
+        const newTransaction: Transaction = {
+          id: crypto.randomUUID(),
+          type: "gasto",
+          amountMinor: ownExpense.amountMinor,
+          currency: ownExpense.currency,
+          category: ownExpense.category,
+          date: ownExpense.date,
+          note: ownExpense.note,
+          accountId: ownExpense.accountId,
+          createdByUserId: activeUser?.id,
+          createdAt: now,
+          updatedAt: now,
+        };
+        transactions = [...d.transactions, newTransaction];
+        auditLog = [...auditLog, makeCreateEntry("transaction", newTransaction.id, activeUser?.id, transactionAuditSummary(newTransaction, d.categories))];
+      }
+      return { ...d, contactEntries: [...d.contactEntries, ...stampedEntries], transactions, auditLog };
     });
     closeModal();
-  }, []);
+  }, [activeUser]);
 
   // --- hipoteca ---
   const upsertMortgageLoan = useCallback((loan: MortgageLoan) => {
@@ -848,6 +917,8 @@ export default function App() {
                 cards={data.cards}
                 accounts={data.accounts}
                 banks={data.banks}
+                categories={data.categories}
+                auditLog={data.auditLog}
                 users={data.users}
                 activeUser={activeUser}
                 canEdit={has("movimientos", "edit")}
@@ -989,6 +1060,7 @@ export default function App() {
                 accounts={data.accounts}
                 cards={data.cards}
                 recurringRules={data.recurringRules}
+                auditLog={data.auditLog}
                 canEdit={has("configuracion", "edit")}
                 canSwitchUser={!lockedToNonAdmin}
                 onSetActiveUser={setActiveUser}

@@ -144,6 +144,14 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 12, recurringRules: [] };
   }
 
+  if (data.schemaVersion === 12) {
+    // v13: auditoría (alta/modificación/baja) de movimientos, transferencias,
+    // pagos de tarjeta, cuotas y movimientos con personas. No hay nada que
+    // migrar de datos existentes: el historial arranca vacío a partir de acá,
+    // los registros ya cargados simplemente no tienen eventos previos.
+    data = { ...data, schemaVersion: 13, auditLog: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -183,6 +191,7 @@ function migrate(raw: any): FinanceData {
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },
     sortOrders: data.sortOrders ?? { banks: [], accountsByBank: [], accountsByCurrency: [] },
+    auditLog: data.auditLog ?? [],
     users: usersConHipoteca,
     activeUserId: data.activeUserId ?? null,
   };

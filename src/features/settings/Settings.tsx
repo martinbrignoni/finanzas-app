@@ -8,7 +8,8 @@ import { SecuritySettings } from "./Security";
 import { NotificationsSettings } from "./Notifications";
 import { BanksSettings } from "./Banks";
 import { RecurringRulesSettings } from "./Recurring";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, NotificationPrefs, RecurringRule } from "../../types";
+import { AuditSettings } from "./Audit";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, NotificationPrefs, RecurringRule, AuditEntry } from "../../types";
 
 export function Settings({
   users,
@@ -25,6 +26,7 @@ export function Settings({
   accounts,
   cards,
   recurringRules,
+  auditLog,
   canEdit,
   canSwitchUser = true,
   onSetActiveUser,
@@ -60,6 +62,8 @@ export function Settings({
   accounts: Account[];
   cards: Card[];
   recurringRules: RecurringRule[];
+  /** Historial de alta/modificación/baja, ver sección Auditoría. */
+  auditLog: AuditEntry[];
   canEdit: boolean;
   canSwitchUser?: boolean;
   onSetActiveUser: (id: string) => void;
@@ -80,7 +84,7 @@ export function Settings({
   onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "recurrentes" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "recurrentes" | "auditoria" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -105,6 +109,7 @@ export function Settings({
             { value: "categorias", label: "Categorías" },
             { value: "bancos", label: "Cajas y Bancos" },
             { value: "recurrentes", label: "Recurrentes" },
+            { value: "auditoria", label: "Auditoría" },
             { value: "seguridad", label: "Seguridad" },
             { value: "notificaciones", label: "Notificaciones" },
           ]}
@@ -162,6 +167,7 @@ export function Settings({
           onDelete={onDeleteRecurringRule}
         />
       )}
+      {section === "auditoria" && <AuditSettings auditLog={auditLog} users={users} />}
       {section === "seguridad" && activeUser && (
         <SecuritySettings user={activeUser} onUpdateUserLock={onUpdateUserLock} />
       )}

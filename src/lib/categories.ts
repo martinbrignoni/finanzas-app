@@ -19,3 +19,21 @@ export function categoryFullPath(category: Category, categories: Category[]): st
   }
   return names.join(" > ");
 }
+
+/**
+ * Nombre para mostrar de una categoría ya guardada en un movimiento, cuota o
+ * presupuesto (`category`, que siempre guarda el camino completo, ver
+ * `categoryFullPath`). Muestra solo el nombre de la hoja (ej. "Ropa gorda")
+ * cuando ese nombre no se repite en ninguna otra rama del mismo tipo; si hay
+ * más de una categoría o subcategoría con el mismo nombre (ej. "Transporte"
+ * bajo "Gastos domésticos" y bajo "Servicio doméstico"), muestra el camino
+ * completo para poder distinguirlas. Si la categoría guardada ya no existe
+ * (se borró después), devuelve el valor guardado tal cual.
+ */
+export function categoryDisplayName(value: string | undefined, categories: Category[]): string {
+  if (!value) return "";
+  const match = categories.find((c) => categoryFullPath(c, categories) === value);
+  if (!match) return value;
+  const sameName = categories.filter((c) => c.type === match.type && c.name.toLowerCase() === match.name.toLowerCase());
+  return sameName.length > 1 ? value : match.name;
+}
