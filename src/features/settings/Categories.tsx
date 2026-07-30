@@ -3,14 +3,11 @@ import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, Chev
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
-import { categoryFullPath } from "../../lib/categories";
+import { categoryFullPath, isMinuchiRootCategory } from "../../lib/categories";
 import { formatMoney } from "../../lib/money";
 import { formatDateDMY, monthKeyOf, monthLabel, capitalize } from "../../lib/dates";
 import { exportCategoryToExcel } from "../../lib/excelExport";
 import type { Category, Transaction, Installment, Budget, TransactionType } from "../../types";
-
-/** Nombre con el que se identifica el emprendimiento de la esposa, para mostrarlo separado del resto (ver comentario más abajo). */
-const MINUCHI_NAME = "minuchi";
 
 export function CategoriesSettings({
   categories,
@@ -85,10 +82,9 @@ export function CategoriesSettings({
   // comprar y cobrar de "MINUCHI") se administra con sus propias categorías madre de
   // ingreso y de gasto, pero se muestran aparte de las categorías personales, arriba
   // de todo, para poder mirar y analizar sus números de forma independiente.
-  const isMinuchi = (c: Category) => !c.parentId && c.name.trim().toLowerCase() === MINUCHI_NAME;
-  const minuchiRoots = categories.filter(isMinuchi);
-  const gastos = categories.filter((c) => c.type === "gasto" && !c.parentId && !isMinuchi(c));
-  const ingresos = categories.filter((c) => c.type === "ingreso" && !c.parentId && !isMinuchi(c));
+  const minuchiRoots = categories.filter(isMinuchiRootCategory);
+  const gastos = categories.filter((c) => c.type === "gasto" && !c.parentId && !isMinuchiRootCategory(c));
+  const ingresos = categories.filter((c) => c.type === "ingreso" && !c.parentId && !isMinuchiRootCategory(c));
 
   const renderRoots = (roots: Category[]) => (
     <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.border}` }}>

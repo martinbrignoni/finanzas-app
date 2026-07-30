@@ -140,8 +140,14 @@ export function Combobox({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [open]);
 
+  // Además de filtrar por el nombre de la opción, también busca por el grupo
+  // (ej. escribir "MINUCHI" muestra todas sus categorías, aunque el nombre de
+  // cada una en particular -"Ventas", "Compras"- no contenga esa palabra).
   const filtered = query.trim()
-    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
+    ? options.filter((o) => {
+        const q = query.trim().toLowerCase();
+        return o.label.toLowerCase().includes(q) || !!o.group?.toLowerCase().includes(q);
+      })
     : options;
 
   // Agrupa manteniendo el orden original, uniendo opciones consecutivas del mismo grupo.

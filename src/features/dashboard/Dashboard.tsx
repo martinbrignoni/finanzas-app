@@ -7,7 +7,8 @@ import { currentMonthKey, monthKeyOf, monthLabel, monthsBetween, addMonths, capi
 import { cardLabel, cardsDueInMonth } from "../../lib/cards";
 import { upcomingRecurringExpensesInMonth } from "../../lib/recurring";
 import { mortgageDueInMonth, formatMortgageAmount } from "../../lib/mortgage";
-import type { FinanceData, Currency } from "../../types";
+import { isMinuchiRootCategory, isMinuchiCategoryPath, categoryDisplayName } from "../../lib/categories";
+import type { FinanceData, Currency, Transaction } from "../../types";
 
 /** Ventana de meses seleccionables: un año para atrás y un año para adelante del mes actual, más reciente primero. */
 function selectableMonths(): string[] {
@@ -25,6 +26,25 @@ interface DueRow {
   amountLabel: string;
 }
 
+/** Total por moneda, desglosado por categoría, para el resumen aparte de MINUCHI. */
+interface MinuchiCategoryRow {
+  label: string;
+  UYU: number;
+  USD: number;
+}
+
+/** Junta montos por nombre de categoría (ya resuelto a texto), sumando por moneda. */
+function sumByCategory(txs: { category?: string; amountMinor: number; currency: Currency }[], categories: FinanceData["categories"]): MinuchiCategoryRow[] {
+  const map = new Map<string, MinuchiCategoryRow>();
+  txs.forEach((t) => {
+    const label = categoryDisplayName(t.category, categories) || "Sin categorizar";
+    const row = map.get(label) ?? { label, UYU: 0, USD: 0 };
+    row[t.currency] += t.amountMinor;
+    map.set(label, row);
+  });
+  return Array.from(map.values()).sort((a, b) => (b.UYU + b.USD) - (a.UYU + a.USD));
+}
+
 export function Dashboard({ data }: { data: FinanceData }) {
   const thisMonth = currentMonthKey();
   const [mk, setMk] = useState(thisMonth);
@@ -32,12 +52,31 @@ export function Dashboard({ data }: { data: FinanceData }) {
   const months = selectableMonths();
   const monthTx = data.transactions.filter((t) => monthKeyOf(t.date) === mk);
 
+  // MINUCHI (el emprendimiento aparte, ver Configuración → Categorías) usa las
+  // mismas cuentas/tarjetas de la casa, pero sus movimientos no cuentan como
+  // ingreso/gasto propio: se sacan del resumen personal y se muestran en su
+  // propia tarjeta más abajo, para no mezclar los números.
+  const hasMinuchi = data.categories.some(isMinuchiRootCategory);
+  const isMinuchiTx = (t: Transaction) => isMinuchiCategoryPath(t.category, data.categories);
+  const personalTx = monthTx.filter((t) => !isMinuchiTx(t));
+  const minuchiTx = monthTx.filter(isMinuchiTx);
+
   const sums: Record<Currency, { in: number; out: number }> = {
     UYU: { in: 0, out: 0 },
     USD: { in: 0, out: 0 },
   };
-  monthTx.forEach((t) => {
+  personalTx.forEach((t) => {
     const bucket = sums[t.currency];
+    if (t.type === "ingreso") bucket.in += t.amountMinor;
+    else bucket.out += t.amountMinor;
+  });
+
+  const minuchiSums: Record<Currency, { in: number; out: number }> = {
+    UYU: { in: 0, out: 0 },
+    USD: { in: 0, out: 0 },
+  };
+  minuchiTx.forEach((t) => {
+    const bucket = minuchiSums[t.currency];
     if (t.type === "ingreso") bucket.in += t.amountMinor;
     else bucket.out += t.amountMinor;
   });
@@ -45,14 +84,24 @@ export function Dashboard({ data }: { data: FinanceData }) {
   // Cuotas de tarjeta que vencen puntualmente este mes (para el resumen de
   // arriba: Ingresos/Gastos/Cuotas). Separado a propósito de "Vencimientos"
   // de abajo, que ahora muestra el saldo total de la tarjeta, no cuota por
-  // cuota (ver `cardsDueInMonth`).
+  // cuota (ver `cardsDueInMonth`). Las cuotas de compras categorizadas como
+  // MINUCHI van al gasto de MINUCHI, no al personal.
   const cuotasSum: Record<Currency, number> = { UYU: 0, USD: 0 };
+  const minuchiCuotas: { category?: string; amountMinor: number; currency: Currency }[] = [];
   data.installments.forEach((inst) => {
     const idx = monthsBetween(inst.startMonth, mk);
-    if (idx >= 0 && idx < inst.numInstallments) cuotasSum[inst.currency] += inst.installmentAmountMinor;
+    if (idx < 0 || idx >= inst.numInstallments) return;
+    if (inst.category && isMinuchiCategoryPath(inst.category, data.categories)) {
+      minuchiSums[inst.currency].out += inst.installmentAmountMinor;
+      minuchiCuotas.push({ category: inst.category, amountMinor: inst.installmentAmountMinor, currency: inst.currency });
+    } else {
+      cuotasSum[inst.currency] += inst.installmentAmountMinor;
+    }
   });
 
   const balance = (cur: Currency) => sums[cur].in - sums[cur].out - cuotasSum[cur];
+  const minuchiIngresosPorCategoria = sumByCategory(minuchiTx.filter((t) => t.type === "ingreso"), data.categories);
+  const minuchiGastosPorCategoria = sumByCategory([...minuchiTx.filter((t) => t.type === "gasto"), ...minuchiCuotas], data.categories);
 
   // --- Vencimientos de este mes: saldo de tarjetas que vencen, gastos
   // recurrentes que todavía no se cargaron, y cuota hipotecaria del período.
@@ -140,6 +189,67 @@ export function Dashboard({ data }: { data: FinanceData }) {
           ))}
         </div>
       </div>
+
+      {hasMinuchi && (
+        <div className="rounded-2xl overflow-hidden mb-5" style={{ border: `1px solid ${C.usd}55`, background: C.surface }}>
+          <div className="p-4">
+            <div className="flex items-baseline gap-1.5 mb-3">
+              <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.usd }}>MINUCHI</span>
+              <span className="text-xs" style={{ color: C.textFaint }}>· emprendimiento aparte, no cuenta como tuyo arriba</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-1">
+              {(["UYU", "USD"] as Currency[]).map((cur) => {
+                const bucket = minuchiSums[cur];
+                const result = bucket.in - bucket.out;
+                if (bucket.in === 0 && bucket.out === 0) return <div key={cur} />;
+                return (
+                  <div key={cur}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2 h-2 rounded-full" style={{ background: cur === "USD" ? C.usd : C.uyu }} />
+                      <span className="text-xs font-semibold" style={{ color: C.textMuted }}>{cur}</span>
+                    </div>
+                    <div className="text-lg font-mono font-semibold mb-2" style={{ color: result >= 0 ? C.positive : C.negative }}>
+                      {formatMoney(result, cur)}
+                    </div>
+                    <div className="space-y-1 text-xs font-mono" style={{ color: C.textMuted }}>
+                      <div className="flex justify-between"><span>Ingresos</span><span style={{ color: C.positive }}>+{formatMoney(bucket.in, cur)}</span></div>
+                      <div className="flex justify-between"><span>Gastos</span><span style={{ color: C.negative }}>-{formatMoney(bucket.out, cur)}</span></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {minuchiIngresosPorCategoria.length === 0 && minuchiGastosPorCategoria.length === 0 ? (
+              <p className="text-xs mt-1" style={{ color: C.textFaint }}>
+                {isCurrent ? "Todavía no hay movimientos de MINUCHI este mes." : "No hubo movimientos de MINUCHI en este período."}
+              </p>
+            ) : (
+              <div className="mt-3 pt-3 space-y-3" style={{ borderTop: `1px solid ${C.border}` }}>
+                {([["Ingresos por categoría", minuchiIngresosPorCategoria, C.positive], ["Gastos por categoría", minuchiGastosPorCategoria, C.negative]] as [string, MinuchiCategoryRow[], string][]).map(
+                  ([label, rows, color]) =>
+                    rows.length > 0 && (
+                      <div key={label}>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide mb-1.5" style={{ color: C.textFaint }}>{label}</div>
+                        <div className="space-y-1">
+                          {rows.map((r) => (
+                            <div key={r.label} className="flex items-center justify-between text-xs">
+                              <span style={{ color: C.text }}>{r.label}</span>
+                              <span className="font-mono" style={{ color }}>
+                                {[r.UYU !== 0 ? formatMoney(r.UYU, "UYU") : null, r.USD !== 0 ? formatMoney(r.USD, "USD") : null].filter(Boolean).join(" · ")}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>{isCurrent ? "Vencimientos de este mes" : `Vencimientos de ${monthLabel(mk)}`}</h3>
       {dueRows.length === 0 ? (

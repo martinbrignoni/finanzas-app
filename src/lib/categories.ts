@@ -64,3 +64,38 @@ export function remapCategoryPath(value: string, oldPath: string, newPath: strin
   if (value.startsWith(`${oldPath} > `)) return newPath + value.slice(oldPath.length);
   return value;
 }
+
+/**
+ * Nombre con el que se identifica el emprendimiento aparte "MINUCHI" (ver
+ * Configuración → Categorías e Inicio): tiene su propia categoría madre de
+ * ingreso y de gasto, para poder analizar sus números sin mezclarlos con las
+ * finanzas personales, aunque comparta cuentas y tarjetas de la familia.
+ */
+export const MINUCHI_CATEGORY_NAME = "minuchi";
+
+/** True si `cat` es la categoría madre "MINUCHI" (de ingreso o de gasto). */
+export function isMinuchiRootCategory(cat: Category): boolean {
+  return !cat.parentId && cat.name.trim().toLowerCase() === MINUCHI_CATEGORY_NAME;
+}
+
+/** Categoría madre de una categoría cualquiera, subiendo por `parentId` hasta el tope. */
+function categoryRoot(category: Category, categories: Category[]): Category {
+  let current = category;
+  while (current.parentId) {
+    const parent = categories.find((c) => c.id === current.parentId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current;
+}
+
+/**
+ * True si el valor de `category` guardado en un movimiento o cuota (path
+ * completo) cae bajo la categoría madre "MINUCHI". Se usa para no mezclar
+ * esos movimientos en el resumen personal de Inicio (ver `Dashboard.tsx`).
+ */
+export function isMinuchiCategoryPath(value: string | undefined, categories: Category[]): boolean {
+  if (!value) return false;
+  const match = categories.find((c) => categoryFullPath(c, categories) === value);
+  return !!match && isMinuchiRootCategory(categoryRoot(match, categories));
+}
