@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { LogOut } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Segment } from "../../components/ui";
 import { CategoriesSettings } from "./Categories";
 import { UsersSettings } from "./Users";
 import { SecuritySettings } from "./Security";
@@ -9,6 +8,7 @@ import { NotificationsSettings } from "./Notifications";
 import { BanksSettings } from "./Banks";
 import { RecurringRulesSettings } from "./Recurring";
 import { AuditSettings } from "./Audit";
+import { CardsSettings } from "./CardsSettings";
 import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, NotificationPrefs, RecurringRule, AuditEntry } from "../../types";
 
 export function Settings({
@@ -36,11 +36,17 @@ export function Settings({
   onAddCategory,
   onDeleteCategory,
   onMoveCategory,
+  onRenameCategory,
   onReclassifyCategory,
   onUpdateUserLock,
   onUpdateUserNotifications,
+  onAddBank,
+  onAddAccount,
   onUpdateBank,
   onUpdateAccount,
+  onAddCard,
+  onEditCard,
+  onDeleteCard,
   onAddRecurringRule,
   onEditRecurringRule,
   onToggleRecurringActive,
@@ -73,18 +79,24 @@ export function Settings({
   onAddCategory: () => void;
   onDeleteCategory: (id: string) => void;
   onMoveCategory: (id: string, newParentId: string) => void;
+  onRenameCategory: (id: string, newName: string) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
   onUpdateUserLock: (partial: Partial<AppLock>) => void;
   onUpdateUserNotifications: (partial: Partial<NotificationPrefs>) => void;
+  onAddBank: () => void;
+  onAddAccount: (bankId: string) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
+  onAddCard: () => void;
+  onEditCard: (c: Card) => void;
+  onDeleteCard: (id: string) => void;
   onAddRecurringRule: () => void;
   onEditRecurringRule: (r: RecurringRule) => void;
   onToggleRecurringActive: (r: RecurringRule) => void;
   onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "recurrentes" | "auditoria" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "tarjetas" | "recurrentes" | "auditoria" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -100,20 +112,32 @@ export function Settings({
         </button>
       </div>
 
-      <div className="mb-4">
-        <Segment
-          value={section}
-          onChange={setSection}
-          options={[
-            { value: "usuarios", label: "Usuarios y permisos" },
-            { value: "categorias", label: "Categorías" },
-            { value: "bancos", label: "Cajas y Bancos" },
-            { value: "recurrentes", label: "Recurrentes" },
-            { value: "auditoria", label: "Auditoría" },
-            { value: "seguridad", label: "Seguridad" },
-            { value: "notificaciones", label: "Notificaciones" },
-          ]}
-        />
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {(
+          [
+            ["usuarios", "Usuarios"],
+            ["categorias", "Categorías"],
+            ["bancos", "Bancos"],
+            ["tarjetas", "Tarjetas"],
+            ["recurrentes", "Recurrentes"],
+            ["auditoria", "Auditoría"],
+            ["seguridad", "Seguridad"],
+            ["notificaciones", "Notificaciones"],
+          ] as [typeof section, string][]
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setSection(value)}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-colors"
+            style={{
+              background: section === value ? C.surface3 : C.surface2,
+              border: `1px solid ${C.border}`,
+              color: section === value ? C.text : C.textMuted,
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {section === "usuarios" && (
@@ -138,6 +162,7 @@ export function Settings({
           onAdd={onAddCategory}
           onDelete={onDeleteCategory}
           onMove={onMoveCategory}
+          onRename={onRenameCategory}
           onReclassify={onReclassifyCategory}
         />
       )}
@@ -150,8 +175,20 @@ export function Settings({
           cardPayments={cardPayments}
           contactEntries={contactEntries}
           canEdit={canEdit}
+          onAddBank={onAddBank}
+          onAddAccount={onAddAccount}
           onUpdateBank={onUpdateBank}
           onUpdateAccount={onUpdateAccount}
+        />
+      )}
+      {section === "tarjetas" && (
+        <CardsSettings
+          cards={cards}
+          banks={banks}
+          canEdit={canEdit}
+          onAdd={onAddCard}
+          onEdit={onEditCard}
+          onDelete={onDeleteCard}
         />
       )}
       {section === "recurrentes" && (

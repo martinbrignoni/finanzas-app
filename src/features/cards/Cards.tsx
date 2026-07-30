@@ -94,15 +94,10 @@ export function Cards({
   data,
   canEdit,
   canEditMovements,
-  onAddCard,
-  onEditCard,
-  onDeleteCard,
   onEditInstallment,
   onDeleteInstallment,
-  onAddCardPayment,
   onEditCardPayment,
   onDeleteCardPayment,
-  onAddCardExpense,
   onEditTransaction,
   onDeleteTransaction,
   onSaveCardStatement,
@@ -111,15 +106,10 @@ export function Cards({
   canEdit: boolean;
   /** Permiso para editar/eliminar los gastos con tarjeta y compras en cuotas (viven en Movimientos). */
   canEditMovements: boolean;
-  onAddCard: () => void;
-  onEditCard: (c: Card) => void;
-  onDeleteCard: (id: string) => void;
   onEditInstallment: (i: Installment) => void;
   onDeleteInstallment: (id: string) => void;
-  onAddCardPayment: (cardId: string) => void;
   onEditCardPayment: (p: CardPayment) => void;
   onDeleteCardPayment: (id: string) => void;
-  onAddCardExpense: (cardId: string) => void;
   onEditTransaction: (t: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   onSaveCardStatement: (s: CardStatement) => void;
@@ -129,7 +119,7 @@ export function Cards({
   const viewCard = data.cards.find((c) => c.id === viewCardId) ?? null;
   const activeUser = data.users.find((u) => u.id === data.activeUserId) ?? null;
 
-  const cardSummaryProps = { data, mk, canEdit, canEditMovements, onEditCard, onDeleteCard, onAddCardExpense, onAddCardPayment, onView: setViewCardId };
+  const cardSummaryProps = { data, mk, onView: setViewCardId };
   const unassignedCards = data.cards.filter((c) => !c.bankId || !data.banks.some((b) => b.id === c.bankId));
 
   return (
@@ -138,7 +128,7 @@ export function Cards({
 
       {data.cards.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          Todavía no agregaste tarjetas.
+          Todavía no agregaste tarjetas. Podés crear una desde Configuración → Tarjetas.
         </div>
       )}
 
@@ -172,22 +162,6 @@ export function Cards({
         )}
       </div>
 
-      {canEdit && data.banks.length === 0 && (
-        <div className="rounded-xl p-4 text-center text-xs mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textFaint }}>
-          Agregá primero un banco en Configuración &gt; Cajas y Bancos para poder crear tarjetas.
-        </div>
-      )}
-
-      {canEdit && data.banks.length > 0 && (
-        <button
-          onClick={onAddCard}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Agregar tarjeta
-        </button>
-      )}
-
       {viewCard && (
         <CardDetailModal
           card={viewCard}
@@ -202,8 +176,6 @@ export function Cards({
           canEdit={canEdit}
           canEditMovements={canEditMovements}
           onSaveCardStatement={onSaveCardStatement}
-          onAddCardExpense={onAddCardExpense}
-          onAddCardPayment={onAddCardPayment}
           onEditInstallment={onEditInstallment}
           onDeleteInstallment={onDeleteInstallment}
           onEditTransaction={onEditTransaction}
@@ -222,23 +194,11 @@ function CardSummaryCard({
   card,
   data,
   mk,
-  canEdit,
-  canEditMovements,
-  onEditCard,
-  onDeleteCard,
-  onAddCardExpense,
-  onAddCardPayment,
   onView,
 }: {
   card: Card;
   data: FinanceData;
   mk: string;
-  canEdit: boolean;
-  canEditMovements: boolean;
-  onEditCard: (c: Card) => void;
-  onDeleteCard: (id: string) => void;
-  onAddCardExpense: (cardId: string) => void;
-  onAddCardPayment: (cardId: string) => void;
   onView: (id: string) => void;
 }) {
   const debt = cardDebt(card.id, data.installments, data.transactions, data.contactEntries, data.cardPayments, mk);
@@ -261,12 +221,6 @@ function CardSummaryCard({
             </div>
           </div>
         </div>
-        {canEdit && (
-          <div className="flex gap-1">
-            <IconBtn label="Editar tarjeta" onClick={() => onEditCard(card)}><Pencil size={15} /></IconBtn>
-            <IconBtn label="Eliminar tarjeta" danger onClick={() => onDeleteCard(card.id)}><Trash2 size={15} /></IconBtn>
-          </div>
-        )}
       </div>
 
       <div className="rounded-lg p-2.5 mb-2" style={{ background: C.surface2 }}>
@@ -297,24 +251,6 @@ function CardSummaryCard({
       )}
 
       <div className="flex gap-2">
-        {canEditMovements && (
-          <button
-            onClick={() => onAddCardExpense(card.id)}
-            className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-            style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-          >
-            <Plus size={13} /> Gasto
-          </button>
-        )}
-        {canEdit && (
-          <button
-            onClick={() => onAddCardPayment(card.id)}
-            className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-            style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-          >
-            <Plus size={13} /> Pago
-          </button>
-        )}
         <button
           onClick={() => onView(card.id)}
           className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
@@ -340,8 +276,6 @@ function CardDetailModal({
   canEditMovements,
   activeUser,
   onSaveCardStatement,
-  onAddCardExpense,
-  onAddCardPayment,
   onEditInstallment,
   onDeleteInstallment,
   onEditTransaction,
@@ -364,8 +298,6 @@ function CardDetailModal({
   /** Perfil activo: decide, junto con canEdit/canEditMovements, si puede editar/eliminar cada registro puntual (ver `canEditOwnRecord`). */
   activeUser: AppUser | null;
   onSaveCardStatement: (s: CardStatement) => void;
-  onAddCardExpense: (cardId: string) => void;
-  onAddCardPayment: (cardId: string) => void;
   onEditInstallment: (i: Installment) => void;
   onDeleteInstallment: (id: string) => void;
   onEditTransaction: (t: Transaction) => void;
@@ -587,17 +519,6 @@ function CardDetailModal({
         </div>
       )}
 
-      {canEditMovements && (
-        <button
-          onClick={() => onAddCardExpense(card.id)}
-          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-3"
-          style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={13} /> Agregar gasto con tarjeta
-        </button>
-      )}
-      {/* El mismo modal de arriba permite elegir "Cantidad de cuotas" para cargar compras financiadas. */}
-
       <div className="text-xs font-semibold mb-1.5" style={{ color: C.textMuted }}>Pagos registrados</div>
       {sortedPayments.length === 0 ? (
         <p className="text-xs mb-2" style={{ color: C.textFaint }}>Todavía no registraste pagos de esta tarjeta.</p>
@@ -630,15 +551,6 @@ function CardDetailModal({
         </div>
       )}
 
-      {canEdit && (
-        <button
-          onClick={() => onAddCardPayment(card.id)}
-          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
-          style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={13} /> Registrar pago
-        </button>
-      )}
     </Modal>
   );
 }

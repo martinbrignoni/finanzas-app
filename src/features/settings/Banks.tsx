@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Landmark, Wallet, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { Landmark, Wallet, ChevronDown, ChevronUp, AlertTriangle, Plus } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Field, Segment, TextArea, CurrencyPill } from "../../components/ui";
 import { accountBalance } from "../../lib/accounts";
@@ -8,9 +8,11 @@ import { todayISO } from "../../lib/dates";
 import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry } from "../../types";
 
 /**
- * Configuración de bancos y cajas que no tiene sentido repetir en el modal
- * de "Editar caja" de todos los días: si el banco pide sucursal, si una caja
- * está activa (visible en Cuentas y al registrar movimientos) o inactiva
+ * Alta y configuración de bancos y cajas: acá se crean (antes se creaban
+ * desde Cuentas, que ahora es solo para ver saldos y movimientos) y se
+ * ajustan las cosas que no tiene sentido repetir en el modal de "Editar
+ * caja" de todos los días: si el banco pide sucursal, si una caja está
+ * activa (visible en Cuentas y al registrar movimientos) o inactiva
  * ("mapeada" pero fuera de la vista), y el mensaje literal a usar al
  * compartir los datos bancarios de esa caja.
  */
@@ -22,6 +24,8 @@ export function BanksSettings({
   cardPayments,
   contactEntries,
   canEdit,
+  onAddBank,
+  onAddAccount,
   onUpdateBank,
   onUpdateAccount,
 }: {
@@ -32,33 +36,80 @@ export function BanksSettings({
   cardPayments: CardPayment[];
   contactEntries: ContactEntry[];
   canEdit: boolean;
+  onAddBank: () => void;
+  onAddAccount: (bankId: string) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
 }) {
-  if (banks.length === 0) {
-    return (
-      <p className="text-sm text-center py-6" style={{ color: C.textMuted }}>
-        Todavía no agregaste bancos. Podés crear uno desde Cuentas.
-      </p>
-    );
-  }
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   return (
-    <div className="space-y-3">
-      {banks.map((bank) => (
-        <BankSettingsCard
-          key={bank.id}
-          bank={bank}
-          accounts={accounts.filter((a) => a.bankId === bank.id)}
-          transactions={transactions}
-          transfers={transfers}
-          cardPayments={cardPayments}
-          contactEntries={contactEntries}
-          canEdit={canEdit}
-          onUpdateBank={onUpdateBank}
-          onUpdateAccount={onUpdateAccount}
-        />
-      ))}
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs" style={{ color: C.textMuted }}>
+          Un banco puede tener varias cajas, en distinta moneda.
+        </p>
+        {canEdit && (
+          <div className="relative shrink-0 ml-2">
+            <button
+              onClick={() => setAddMenuOpen((v) => !v)}
+              aria-label="Agregar"
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+            >
+              <Plus size={18} />
+            </button>
+            {addMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setAddMenuOpen(false)} />
+                <div
+                  className="absolute right-0 top-11 z-40 rounded-lg overflow-hidden w-48"
+                  style={{ background: C.surface, border: `1px solid ${C.border}` }}
+                >
+                  <button
+                    onClick={() => { setAddMenuOpen(false); onAddBank(); }}
+                    className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2"
+                    style={{ color: C.text }}
+                  >
+                    <Landmark size={14} /> Nuevo banco
+                  </button>
+                  <button
+                    onClick={() => { if (banks.length === 0) return; setAddMenuOpen(false); onAddAccount(banks[0].id); }}
+                    disabled={banks.length === 0}
+                    className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 disabled:opacity-40"
+                    style={{ color: C.text, borderTop: `1px solid ${C.border}` }}
+                  >
+                    <Wallet size={14} /> Nueva caja
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {banks.length === 0 ? (
+        <p className="text-sm text-center py-6" style={{ color: C.textMuted }}>
+          Todavía no agregaste bancos.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {banks.map((bank) => (
+            <BankSettingsCard
+              key={bank.id}
+              bank={bank}
+              accounts={accounts.filter((a) => a.bankId === bank.id)}
+              transactions={transactions}
+              transfers={transfers}
+              cardPayments={cardPayments}
+              contactEntries={contactEntries}
+              canEdit={canEdit}
+              onUpdateBank={onUpdateBank}
+              onUpdateAccount={onUpdateAccount}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -104,9 +155,9 @@ function BankSettingsCard({
       </Field>
 
       {accounts.length === 0 ? (
-        <p className="text-xs" style={{ color: C.textFaint }}>Este banco todavía no tiene cajas.</p>
+        <p className="text-xs mb-2" style={{ color: C.textFaint }}>Este banco todavía no tiene cajas.</p>
       ) : (
-        <div className="space-y-2 mt-1">
+        <div className="space-y-2 mt-1 mb-2">
           {accounts.map((acc) => (
             <AccountSettingsRow
               key={acc.id}

@@ -9,6 +9,7 @@ import { supabase } from "./lib/supabaseClient";
 import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import { generateDueRecurringTransactions } from "./lib/recurring";
+import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
 import {
   makeCreateEntry,
   makeUpdateEntry,
@@ -481,6 +482,22 @@ export default function App() {
   );
   const moveCategory = useCallback((id: string, newParentId: string) => {
     setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parentId: newParentId } : c)) } : d));
+  }, []);
+  const renameCategory = useCallback((id: string, newName: string) => {
+    setData((d) => {
+      if (!d) return d;
+      const cat = d.categories.find((c) => c.id === id);
+      const trimmed = newName.trim();
+      if (!cat || !trimmed || trimmed === cat.name) return d;
+      const { oldPath, newPath } = categoryRenamePaths(cat, d.categories, trimmed);
+      return {
+        ...d,
+        categories: d.categories.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
+        transactions: d.transactions.map((t) => (t.category ? { ...t, category: remapCategoryPath(t.category, oldPath, newPath) } : t)),
+        installments: d.installments.map((i) => (i.category ? { ...i, category: remapCategoryPath(i.category, oldPath, newPath) } : i)),
+        budgets: d.budgets.map((b) => ({ ...b, category: remapCategoryPath(b.category, oldPath, newPath) })),
+      };
+    });
   }, []);
   const reclassifyCategory = useCallback((fromName: string, toName: string) => {
     setData((d) =>
@@ -960,10 +977,8 @@ export default function App() {
                 }
                 accountStatements={data.accountStatements}
                 onSaveAccountStatement={saveAccountStatement}
-                onAddBank={() => setModal({ type: "bank" })}
                 onEditBank={(b) => setModal({ type: "bank", payload: b })}
                 onDeleteBank={confirmDeleteBank}
-                onAddAccount={(bankId) => setModal({ type: "account", payload: { bankId } })}
                 onEditAccount={(a) => setModal({ type: "account", payload: { bankId: a.bankId, account: a } })}
                 onDeleteAccount={confirmDeleteAccount}
                 onEditTransaction={(t) => setModal({ type: "movement", payload: { transaction: t } })}
@@ -979,15 +994,10 @@ export default function App() {
                 data={data}
                 canEdit={has("tarjetas", "edit")}
                 canEditMovements={has("movimientos", "edit")}
-                onAddCard={() => setModal({ type: "card" })}
-                onEditCard={(c) => setModal({ type: "card", payload: c })}
-                onDeleteCard={confirmDeleteCard}
                 onEditInstallment={(i) => setModal({ type: "movement", payload: { installment: i } })}
                 onDeleteInstallment={confirmDeleteInstallment}
-                onAddCardPayment={(cardId) => setModal({ type: "cardPayment", payload: { cardId } })}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
                 onDeleteCardPayment={confirmDeleteCardPayment}
-                onAddCardExpense={(cardId) => setModal({ type: "movement", payload: { presetCardId: cardId } })}
                 onEditTransaction={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDeleteTransaction={confirmDeleteTransaction}
                 onSaveCardStatement={saveCardStatement}
@@ -1070,11 +1080,17 @@ export default function App() {
                 onAddCategory={() => setModal({ type: "category" })}
                 onDeleteCategory={confirmDeleteCategory}
                 onMoveCategory={moveCategory}
+                onRenameCategory={renameCategory}
                 onReclassifyCategory={reclassifyCategory}
                 onUpdateUserLock={updateActiveUserLock}
                 onUpdateUserNotifications={updateActiveUserNotifications}
+                onAddBank={() => setModal({ type: "bank" })}
+                onAddAccount={(bankId) => setModal({ type: "account", payload: { bankId } })}
                 onUpdateBank={updateBankFields}
                 onUpdateAccount={updateAccountFields}
+                onAddCard={() => setModal({ type: "card" })}
+                onEditCard={(c) => setModal({ type: "card", payload: c })}
+                onDeleteCard={confirmDeleteCard}
                 onAddRecurringRule={() => setModal({ type: "recurringRule" })}
                 onEditRecurringRule={(r) => setModal({ type: "recurringRule", payload: r })}
                 onToggleRecurringActive={toggleRecurringActive}

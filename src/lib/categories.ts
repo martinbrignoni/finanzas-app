@@ -37,3 +37,30 @@ export function categoryDisplayName(value: string | undefined, categories: Categ
   const sameName = categories.filter((c) => c.type === match.type && c.name.toLowerCase() === match.name.toLowerCase());
   return sameName.length > 1 ? value : match.name;
 }
+
+/**
+ * Path completo de una categoría antes y después de renombrarla. Como
+ * `category` en movimientos/cuotas/presupuestos guarda el camino completo (no
+ * un id), cambiar el nombre de una categoría madre o intermedia deja
+ * "huérfano" todo lo que tenga ese camino guardado (tanto la categoría
+ * renombrada como sus subcategorías, que heredan el path). Ver
+ * `remapCategoryPath` para reasignar esos valores ya guardados al nuevo path.
+ */
+export function categoryRenamePaths(cat: Category, categories: Category[], newName: string): { oldPath: string; newPath: string } {
+  const oldPath = categoryFullPath(cat, categories);
+  const renamedCategories = categories.map((c) => (c.id === cat.id ? { ...c, name: newName } : c));
+  const newPath = categoryFullPath({ ...cat, name: newName }, renamedCategories);
+  return { oldPath, newPath };
+}
+
+/**
+ * Reescribe un valor de `category` ya guardado (en un movimiento, cuota o
+ * presupuesto) si corresponde exactamente al path viejo, o a algo debajo de
+ * él en el árbol (una subcategoría de la que se renombró), tras un cambio de
+ * nombre. Si no tiene nada que ver con `oldPath`, lo deja intacto.
+ */
+export function remapCategoryPath(value: string, oldPath: string, newPath: string): string {
+  if (value === oldPath) return newPath;
+  if (value.startsWith(`${oldPath} > `)) return newPath + value.slice(oldPath.length);
+  return value;
+}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, Plus, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Users, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Users, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
@@ -33,10 +33,8 @@ export function Accounts({
   onSetAccountsViewMode,
   accountStatements,
   onSaveAccountStatement,
-  onAddBank,
   onEditBank,
   onDeleteBank,
-  onAddAccount,
   onEditAccount,
   onDeleteAccount,
   onEditTransaction,
@@ -66,10 +64,8 @@ export function Accounts({
   onSetAccountsViewMode: (mode: "banco" | "moneda") => void;
   accountStatements: AccountStatement[];
   onSaveAccountStatement: (s: AccountStatement) => void;
-  onAddBank: () => void;
   onEditBank: (b: Bank) => void;
   onDeleteBank: (id: string) => void;
-  onAddAccount: (bankId: string) => void;
   onEditAccount: (a: Account) => void;
   onDeleteAccount: (id: string) => void;
   onEditTransaction: (t: Transaction) => void;
@@ -89,12 +85,16 @@ export function Accounts({
   const [asOfDate, setAsOfDate] = useState(todayISO());
   const isToday = asOfDate === todayISO();
   const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
-  const [addMenuOpen, setAddMenuOpen] = useState(false);
   const allBankIds = banks.map((b) => b.id);
   const allAccountIds = accounts.map((a) => a.id);
   // Las cajas marcadas inactivas (Configuración → Bancos) quedan "mapeadas" pero fuera de esta
   // vista, salvo que se esté consultando una fecha en la que todavía estaban activas.
   const visibleAccounts = accounts.filter((a) => isAccountVisibleAt(a, asOfDate));
+  // Un banco sin ninguna caja visible (todas inactivas, o directamente sin cajas) no aparece acá:
+  // sigue existiendo y se administra desde Configuración → Bancos, pero no aporta nada a esta vista.
+  const visibleBanks = orderItems(banks, allBankIds, sortOrders.banks).filter(
+    (bank) => accountsByBank(visibleAccounts, bank.id).length > 0
+  );
 
   /** Comparte (o, si el navegador no soporta compartir, copia al portapapeles) los datos bancarios de una cuenta. */
   const handleShare = async (account: Account) => {
@@ -120,48 +120,16 @@ export function Accounts({
     <div className="pb-24">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-display" style={{ color: C.text }}>Cuentas</h1>
-        {canEdit && (
-          <div className="relative">
-            <button
-              onClick={() => setAddMenuOpen((v) => !v)}
-              aria-label="Agregar"
-              className="w-9 h-9 rounded-full flex items-center justify-center"
-              style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
-            >
-              <Plus size={18} />
-            </button>
-            {addMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setAddMenuOpen(false)} />
-                <div
-                  className="absolute right-0 top-11 z-40 rounded-lg overflow-hidden w-48"
-                  style={{ background: C.surface, border: `1px solid ${C.border}` }}
-                >
-                  <button
-                    onClick={() => { setAddMenuOpen(false); onAddBank(); }}
-                    className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2"
-                    style={{ color: C.text }}
-                  >
-                    <Landmark size={14} /> Nuevo banco
-                  </button>
-                  <button
-                    onClick={() => { if (banks.length === 0) return; setAddMenuOpen(false); onAddAccount(banks[0].id); }}
-                    disabled={banks.length === 0}
-                    className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 disabled:opacity-40"
-                    style={{ color: C.text, borderTop: `1px solid ${C.border}` }}
-                  >
-                    <Wallet size={14} /> Nueva caja
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
       </div>
 
       {banks.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
-          Todavía no agregaste bancos. Un banco puede tener varias cajas, en distinta moneda.
+          Todavía no agregaste bancos. Podés crear uno desde Configuración → Bancos.
+        </div>
+      )}
+      {banks.length > 0 && visibleBanks.length === 0 && (
+        <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
+          No tenés cajas activas. Podés crear una o reactivar una existente desde Configuración → Bancos.
         </div>
       )}
 
@@ -228,7 +196,7 @@ export function Accounts({
 
       {sortBy === "banco" ? (
         <div className="space-y-3 mb-4">
-          {orderItems(banks, allBankIds, sortOrders.banks).map((bank, bankIdx, orderedBanks) => {
+          {visibleBanks.map((bank, bankIdx, orderedBanks) => {
               const bankAccounts = orderItems(accountsByBank(visibleAccounts, bank.id), allAccountIds, sortOrders.accountsByBank);
               const hasMovements =
                 transactions.some((t) => bankAccounts.some((a) => a.id === t.accountId)) ||

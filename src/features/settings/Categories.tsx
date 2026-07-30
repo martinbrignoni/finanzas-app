@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, ArrowRightLeft, List, Download } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, ChevronRight } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
@@ -8,6 +8,9 @@ import { formatMoney } from "../../lib/money";
 import { formatDateDMY, monthKeyOf, monthLabel, capitalize } from "../../lib/dates";
 import { exportCategoryToExcel } from "../../lib/excelExport";
 import type { Category, Transaction, Installment, Budget, TransactionType } from "../../types";
+
+/** Nombre con el que se identifica el emprendimiento de la esposa, para mostrarlo separado del resto (ver comentario más abajo). */
+const MINUCHI_NAME = "minuchi";
 
 export function CategoriesSettings({
   categories,
@@ -18,6 +21,7 @@ export function CategoriesSettings({
   onAdd,
   onDelete,
   onMove,
+  onRename,
   onReclassify,
 }: {
   categories: Category[];
@@ -29,13 +33,28 @@ export function CategoriesSettings({
   onDelete: (id: string) => void;
   /** Cambia el padre de una categoría (nivel 2) o subcategoría (nivel 3) existente. */
   onMove: (id: string, newParentId: string) => void;
+  /** Cambia el nombre de una categoría (madre, categoría o subcategoría) existente. */
+  onRename: (id: string, newName: string) => void;
   /** Reasigna todos los movimientos de una categoría a otra (antes de poder borrar la primera). */
   onReclassify: (fromName: string, toName: string) => void;
 }) {
   const [blockedMsg, setBlockedMsg] = useState<string | null>(null);
   const [reclassifyTarget, setReclassifyTarget] = useState<Category | null>(null);
   const [moveTarget, setMoveTarget] = useState<Category | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Category | null>(null);
   const [ledgerTarget, setLedgerTarget] = useState<Category | null>(null);
+  // Arranca con todo colapsado (solo categorías madre a la vista) para que un árbol
+  // grande no sea una pared de texto; cada quien expande lo que quiere mirar.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(
+    () => new Set(categories.filter((c) => categories.some((x) => x.parentId === c.id)).map((c) => c.id))
+  );
+  const toggleCollapsed = (id: string) =>
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const hasChildren = (cat: Category) => categories.some((c) => c.parentId === cat.id);
   const countMovements = (cat: Category) => {
@@ -62,115 +81,175 @@ export function CategoriesSettings({
     onDelete(cat.id);
   };
 
-  const gastos = categories.filter((c) => c.type === "gasto" && !c.parentId);
-  const ingresos = categories.filter((c) => c.type === "ingreso" && !c.parentId);
+  // El emprendimiento de la esposa (Martín usa las cuentas/tarjetas de la casa para
+  // comprar y cobrar de "MINUCHI") se administra con sus propias categorías madre de
+  // ingreso y de gasto, pero se muestran aparte de las categorías personales, arriba
+  // de todo, para poder mirar y analizar sus números de forma independiente.
+  const isMinuchi = (c: Category) => !c.parentId && c.name.trim().toLowerCase() === MINUCHI_NAME;
+  const minuchiRoots = categories.filter(isMinuchi);
+  const gastos = categories.filter((c) => c.type === "gasto" && !c.parentId && !isMinuchi(c));
+  const ingresos = categories.filter((c) => c.type === "ingreso" && !c.parentId && !isMinuchi(c));
+
+  const renderRoots = (roots: Category[]) => (
+    <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
+      {roots.length === 0 && (
+        <div className="p-3 text-xs" style={{ background: C.surface, color: C.textMuted }}>Sin categorías.</div>
+      )}
+      {roots.map((madre, i) => {
+        const hijas = categories.filter((c) => c.parentId === madre.id);
+        const madreExpanded = !collapsedIds.has(madre.id);
+        return (
+          <div key={madre.id}>
+            <div
+              className="p-3 flex items-center justify-between text-sm"
+              style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
+            >
+              <button
+                onClick={() => hijas.length > 0 && toggleCollapsed(madre.id)}
+                className="flex items-center gap-1.5 text-left min-w-0"
+                disabled={hijas.length === 0}
+              >
+                {hijas.length > 0 && (madreExpanded ? <ChevronDown size={14} color={C.textFaint} /> : <ChevronRight size={14} color={C.textFaint} />)}
+                <span className="font-semibold truncate" style={{ color: C.text }}>{madre.name}</span>
+              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                {countMovements(madre) > 0 && (
+                  <>
+                    <span className="text-xs" style={{ color: C.textFaint }}>
+                      {countMovements(madre)} mov.
+                    </span>
+                    <IconBtn label={`Ver movimientos de ${madre.name}`} onClick={() => setLedgerTarget(madre)}><List size={14} /></IconBtn>
+                  </>
+                )}
+                {canEdit && (
+                  <>
+                    <IconBtn label={`Renombrar ${madre.name}`} onClick={() => setRenameTarget(madre)}><Pencil size={14} /></IconBtn>
+                    <IconBtn label={`Eliminar ${madre.name}`} danger onClick={() => handleDelete(madre)}><Trash2 size={14} /></IconBtn>
+                  </>
+                )}
+              </div>
+            </div>
+            {madreExpanded && hijas.map((cat) => {
+              const nietas = categories.filter((c) => c.parentId === cat.id);
+              const catExpanded = !collapsedIds.has(cat.id);
+              return (
+                <div key={cat.id}>
+                  <div
+                    className="pl-6 py-2.5 pr-3 flex items-center justify-between text-sm"
+                    style={{ background: C.surface2, borderTop: `1px solid ${C.border}` }}
+                  >
+                    <button
+                      onClick={() => nietas.length > 0 && toggleCollapsed(cat.id)}
+                      className="flex items-center gap-1.5 text-left min-w-0"
+                      disabled={nietas.length === 0}
+                    >
+                      {nietas.length > 0 && (catExpanded ? <ChevronDown size={13} color={C.textFaint} /> : <ChevronRight size={13} color={C.textFaint} />)}
+                      <span className="truncate" style={{ color: C.text }}>{cat.name}</span>
+                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {countMovements(cat) > 0 && (
+                        <>
+                          <span className="text-xs" style={{ color: C.textFaint }}>
+                            {countMovements(cat)} mov.
+                          </span>
+                          <IconBtn label={`Ver movimientos de ${cat.name}`} onClick={() => setLedgerTarget(cat)}><List size={13} /></IconBtn>
+                        </>
+                      )}
+                      {canEdit && (
+                        <>
+                          <IconBtn label={`Renombrar ${cat.name}`} onClick={() => setRenameTarget(cat)}><Pencil size={13} /></IconBtn>
+                          <IconBtn label={`Mover ${cat.name}`} onClick={() => setMoveTarget(cat)}><ArrowRightLeft size={13} /></IconBtn>
+                          <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {catExpanded && nietas.map((sub) => (
+                    <div
+                      key={sub.id}
+                      className="pl-10 py-2 pr-3 flex items-center justify-between text-xs"
+                      style={{ background: C.surface, borderTop: `1px solid ${C.border}` }}
+                    >
+                      <span style={{ color: C.textMuted }}>{sub.name}</span>
+                      <div className="flex items-center gap-1">
+                        {countMovements(sub) > 0 && (
+                          <>
+                            <span className="text-xs" style={{ color: C.textFaint }}>
+                              {countMovements(sub)} mov.
+                            </span>
+                            <IconBtn label={`Ver movimientos de ${sub.name}`} onClick={() => setLedgerTarget(sub)}><List size={12} /></IconBtn>
+                          </>
+                        )}
+                        {canEdit && (
+                          <>
+                            <IconBtn label={`Renombrar ${sub.name}`} onClick={() => setRenameTarget(sub)}><Pencil size={12} /></IconBtn>
+                            <IconBtn label={`Mover ${sub.name}`} onClick={() => setMoveTarget(sub)}><ArrowRightLeft size={12} /></IconBtn>
+                            <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs" style={{ color: C.textMuted }}>
+          Se organizan en categoría madre, categoría y subcategoría (hasta 3 niveles).
+        </p>
+        {canEdit && (
+          <button
+            onClick={onAdd}
+            aria-label="Nueva categoría"
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 ml-2"
+            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+          >
+            <Plus size={18} />
+          </button>
+        )}
+      </div>
+
       {blockedMsg && (
         <div className="rounded-lg p-3 mb-3 text-xs" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
           {blockedMsg}
         </div>
       )}
 
-      {([["Gasto", gastos], ["Ingreso", ingresos]] as [string, Category[]][]).map(([label, roots]) => (
+      {minuchiRoots.length > 0 && (
+        <div className="mb-5 pb-1" style={{ borderBottom: `1px solid ${C.border}` }}>
+          <h3 className="text-xs font-semibold uppercase tracking-wide mb-0.5" style={{ color: C.usd }}>MINUCHI</h3>
+          <p className="text-[11px] mb-2" style={{ color: C.textFaint }}>
+            Emprendimiento aparte: se guarda con sus propias categorías para poder ver y analizar sus números por separado.
+          </p>
+          {(["ingreso", "gasto"] as TransactionType[]).map((type) => {
+            const roots = minuchiRoots.filter((c) => c.type === type);
+            if (roots.length === 0) return null;
+            return (
+              <div key={type} className="mb-3 last:mb-0">
+                <h4 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.textFaint }}>
+                  {type === "ingreso" ? "Ingreso" : "Gasto"}
+                </h4>
+                {renderRoots(roots)}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {([["Ingreso", ingresos], ["Gasto", gastos]] as [string, Category[]][]).map(([label, roots]) => (
         <div key={label} className="mb-4">
           <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.textFaint }}>{label}</h3>
-          <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
-            {roots.length === 0 && (
-              <div className="p-3 text-xs" style={{ background: C.surface, color: C.textMuted }}>Sin categorías.</div>
-            )}
-            {roots.map((madre, i) => {
-              const hijas = categories.filter((c) => c.parentId === madre.id);
-              return (
-                <div key={madre.id}>
-                  <div
-                    className="p-3 flex items-center justify-between text-sm"
-                    style={{ background: C.surface, borderTop: i ? `1px solid ${C.border}` : "none" }}
-                  >
-                    <span className="font-semibold" style={{ color: C.text }}>{madre.name}</span>
-                    <div className="flex items-center gap-1">
-                      {countMovements(madre) > 0 && (
-                        <>
-                          <span className="text-xs" style={{ color: C.textFaint }}>
-                            {countMovements(madre)} mov.
-                          </span>
-                          <IconBtn label={`Ver movimientos de ${madre.name}`} onClick={() => setLedgerTarget(madre)}><List size={14} /></IconBtn>
-                        </>
-                      )}
-                      {canEdit && <IconBtn label={`Eliminar ${madre.name}`} danger onClick={() => handleDelete(madre)}><Trash2 size={14} /></IconBtn>}
-                    </div>
-                  </div>
-                  {hijas.map((cat) => {
-                    const nietas = categories.filter((c) => c.parentId === cat.id);
-                    return (
-                      <div key={cat.id}>
-                        <div
-                          className="pl-6 py-2.5 pr-3 flex items-center justify-between text-sm"
-                          style={{ background: C.surface2, borderTop: `1px solid ${C.border}` }}
-                        >
-                          <span style={{ color: C.text }}>{cat.name}</span>
-                          <div className="flex items-center gap-1">
-                            {countMovements(cat) > 0 && (
-                              <>
-                                <span className="text-xs" style={{ color: C.textFaint }}>
-                                  {countMovements(cat)} mov.
-                                </span>
-                                <IconBtn label={`Ver movimientos de ${cat.name}`} onClick={() => setLedgerTarget(cat)}><List size={13} /></IconBtn>
-                              </>
-                            )}
-                            {canEdit && (
-                              <>
-                                <IconBtn label={`Mover ${cat.name}`} onClick={() => setMoveTarget(cat)}><ArrowRightLeft size={13} /></IconBtn>
-                                <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        {nietas.map((sub) => (
-                          <div
-                            key={sub.id}
-                            className="pl-10 py-2 pr-3 flex items-center justify-between text-xs"
-                            style={{ background: C.surface, borderTop: `1px solid ${C.border}` }}
-                          >
-                            <span style={{ color: C.textMuted }}>{sub.name}</span>
-                            <div className="flex items-center gap-1">
-                              {countMovements(sub) > 0 && (
-                                <>
-                                  <span className="text-xs" style={{ color: C.textFaint }}>
-                                    {countMovements(sub)} mov.
-                                  </span>
-                                  <IconBtn label={`Ver movimientos de ${sub.name}`} onClick={() => setLedgerTarget(sub)}><List size={12} /></IconBtn>
-                                </>
-                              )}
-                              {canEdit && (
-                                <>
-                                  <IconBtn label={`Mover ${sub.name}`} onClick={() => setMoveTarget(sub)}><ArrowRightLeft size={12} /></IconBtn>
-                                  <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
-          </div>
+          {renderRoots(roots)}
         </div>
       ))}
-
-      {canEdit && (
-        <button
-          onClick={onAdd}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Nueva categoría
-        </button>
-      )}
 
       {reclassifyTarget && (
         <ReclassifyModal
@@ -195,6 +274,15 @@ export function CategoriesSettings({
             setMoveTarget(null);
           }}
           onClose={() => setMoveTarget(null)}
+        />
+      )}
+
+      {renameTarget && (
+        <RenameCategoryModal
+          category={renameTarget}
+          categories={categories}
+          onRename={onRename}
+          onClose={() => setRenameTarget(null)}
         />
       )}
 
@@ -402,6 +490,46 @@ function MoveCategoryModal({
       </Field>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Mover</PrimaryButton>
+    </Modal>
+  );
+}
+
+/** Cambia el nombre de una categoría (madre, categoría o subcategoría) ya existente. */
+function RenameCategoryModal({
+  category,
+  categories,
+  onRename,
+  onClose,
+}: {
+  category: Category;
+  categories: Category[];
+  onRename: (id: string, newName: string) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(category.name);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return setError("Ingresá un nombre.");
+    const dup = categories.some(
+      (c) => c.id !== category.id && c.type === category.type && c.parentId === category.parentId && c.name.toLowerCase() === trimmed.toLowerCase()
+    );
+    if (dup) return setError("Ya existe una categoría con ese nombre en este nivel.");
+    onRename(category.id, trimmed);
+    onClose();
+  };
+
+  return (
+    <Modal title={`Renombrar "${category.name}"`} onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.textMuted }}>
+        Los movimientos, cuotas y presupuestos ya cargados con esta categoría (y sus subcategorías) se actualizan solos al nuevo nombre.
+      </p>
+      <Field label="Nombre">
+        {(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} />}
+      </Field>
+      {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
+      <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
   );
 }
