@@ -79,7 +79,7 @@ export function isMinuchiRootCategory(cat: Category): boolean {
 }
 
 /** Categoría madre de una categoría cualquiera, subiendo por `parentId` hasta el tope. */
-function categoryRoot(category: Category, categories: Category[]): Category {
+export function categoryRoot(category: Category, categories: Category[]): Category {
   let current = category;
   while (current.parentId) {
     const parent = categories.find((c) => c.id === current.parentId);
@@ -98,4 +98,22 @@ export function isMinuchiCategoryPath(value: string | undefined, categories: Cat
   if (!value) return false;
   const match = categories.find((c) => categoryFullPath(c, categories) === value);
   return !!match && isMinuchiRootCategory(categoryRoot(match, categories));
+}
+
+/** Scope elegido en el modal de Nuevo Movimiento: de quién es la plata (ver Transactions.tsx). */
+export type MovementScope = "personal" | "minuchi";
+
+/**
+ * Recorta el árbol de categorías al scope elegido (Personal o MINUCHI) antes
+ * de pasarlo al selector de categoría o al alta rápida de categoría desde el
+ * modal de movimiento. "personal" deja afuera toda la rama MINUCHI (madre y
+ * subcategorías); "minuchi" deja solo esa rama. Así queda una exclusión dura
+ * en los dos sentidos: no se puede elegir por error una categoría del otro
+ * lado.
+ */
+export function filterCategoriesByScope(categories: Category[], scope: MovementScope): Category[] {
+  return categories.filter((c) => {
+    const isMinuchi = isMinuchiRootCategory(categoryRoot(c, categories));
+    return scope === "minuchi" ? isMinuchi : !isMinuchi;
+  });
 }

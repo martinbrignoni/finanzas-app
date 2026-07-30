@@ -5,7 +5,8 @@ import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, Icon
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
-import { categoryFullPath, categoryDisplayName } from "../../lib/categories";
+import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope } from "../../lib/categories";
+import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
@@ -683,6 +684,14 @@ interface FormState {
   kind: MovementKind;
   /** Sub-tipo, solo cuando `kind === "transferencia"`. */
   transferKind: TransferKind;
+  /**
+   * De quién es el movimiento (ver Configuración → Categorías: MINUCHI es el
+   * emprendimiento aparte de mi esposa). Solo importa para Gasto/Ingreso:
+   * acota qué categorías se pueden elegir y, si es "minuchi", saca
+   * "Transferencia" de las opciones de Tipo (MINUCHI no tiene cuentas
+   * propias para transferir).
+   */
+  scope: MovementScope;
   // campos de gasto/ingreso
   amount: string;
   currency: Currency;
@@ -790,9 +799,17 @@ export function MovementModal({
   // del archivo del comprobante en Storage y después se usa como id real al guardar.
   const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? initialInstallment?.id ?? initialContactEntry?.id ?? crypto.randomUUID());
 
-  const [form, setForm] = useState<FormState>(() => ({
+  const [form, setForm] = useState<FormState>(() => {
+    // Nueva: arranca sin categoría a propósito, para poder cargar rápido y
+    // categorizar después (ver el filtro de "pendientes" en la lista).
+    const initialCategory = initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category ?? "" : "";
+    return {
     kind: initialContactEntry || initialTransfer ? "transferencia" : initial ? initial.type : "gasto",
     transferKind: initialContactEntry ? "personas" : "cuentas",
+    // Si se está editando un gasto/ingreso/cuota que ya tenía una categoría
+    // MINUCHI, arrancamos en ese scope para no dejar la categoría "huérfana"
+    // (que el picker la filtre afuera al abrir el modal).
+    scope: isMinuchiCategoryPath(initialCategory, categories) ? "minuchi" : "personal",
     amount: initialContactEntry
       ? String(fromMinor(Math.abs(initialContactEntry.amountMinor)))
       : initialInstallment
@@ -801,9 +818,7 @@ export function MovementModal({
       ? String(fromMinor(initial.amountMinor))
       : "",
     currency: initialContactEntry ? initialContactEntry.currency : initialInstallment ? initialInstallment.currency : initial ? initial.currency : "UYU",
-    // Nueva: arranca sin categoría a propósito, para poder cargar rápido y
-    // categorizar después (ver el filtro de "pendientes" en la lista).
-    category: initialInstallment ? initialInstallment.category ?? initialInstallment.description : initial ? initial.category ?? "" : "",
+    category: initialCategory,
     date: initialContactEntry
       ? initialContactEntry.date
       : initialTransfer
@@ -844,7 +859,8 @@ export function MovementModal({
     contactFavorMio: initialContactEntry ? initialContactEntry.amountMinor >= 0 : true,
     contactDescription: initialContactEntry?.description ?? "",
     receiptPaths: receiptPathsOf(initialTransfer ?? initial ?? initialInstallment ?? initialContactEntry),
-  }));
+    };
+  });
   const [error, setError] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
@@ -1052,14 +1068,24 @@ export function MovementModal({
   // editar un gasto de pago único ya cargado (para eso conviene cargar un movimiento nuevo).
   const showInstallmentsField = form.kind === "gasto" && form.paymentMethod === "tarjeta" && !isEditingTransaction;
 
+  // Si existe la categoría madre MINUCHI (ver Configuración → Categorías),
+  // se ofrece el scope Personal/MINUCHI arriba de Tipo; si no, ni se muestra
+  // (nada cambia para quien no la usa).
+  const hasMinuchi = categories.some(isMinuchiRootCategory);
+
   const kindOptions =
-    presetCardId || isEditingTransaction || isEditingInstallment
+    presetCardId || isEditingTransaction || isEditingInstallment || form.scope === "minuchi"
       ? [{ value: "gasto" as const, label: "Gasto" }, { value: "ingreso" as const, label: "Ingreso" }]
       : [
           { value: "gasto" as const, label: "Gasto" },
           { value: "ingreso" as const, label: "Ingreso" },
           { value: "transferencia" as const, label: "Transferencia" },
         ];
+
+  // Categorías que puede ofrecer el picker (y el alta rápida) según el scope
+  // elegido: MINUCHI no tiene cuentas propias, así que su scope solo aplica
+  // a Gasto/Ingreso, nunca a Transferencia.
+  const scopedCategories = filterCategoriesByScope(categories, form.scope);
 
   const transferKindOptions = [
     { value: "cuentas" as const, label: "Entre cuentas" },
@@ -1090,6 +1116,30 @@ export function MovementModal({
 
   return (
     <Modal title={title} onClose={onClose}>
+      {!isEditingTransfer && !isEditingContactEntry && hasMinuchi && (
+        <Field label="¿De quién es este movimiento?">
+          {() => (
+            <Segment
+              value={form.scope}
+              onChange={(v) =>
+                setForm((f) => ({
+                  ...f,
+                  scope: v,
+                  // MINUCHI no tiene cuentas propias: si venía en Transferencia, pasa a Gasto.
+                  kind: v === "minuchi" && f.kind === "transferencia" ? "gasto" : f.kind,
+                  // La categoría del otro scope ya no es válida acá, se limpia para elegir de nuevo.
+                  category: "",
+                }))
+              }
+              options={[
+                { value: "personal", label: "Personal" },
+                { value: "minuchi", label: "MINUCHI" },
+              ]}
+            />
+          )}
+        </Field>
+      )}
+
       {!isEditingTransfer && !isEditingContactEntry && (
         <Field label="Tipo">
           {() => (
@@ -1398,7 +1448,7 @@ export function MovementModal({
             </Field>
           </div>
           <CategoryPicker
-            categories={categories}
+            categories={scopedCategories}
             type={form.kind === "ingreso" ? "ingreso" : "gasto"}
             value={form.category}
             onChange={(name) => setForm((f) => ({ ...f, category: name }))}
@@ -1570,7 +1620,7 @@ export function MovementModal({
 
       {showCategoryModal && (
         <CategoryModal
-          categories={categories}
+          categories={scopedCategories}
           defaultType={form.kind === "ingreso" ? "ingreso" : "gasto"}
           onSave={(c) => {
             onSaveCategory(c);
