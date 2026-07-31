@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, Tag, ChevronDown } from "lucide-react";
+import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, CreditCard, Tag, ChevronDown } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -9,8 +9,9 @@ import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { formatDateDMY, todayISO } from "../../lib/dates";
 import { contactBalance, contactCategories, contactKind, isContactSettled } from "../../lib/contacts";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
+import { cardLabel, cardExtensionLabel } from "../../lib/cards";
 import { canEditOwnRecord } from "../../lib/permissions";
-import type { Contact, ContactEntry, Account, Bank, Currency, Category, AppUser } from "../../types";
+import type { Contact, ContactEntry, Account, Bank, Card, Currency, Category, AppUser } from "../../types";
 
 /** Resumen de saldo de una persona: "Te debe $X" (verde), "Le debés $X" (rojo), o "Saldado" si está en cero en todas las monedas. */
 function BalanceSummary({ balance, size = "sm" }: { balance: Record<Currency, number>; size?: "sm" | "lg" }) {
@@ -35,6 +36,7 @@ export function Contacts({
   contactEntries,
   accounts,
   banks,
+  cards,
   canEdit,
   activeUser,
   onAddContact,
@@ -49,6 +51,7 @@ export function Contacts({
   contactEntries: ContactEntry[];
   accounts: Account[];
   banks: Bank[];
+  cards: Card[];
   canEdit: boolean;
   /** Perfil activo: decide, junto con canEdit, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
   activeUser: AppUser | null;
@@ -221,6 +224,7 @@ export function Contacts({
           entries={contactEntries.filter((e) => e.contactId === viewContact.id)}
           accounts={accounts}
           banks={banks}
+          cards={cards}
           canEdit={canEdit}
           activeUser={activeUser}
           onAddEntry={() => onAddEntry(viewContact.id)}
@@ -240,6 +244,7 @@ function ContactLedgerModal({
   entries,
   accounts,
   banks,
+  cards,
   canEdit,
   activeUser,
   onAddEntry,
@@ -253,6 +258,7 @@ function ContactLedgerModal({
   entries: ContactEntry[];
   accounts: Account[];
   banks: Bank[];
+  cards: Card[];
   canEdit: boolean;
   /** Perfil activo: decide, junto con canEdit, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
   activeUser: AppUser | null;
@@ -316,17 +322,27 @@ function ContactLedgerModal({
         <div className="space-y-2 max-h-[50vh] overflow-y-auto">
           {sorted.map((e) => {
             const account = accounts.find((a) => a.id === e.accountId);
+            const card = cards.find((c) => c.id === e.cardId);
+            const extensionName = cardExtensionLabel(cards, e.cardId, e.cardExtensionId);
             return (
               <div key={e.id} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm" style={{ color: C.text }}>{e.description}</div>
-                    <div className="text-xs flex items-center gap-1" style={{ color: C.textFaint }}>
+                    <div className="text-xs flex items-center gap-1 flex-wrap" style={{ color: C.textFaint }}>
                       {formatDateDMY(e.date)}
                       {account && (
                         <>
                           <span>·</span>
                           <Landmark size={11} /> {accountLabel(account, banks)}
+                        </>
+                      )}
+                      {e.cardId && (
+                        <>
+                          <span>·</span>
+                          <CreditCard size={11} /> {cardLabel(card, banks)}
+                          {extensionName && ` (${extensionName})`}
+                          {e.numInstallments && e.numInstallments > 1 && ` · ${e.numInstallments} cuotas`}
                         </>
                       )}
                     </div>

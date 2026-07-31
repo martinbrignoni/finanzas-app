@@ -19,7 +19,7 @@ function getFormatter(currency: Currency): Intl.NumberFormat {
   if (!formatterCache.has(currency)) {
     formatterCache.set(
       currency,
-      new Intl.NumberFormat("es-UY", { maximumFractionDigits: 0 })
+      new Intl.NumberFormat("es-UY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     );
   }
   return formatterCache.get(currency)!;
@@ -27,7 +27,7 @@ function getFormatter(currency: Currency): Intl.NumberFormat {
 
 export function formatMoney(minorAmount: number, currency: Currency): string {
   const symbol = currency === "USD" ? "US$" : "$U";
-  const value = Math.round(fromMinor(minorAmount));
+  const value = fromMinor(minorAmount);
   return `${symbol} ${getFormatter(currency).format(value)}`;
 }
 

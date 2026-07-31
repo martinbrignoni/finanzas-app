@@ -1032,6 +1032,7 @@ export default function App() {
                 contactEntries={data.contactEntries}
                 accounts={data.accounts}
                 banks={data.banks}
+                cards={data.cards}
                 canEdit={has("personas", "edit")}
                 activeUser={activeUser}
                 onAddContact={() => setModal({ type: "contact" })}

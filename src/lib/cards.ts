@@ -14,6 +14,13 @@ export function cardLabel(card: Card | undefined, banks: Bank[]): string {
   return bank ? `${bank.name} ${card.name}` : card.name;
 }
 
+/** Nombre de quién usó la tarjeta (una extensión puntual), o null si la pagó el titular o no aplica. */
+export function cardExtensionLabel(cards: Card[], cardId: string | undefined, extensionId: string | undefined): string | null {
+  if (!cardId || !extensionId) return null;
+  const card = cards.find((c) => c.id === cardId);
+  return card?.extensions?.find((e) => e.id === extensionId)?.name ?? "Extensión eliminada";
+}
+
 /** Cuota (por moneda) que vence este mes puntualmente para una tarjeta, para sugerir el monto de pago. */
 export function dueForCardInMonth(cardId: string, installments: Installment[], mk: string): Record<Currency, number> {
   const due: Record<Currency, number> = { UYU: 0, USD: 0 };

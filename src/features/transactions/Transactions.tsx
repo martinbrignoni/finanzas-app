@@ -14,7 +14,7 @@ import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY, formatDate
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
-import { cardLabel, dueForCardInMonth } from "../../lib/cards";
+import { cardLabel, cardExtensionLabel, dueForCardInMonth } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { auditActionLabel } from "../../lib/audit";
 import { UserBadge } from "../../components/UserBadge";
@@ -110,13 +110,6 @@ function normalizeText(s: string): string {
 function amountVariants(amountMinor: number): string {
   const plain = String(fromMinor(amountMinor));
   return `${plain} ${plain.replace(".", ",")}`;
-}
-
-/** Nombre de quién usó la tarjeta (una extensión puntual), o null si la pagó el titular o no aplica. */
-function cardExtensionLabel(cards: Card[], cardId: string | undefined, extensionId: string | undefined): string | null {
-  if (!cardId || !extensionId) return null;
-  const card = cards.find((c) => c.id === cardId);
-  return card?.extensions?.find((e) => e.id === extensionId)?.name ?? "Extensión eliminada";
 }
 
 /** Junta todo el texto relevante de un movimiento (categoría, nota, fecha, importe, cuenta, tarjeta...) para buscar en él. */
@@ -680,6 +673,15 @@ type PaymentMethod = "ninguno" | "cuenta" | "tarjeta" | "persona";
 type MovementKind = "gasto" | "ingreso" | "transferencia";
 type TransferKind = "cuentas" | "tarjeta" | "personas";
 
+/** Nombre fijo del contacto (Personas) al que se le acredita el IVA descontado, ver "¿Descuenta IVA?" más abajo. */
+const IVA_CONTACT_NAME = "Gustavo Brignoni";
+/** Tasa básica de IVA en Uruguay (22%), usada solo para sugerir un monto editable en "¿Descuenta IVA?". */
+const IVA_TASA_BASICA = 0.22;
+/** IVA contenido en un monto que ya lo incluye (extracción), redondeado a centésimos. */
+function ivaIncluidoEn(amountGross: number): number {
+  return Math.round(((amountGross * IVA_TASA_BASICA) / (1 + IVA_TASA_BASICA)) * 100) / 100;
+}
+
 interface FormState {
   kind: MovementKind;
   /** Sub-tipo, solo cuando `kind === "transferencia"`. */
@@ -704,6 +706,18 @@ interface FormState {
   cardExtensionId: string; // "" significa el titular (solo aplica si la tarjeta elegida tiene extensiones)
   /** Préstamo hipotecario al que corresponde este gasto (pago de cuota), si aplica. "" = no vinculado. */
   mortgageLoanId: string;
+  /**
+   * "¿IVA Compras?" (Gasto) o "¿IVA Ventas?" (Ingreso): el movimiento que
+   * queda categorizado es por la diferencia (neto de IVA); el IVA se
+   * acredita aparte en Personas contra Gustavo Brignoni (ver
+   * `IVA_CONTACT_NAME` y `maybeCreateIvaCredit`), con la misma cuenta/tarjeta
+   * del movimiento, para que el total real coincida con lo que efectivamente
+   * pagaste o cobraste. En Compras él te queda debiendo el IVA (crédito
+   * recuperable); en Ventas le quedás debiendo vos (débito a remitir).
+   */
+  ivaChecked: boolean;
+  /** Monto de IVA a acreditar contra Gustavo Brignoni. Sugerido con tasa básica (22%) al tildar "Sí"; editable. */
+  ivaAmount: string;
   /**
    * Monto (en la moneda del gasto/ingreso) que puso la persona elegida como
    * medio de pago. Vacío = se asume el 100% del monto. Solo aplica a un
@@ -848,6 +862,11 @@ export function MovementModal({
     cardId: initialContactEntry?.cardId ?? initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
     cardExtensionId: initialContactEntry?.cardExtensionId ?? initialInstallment?.cardExtensionId ?? initial?.cardExtensionId ?? "",
     mortgageLoanId: initial?.mortgageLoanId ?? "",
+    // Es un registro adicional que se dispara al guardar, no un dato propio
+    // del movimiento: al editar uno ya cargado, arranca siempre en "No" (si
+    // se quiere repetir el asiento de IVA, se vuelve a tildar a mano).
+    ivaChecked: false,
+    ivaAmount: "",
     personaAmount: "",
     fromAccountId: initialTransfer ? initialTransfer.fromAccountId : accounts[0]?.id ?? "",
     toAccountId: initialTransfer ? initialTransfer.toAccountId : accounts[1]?.id ?? accounts[0]?.id ?? "",
@@ -905,6 +924,49 @@ export function MovementModal({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.kind, form.transferKind, needsRate, form.date, rateAutoSuggested]);
+
+  // Sugiere el IVA (tasa básica, 22%) contenido en el monto del gasto o
+  // ingreso, mientras el usuario no haya tocado el campo a mano. Se
+  // recalcula si cambia el monto; deja de pisarlo apenas lo edita directamente.
+  const [ivaAutoSuggested, setIvaAutoSuggested] = useState(true);
+  useEffect(() => {
+    if ((form.kind !== "gasto" && form.kind !== "ingreso") || !form.ivaChecked || !ivaAutoSuggested) return;
+    const amountNum = parseFloat(form.amount.replace(",", "."));
+    if (!Number.isFinite(amountNum) || amountNum <= 0) return;
+    setForm((f) => ({ ...f, ivaAmount: String(ivaIncluidoEn(amountNum)) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.kind, form.ivaChecked, form.amount, ivaAutoSuggested]);
+
+  // "¿IVA Compras?" / "¿IVA Ventas?": el movimiento que cuenta como tuyo
+  // (categorizado, para Ingresos/Gastos, presupuestos, etc.) queda por la
+  // diferencia (neto de IVA); el IVA se acredita aparte en Personas contra
+  // Gustavo Brignoni, con la misma cuenta/tarjeta del movimiento. Así, entre
+  // las dos entradas, la cuenta o el consumo de la tarjeta reflejan el monto
+  // total real que salió o entró (igual que sin esto), pero el IVA no cuenta
+  // como gasto/ingreso tuyo. En Compras es un crédito a tu favor (él te
+  // queda debiendo, lo recupera); en Ventas es al revés (le quedás debiendo
+  // vos el débito que hay que remitir).
+  const maybeCreateIvaCredit = (ivaAmountMinor: number, numCuotas?: number) => {
+    if (ivaAmountMinor <= 0) return;
+    const isVentas = form.kind === "ingreso";
+    const existingContact = contacts.find((c) => c.name.trim().toLowerCase() === IVA_CONTACT_NAME.toLowerCase());
+    const contactId = existingContact?.id ?? crypto.randomUUID();
+    if (!existingContact) {
+      onSaveContact({ id: contactId, name: IVA_CONTACT_NAME, kind: "persona" });
+    }
+    onSaveContactEntry({
+      id: crypto.randomUUID(),
+      contactId,
+      date: form.date,
+      amountMinor: isVentas ? -ivaAmountMinor : ivaAmountMinor,
+      currency: form.currency,
+      accountId: form.paymentMethod === "cuenta" ? form.accountId || undefined : undefined,
+      cardId: form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
+      cardExtensionId: form.paymentMethod === "tarjeta" ? form.cardExtensionId || undefined : undefined,
+      numInstallments: numCuotas && numCuotas > 1 ? numCuotas : undefined,
+      description: `${isVentas ? "IVA Ventas" : "IVA Compras"}${form.category ? ` · ${form.category}` : ""}${form.note.trim() ? ` · ${form.note.trim()}` : ""}`,
+    });
+  };
 
   const handleSave = () => {
     if (form.kind === "transferencia" && form.transferKind === "cuentas") {
@@ -998,6 +1060,21 @@ export function MovementModal({
     // categorizar después (ver el filtro de "pendientes" en Movimientos).
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
 
+    // "¿IVA Compras?" / "¿IVA Ventas?": el gasto o ingreso que queda
+    // categorizado (y el que sale/entra por la cuenta/tarjeta vía este
+    // movimiento) es por la diferencia; el IVA se acredita aparte contra
+    // Gustavo Brignoni (ver `maybeCreateIvaCredit`), con la misma
+    // cuenta/tarjeta, para que entre las dos el total real coincida con lo
+    // que efectivamente pagaste o cobraste.
+    let ivaAmountMinor = 0;
+    if ((form.kind === "gasto" || form.kind === "ingreso") && form.ivaChecked) {
+      const parsedIva = parseAmountInput(form.ivaAmount);
+      if (parsedIva === null || parsedIva <= 0) return setError("Ingresá un IVA válido, mayor a cero.");
+      if (parsedIva >= amountMinor) return setError(`El IVA no puede ser mayor o igual al monto del ${form.kind}.`);
+      ivaAmountMinor = parsedIva;
+    }
+    const netAmountMinor = amountMinor - ivaAmountMinor;
+
     let personaAmountMinor: number | null = null;
     if (form.paymentMethod === "persona") {
       if (!form.contactId) return setError("Elegí una persona o concepto.");
@@ -1017,15 +1094,16 @@ export function MovementModal({
           category: form.category || undefined,
           note: form.note.trim() || undefined,
           currency: form.currency,
-          totalAmountMinor: amountMinor,
+          totalAmountMinor: netAmountMinor,
           numInstallments: numCuotas,
           startMonth: form.date.slice(0, 7),
-          installmentAmountMinor: Math.round(amountMinor / numCuotas),
+          installmentAmountMinor: Math.round(netAmountMinor / numCuotas),
           date: form.date,
           receiptPaths: form.receiptPaths,
           createdByUserId: initialInstallment?.createdByUserId,
           cardExtensionId: form.cardExtensionId || undefined,
         });
+        maybeCreateIvaCredit(ivaAmountMinor, numCuotas);
         return;
       }
     }
@@ -1033,7 +1111,7 @@ export function MovementModal({
     onSaveTransaction({
       id: movementId,
       type: movementType,
-      amountMinor,
+      amountMinor: netAmountMinor,
       currency: form.currency,
       category: form.category || undefined,
       date: form.date,
@@ -1045,6 +1123,7 @@ export function MovementModal({
       receiptPaths: form.receiptPaths,
       createdByUserId: initial?.createdByUserId,
     });
+    maybeCreateIvaCredit(ivaAmountMinor);
 
     // Medio de pago "persona": además del gasto/ingreso de arriba (con su
     // categoría de siempre), registra por separado en Personas cuánto puso
@@ -1479,6 +1558,53 @@ export function MovementModal({
               <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
                 Vinculándolo, Inicio deja de reclamar la cuota de este préstamo en "Vencimientos" una vez que quede cargado este mes.
               </p>
+            </>
+          )}
+
+          {(form.kind === "gasto" || form.kind === "ingreso") && (
+            <>
+              <Field label={form.kind === "ingreso" ? "¿IVA Ventas?" : "¿IVA Compras?"}>
+                {() => (
+                  <Segment
+                    value={form.ivaChecked ? "si" : "no"}
+                    onChange={(v) => {
+                      setIvaAutoSuggested(true);
+                      setForm((f) => ({ ...f, ivaChecked: v === "si", ivaAmount: v === "si" ? f.ivaAmount : "" }));
+                    }}
+                    options={[
+                      { value: "no", label: "No" },
+                      { value: "si", label: "Sí" },
+                    ]}
+                  />
+                )}
+              </Field>
+              {form.ivaChecked && (
+                <>
+                  <Field label={`IVA de esta ${form.kind === "ingreso" ? "venta" : "compra"} (${form.currency})`}>
+                    {(id) => (
+                      <TextInput
+                        id={id}
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={form.ivaAmount}
+                        onChange={(e) => {
+                          setIvaAutoSuggested(false);
+                          setForm((f) => ({ ...f, ivaAmount: e.target.value }));
+                        }}
+                        placeholder="0"
+                      />
+                    )}
+                  </Field>
+                  <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                    Sugerido con IVA tasa básica (22%) sobre el monto de arriba; editalo si corresponde otra tasa. El {form.kind} queda registrado por la diferencia (neto de IVA); el IVA se acredita aparte en Personas:{" "}
+                    {form.kind === "ingreso"
+                      ? `le quedás debiendo ese importe a ${IVA_CONTACT_NAME} (débito a remitir).`
+                      : `${IVA_CONTACT_NAME} te queda debiendo ese importe (crédito recuperable).`}
+                  </p>
+                </>
+              )}
             </>
           )}
 

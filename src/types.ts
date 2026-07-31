@@ -371,6 +371,8 @@ export interface ContactEntry {
   cardId?: string;
   /** Con qué tarjeta física se pagó, si `cardId` tiene extensiones cargadas (ver `Transaction.cardExtensionId`). */
   cardExtensionId?: string;
+  /** Si `cardId` está cargado y el gasto que originó este movimiento se pagó en cuotas, cuántas (solo informativo, se muestra junto a la tarjeta). */
+  numInstallments?: number;
   receiptPaths?: string[];
   /** Perfil (AppUser.id) que cargó este movimiento. `undefined` en movimientos guardados antes de este campo. */
   createdByUserId?: string;
