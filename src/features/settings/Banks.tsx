@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Landmark, Wallet, ChevronDown, ChevronUp, AlertTriangle, Plus } from "lucide-react";
+import { Landmark, Wallet, ChevronDown, ChevronUp, AlertTriangle, Plus, Pencil } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Field, Segment, TextArea, CurrencyPill } from "../../components/ui";
+import { Field, Segment, TextArea, CurrencyPill, ConfirmDialog, IconBtn } from "../../components/ui";
 import { accountBalance } from "../../lib/accounts";
 import { formatMoney } from "../../lib/money";
 import { todayISO } from "../../lib/dates";
@@ -187,8 +187,24 @@ function AccountSettingsRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState(account.shareMessage ?? "");
+  const [editingMessage, setEditingMessage] = useState(false);
+  const [confirmSaveMessage, setConfirmSaveMessage] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const active = account.active !== false;
+
+  const startEditingMessage = () => {
+    setMessage(account.shareMessage ?? "");
+    setEditingMessage(true);
+  };
+  const cancelEditingMessage = () => {
+    setMessage(account.shareMessage ?? "");
+    setEditingMessage(false);
+  };
+  const confirmSaveMessageChange = () => {
+    onUpdate({ shareMessage: message.trim() || undefined });
+    setConfirmSaveMessage(false);
+    setEditingMessage(false);
+  };
 
   const handleToggle = (v: string) => {
     if (v === "off") {
@@ -242,18 +258,55 @@ function AccountSettingsRow({
               <span>{error}</span>
             </div>
           )}
-          <Field label="Mensaje personalizado al compartir (opcional)">
-            {(id) => (
-              <TextArea
-                id={id}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onBlur={() => onUpdate({ shareMessage: message.trim() || undefined })}
-                placeholder="Si lo dejás vacío, se arma automáticamente con banco, cuenta, moneda, sucursal, número y titular."
-                disabled={!canEdit}
-              />
+          <div className="mb-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs" style={{ color: C.textMuted }}>Mensaje personalizado al compartir (opcional)</span>
+              {canEdit && !editingMessage && (
+                <IconBtn label="Editar mensaje" onClick={startEditingMessage}><Pencil size={13} /></IconBtn>
+              )}
+            </div>
+            {editingMessage ? (
+              <>
+                <TextArea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Si lo dejás vacío, se arma automáticamente con banco, cuenta, moneda, sucursal, número y titular."
+                  autoFocus
+                />
+                <div className="flex gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={cancelEditingMessage}
+                    className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                    style={{ border: `1px solid ${C.border}`, color: C.textMuted }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmSaveMessage(true)}
+                    className="flex-1 py-2 rounded-lg text-xs font-semibold"
+                    style={{ background: C.usd, color: "#0A1413" }}
+                  >
+                    Guardar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs" style={{ color: account.shareMessage ? C.text : C.textFaint }}>
+                {account.shareMessage || "Vacío: se arma automáticamente con banco, cuenta, moneda, sucursal, número y titular."}
+              </p>
             )}
-          </Field>
+          </div>
+          {confirmSaveMessage && (
+            <ConfirmDialog
+              title="¿Guardar los cambios?"
+              message="Se va a actualizar el mensaje que se usa al compartir los datos de esta caja."
+              confirmLabel="Guardar"
+              onConfirm={confirmSaveMessageChange}
+              onCancel={() => setConfirmSaveMessage(false)}
+            />
+          )}
           {!active && (
             <p className="text-[11px] mt-1.5" style={{ color: C.textFaint }}>
               Esta caja está inactiva: no aparece en Cuentas ni para elegir al registrar un movimiento nuevo.

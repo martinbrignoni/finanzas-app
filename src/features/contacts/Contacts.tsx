@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, CreditCard, Tag, ChevronDown } from "lucide-react";
+import { useState, useEffect } from "react";
+import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, CreditCard, Tag, ChevronDown, Repeat } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -11,6 +11,7 @@ import { contactBalance, contactCategories, contactKind, isContactSettled } from
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { cardLabel, cardExtensionLabel } from "../../lib/cards";
 import { canEditOwnRecord } from "../../lib/permissions";
+import { fetchRateForDate } from "../../lib/exchangeRates";
 import type { Contact, ContactEntry, Account, Bank, Card, Currency, Category, AppUser } from "../../types";
 
 /** Resumen de saldo de una persona: "Te debe $X" (verde), "Le debés $X" (rojo), o "Saldado" si está en cero en todas las monedas. */
@@ -46,6 +47,7 @@ export function Contacts({
   onEditEntry,
   onDeleteEntry,
   onSplitExpense,
+  onConvertCurrency,
 }: {
   contacts: Contact[];
   contactEntries: ContactEntry[];
@@ -62,6 +64,8 @@ export function Contacts({
   onEditEntry: (e: ContactEntry) => void;
   onDeleteEntry: (id: string) => void;
   onSplitExpense: () => void;
+  /** Redenominar parte del saldo de una persona entre pesos y dólares, como movimiento aparte (ver `ConvertCurrencyModal`). */
+  onConvertCurrency: (contactId: string) => void;
 }) {
   const [viewContactId, setViewContactId] = useState<string | null>(null);
   const viewContact = contacts.find((c) => c.id === viewContactId) ?? null;
@@ -208,16 +212,6 @@ export function Contacts({
         </div>
       )}
 
-      {canEdit && (
-        <button
-          onClick={onAddContact}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Nueva persona
-        </button>
-      )}
-
       {viewContact && (
         <ContactLedgerModal
           contact={viewContact}
@@ -230,6 +224,7 @@ export function Contacts({
           onAddEntry={() => onAddEntry(viewContact.id)}
           onEditEntry={onEditEntry}
           onDeleteEntry={onDeleteEntry}
+          onConvertCurrency={() => onConvertCurrency(viewContact.id)}
           onEditContact={() => onEditContact(viewContact)}
           onDeleteContact={() => { onDeleteContact(viewContact.id); setViewContactId(null); }}
           onClose={() => setViewContactId(null)}
@@ -250,6 +245,7 @@ function ContactLedgerModal({
   onAddEntry,
   onEditEntry,
   onDeleteEntry,
+  onConvertCurrency,
   onEditContact,
   onDeleteContact,
   onClose,
@@ -265,6 +261,7 @@ function ContactLedgerModal({
   onAddEntry: () => void;
   onEditEntry: (e: ContactEntry) => void;
   onDeleteEntry: (id: string) => void;
+  onConvertCurrency: () => void;
   onEditContact: () => void;
   onDeleteContact: () => void;
   onClose: () => void;
@@ -307,13 +304,22 @@ function ContactLedgerModal({
       )}
 
       {canEdit && (
-        <button
-          onClick={onAddEntry}
-          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 mb-4"
-          style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={13} /> Nuevo movimiento
-        </button>
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={onAddEntry}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+            style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+          >
+            <Plus size={13} /> Nuevo movimiento
+          </button>
+          <button
+            onClick={onConvertCurrency}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1"
+            style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+          >
+            <Repeat size={13} /> Convertir moneda
+          </button>
+        </div>
       )}
 
       {sorted.length === 0 ? (
@@ -741,6 +747,117 @@ export function SplitExpenseModal({
         </div>
       )}
 
+      {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
+      <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
+    </Modal>
+  );
+}
+
+/**
+ * Redenomina parte del saldo de una persona entre pesos y dólares: resta el
+ * monto de una moneda y suma el equivalente en la otra, como un movimiento
+ * aparte de cualquier gasto/ingreso. No toca ninguna cuenta ni tarjeta real,
+ * es puramente una reclasificación dentro de la cuenta corriente con esa
+ * persona.
+ */
+export function ConvertCurrencyModal({
+  contactId,
+  contactName,
+  onSave,
+  onClose,
+}: {
+  contactId: string;
+  contactName: string;
+  onSave: (entries: ContactEntry[]) => void;
+  onClose: () => void;
+}) {
+  const [fromCurrency, setFromCurrency] = useState<Currency>("USD");
+  const toCurrency: Currency = fromCurrency === "USD" ? "UYU" : "USD";
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [rate, setRate] = useState("");
+  const [rateAutoSuggested, setRateAutoSuggested] = useState(true);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  // Sugiere la cotización del BCU (USD billete, venta) a la fecha elegida, mientras no se toque a mano.
+  useEffect(() => {
+    if (!rateAutoSuggested) return;
+    let cancelado = false;
+    fetchRateForDate("USD", date).then((row) => {
+      if (cancelado || !row) return;
+      setRate(String(row.sell));
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [date, rateAutoSuggested]);
+
+  const amountMinor = parseAmountInput(amount) ?? 0;
+  const rateNum = parseFloat(rate.replace(",", "."));
+  const rateValid = Number.isFinite(rateNum) && rateNum > 0;
+  const convertedMinor = rateValid
+    ? fromCurrency === "USD"
+      ? Math.round(fromMinor(amountMinor) * rateNum * 100)
+      : Math.round((fromMinor(amountMinor) / rateNum) * 100)
+    : 0;
+
+  const handleSave = () => {
+    if (amountMinor <= 0) return setError("Ingresá un monto válido, mayor a cero.");
+    if (!rateValid) return setError("Ingresá una cotización válida.");
+    if (!date) return setError("Elegí una fecha.");
+    const description = note.trim() || `Conversión ${fromCurrency} → ${toCurrency}`;
+    onSave([
+      { id: crypto.randomUUID(), contactId, date, amountMinor: -amountMinor, currency: fromCurrency, description },
+      { id: crypto.randomUUID(), contactId, date, amountMinor: convertedMinor, currency: toCurrency, description },
+    ]);
+  };
+
+  return (
+    <Modal title={`Convertir moneda · ${contactName}`} onClose={onClose}>
+      <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+        Resta el monto de una moneda y suma el equivalente en la otra, al saldo de {contactName}. No mueve ninguna cuenta ni tarjeta real.
+      </p>
+      <Field label="Moneda de origen">
+        {() => (
+          <Segment
+            value={fromCurrency}
+            onChange={setFromCurrency}
+            options={[{ value: "UYU", label: "Pesos" }, { value: "USD", label: "Dólares" }]}
+          />
+        )}
+      </Field>
+      <Field label={`Monto a convertir (${fromCurrency})`}>
+        {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+      </Field>
+      <Field label="Fecha">
+        {(id) => <TextInput id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
+      </Field>
+      <Field label={`Cotización (1 USD = ? UYU)${rateAutoSuggested ? " · sugerida" : ""}`}>
+        {(id) => (
+          <TextInput
+            id={id}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={rate}
+            onChange={(e) => {
+              setRateAutoSuggested(false);
+              setRate(e.target.value);
+            }}
+            placeholder="ej. 40.50"
+          />
+        )}
+      </Field>
+      {amountMinor > 0 && rateValid && (
+        <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+          Se resta {formatMoney(amountMinor, fromCurrency)} y se suma {formatMoney(convertedMinor, toCurrency)} al saldo de {contactName}.
+        </p>
+      )}
+      <Field label="Descripción (opcional)">
+        {(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} placeholder={`Conversión ${fromCurrency} → ${toCurrency}`} />}
+      </Field>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>

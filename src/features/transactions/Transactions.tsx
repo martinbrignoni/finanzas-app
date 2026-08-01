@@ -1126,15 +1126,18 @@ export function MovementModal({
     maybeCreateIvaCredit(ivaAmountMinor);
 
     // Medio de pago "persona": además del gasto/ingreso de arriba (con su
-    // categoría de siempre), registra por separado en Personas cuánto puso
-    // esa persona — le quedás debiendo eso (o te lo descuenta, si es un
-    // ingreso que te adelantó/prestó).
+    // categoría de siempre), registra por separado en Personas cuánto falta
+    // saldar con esa persona. En Gasto, alguien puso esa plata por vos —
+    // le quedás debiendo (a favor suyo). En Ingreso, es al revés: reconocés
+    // el ingreso ya (por su categoría) pero todavía no te lo pagaron — la
+    // persona te queda debiendo (a favor tuyo), hasta que registres el cobro
+    // real (ej. una Transferencia > Personas contra la cuenta del banco).
     if (personaAmountMinor !== null) {
       onSaveContactEntry({
         id: crypto.randomUUID(),
         contactId: form.contactId,
         date: form.date,
-        amountMinor: -personaAmountMinor,
+        amountMinor: form.kind === "ingreso" ? personaAmountMinor : -personaAmountMinor,
         currency: form.currency,
         description: form.category
           ? `${form.category}${form.note.trim() ? ` · ${form.note.trim()}` : ""}`
@@ -1717,7 +1720,13 @@ export function MovementModal({
                   + Nueva persona o concepto
                 </button>
               </div>
-              <Field label={`¿Cuánto puso ${selectedContact?.name ?? "esta persona"}? (opcional)`}>
+              <Field
+                label={
+                  form.kind === "ingreso"
+                    ? `¿Cuánto te debe todavía ${selectedContact?.name ?? "esta persona"}? (opcional)`
+                    : `¿Cuánto puso ${selectedContact?.name ?? "esta persona"}? (opcional)`
+                }
+              >
                 {(id) => (
                   <TextInput
                     id={id}
@@ -1732,7 +1741,9 @@ export function MovementModal({
                 )}
               </Field>
               <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-                El {form.kind === "gasto" ? "gasto" : "ingreso"} completo queda categorizado como arriba. Si dejás este campo vacío, se asume que {selectedContact?.name ?? "esta persona"} puso el 100%; si ponés un monto menor, el resto se considera puesto por vos. Se registra además un movimiento en Personas por ese importe.
+                {form.kind === "ingreso"
+                  ? `El ingreso completo queda categorizado como arriba, aunque todavía no lo hayas cobrado. Si dejás este campo vacío, se asume que ${selectedContact?.name ?? "esta persona"} te debe el 100%; si ponés un monto menor, el resto se considera ya cobrado. Se registra en Personas que te queda debiendo ese importe (a favor tuyo); cuando cobres de verdad, registralo como Transferencia > Personas contra la cuenta del banco.`
+                  : `El gasto completo queda categorizado como arriba. Si dejás este campo vacío, se asume que ${selectedContact?.name ?? "esta persona"} puso el 100%; si ponés un monto menor, el resto se considera puesto por vos. Se registra además un movimiento en Personas por ese importe (le quedás debiendo).`}
               </p>
             </>
           )}

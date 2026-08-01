@@ -38,7 +38,7 @@ import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
 import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
 import { Notes, NoteModal } from "./features/notes/Notes";
-import { Contacts, ContactModal, ContactEntryModal, SplitExpenseModal, type SplitOwnExpense } from "./features/contacts/Contacts";
+import { Contacts, ContactModal, ContactEntryModal, SplitExpenseModal, ConvertCurrencyModal, type SplitOwnExpense } from "./features/contacts/Contacts";
 import { Mortgage, LoanModal, PrepaymentModal } from "./features/mortgage/Mortgage";
 import { LockScreen } from "./features/security/LockScreen";
 import { Settings } from "./features/settings/Settings";
@@ -70,6 +70,7 @@ type ModalState =
   | { type: "contact"; payload?: Contact }
   | { type: "contactEntry"; payload: { contactId: string; entry?: ContactEntry } }
   | { type: "splitExpense" }
+  | { type: "convertCurrency"; payload: { contactId: string } }
   | { type: "mortgageLoan"; payload?: MortgageLoan }
   | { type: "mortgagePrepayment"; payload: { loanId: string; prepayment?: MortgagePrepayment } }
   | { type: "recurringRule"; payload?: RecurringRule }
@@ -1042,6 +1043,7 @@ export default function App() {
                 onEditEntry={(e) => setModal({ type: "contactEntry", payload: { contactId: e.contactId, entry: e } })}
                 onDeleteEntry={confirmDeleteContactEntry}
                 onSplitExpense={() => setModal({ type: "splitExpense" })}
+                onConvertCurrency={(contactId) => setModal({ type: "convertCurrency", payload: { contactId } })}
               />
             )}
             {tab === "hipoteca" && (
@@ -1200,6 +1202,14 @@ export default function App() {
           accounts={data.accounts}
           banks={data.banks}
           categories={data.categories}
+          onSave={saveSplitExpense}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "convertCurrency" && (
+        <ConvertCurrencyModal
+          contactId={modal.payload.contactId}
+          contactName={data.contacts.find((c) => c.id === modal.payload.contactId)?.name ?? "Persona"}
           onSave={saveSplitExpense}
           onClose={closeModal}
         />

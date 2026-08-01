@@ -101,7 +101,7 @@ export function Accounts({
     const text = shareableAccountText(account, banks);
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Datos bancarios", text });
+        await navigator.share({ text });
       } catch {
         // el usuario cerró el panel de compartir, no hacemos nada
       }
@@ -544,7 +544,7 @@ function AccountLedgerModal({
     const text = shareableAccountText(account, banks);
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Datos bancarios", text });
+        await navigator.share({ text });
       } catch {
         // el usuario cerró el panel de compartir, no hacemos nada
       }

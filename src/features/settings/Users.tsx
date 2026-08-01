@@ -59,7 +59,19 @@ export function UsersSettings({
         </div>
       )}
 
-      <h3 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: C.textFaint }}>Usuarios y permisos</h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.textFaint }}>Usuarios y permisos</h3>
+        {canEdit && (
+          <button
+            onClick={onAdd}
+            aria-label="Nuevo usuario"
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 ml-2"
+            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+          >
+            <Plus size={18} />
+          </button>
+        )}
+      </div>
       <div className="space-y-2 mb-4">
         {users.map((u) => (
           <div key={u.id} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
@@ -104,16 +116,6 @@ export function UsersSettings({
           </div>
         ))}
       </div>
-
-      {canEdit && (
-        <button
-          onClick={onAdd}
-          className="w-full py-3 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold"
-          style={{ background: C.surface2, border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-        >
-          <Plus size={16} /> Nuevo usuario
-        </button>
-      )}
     </div>
   );
 }
