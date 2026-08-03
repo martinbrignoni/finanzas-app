@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Pencil, Trash2, Plus } from "lucide-react";
+import { Pencil, Trash2, Plus, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
 import { currentMonthKey, monthKeyOf } from "../../lib/dates";
+import { exportBudgetsToExcel } from "../../lib/excelExport";
 import type { Budget, Transaction, Currency, Category } from "../../types";
 
 export function Budgets({ budgets, transactions, canEdit, onAdd, onEdit, onDelete }: {
@@ -20,7 +21,14 @@ export function Budgets({ budgets, transactions, canEdit, onAdd, onEdit, onDelet
 
   return (
     <div className="pb-24">
-      <h1 className="text-2xl mb-4 font-display" style={{ color: C.text }}>Presupuestos</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-display" style={{ color: C.text }}>Presupuestos</h1>
+        {budgets.length > 0 && (
+          <IconBtn label="Exportar presupuestos a Excel" onClick={() => exportBudgetsToExcel(budgets, transactions)}>
+            <Download size={16} />
+          </IconBtn>
+        )}
+      </div>
 
       {budgets.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm mb-4" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>

@@ -66,6 +66,32 @@ export function remapCategoryPath(value: string, oldPath: string, newPath: strin
 }
 
 /**
+ * Busca la categoría (objeto completo) a partir de un valor de `category` ya
+ * guardado (el path completo, ver `categoryFullPath`). `undefined` si no hay
+ * ninguna coincidencia (ej. se borró después de guardar el movimiento).
+ */
+export function findCategoryByPath(value: string | undefined, categories: Category[]): Category | undefined {
+  if (!value) return undefined;
+  return categories.find((c) => categoryFullPath(c, categories) === value);
+}
+
+/**
+ * Si esta categoría (o cualquiera de sus categorías madre/intermedias arriba
+ * en la jerarquía) tiene `allowFamilyMembers` activo, se hereda hacia abajo:
+ * alcanza con activarlo en la madre o en una categoría intermedia para que ya
+ * quede activo en todo lo que cuelgue de ella, sin tener que tildarlo
+ * subcategoría por subcategoría.
+ */
+export function categoryAllowsFamilyMembers(category: Category, categories: Category[]): boolean {
+  let current: Category | undefined = category;
+  while (current) {
+    if (current.allowFamilyMembers) return true;
+    current = current.parentId ? categories.find((c) => c.id === current!.parentId) : undefined;
+  }
+  return false;
+}
+
+/**
  * Nombre con el que se identifica el emprendimiento aparte "MINUCHI" (ver
  * Configuración → Categorías e Inicio): tiene su propia categoría madre de
  * ingreso y de gasto, para poder analizar sus números sin mezclarlos con las

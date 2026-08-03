@@ -9,7 +9,8 @@ import { BanksSettings } from "./Banks";
 import { RecurringRulesSettings } from "./Recurring";
 import { AuditSettings } from "./Audit";
 import { CardsSettings } from "./CardsSettings";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, NotificationPrefs, RecurringRule, AuditEntry } from "../../types";
+import { FamilyMembersSettings } from "./FamilyMembers";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, Contact, NotificationPrefs, RecurringRule, AuditEntry, FamilyMember } from "../../types";
 
 export function Settings({
   users,
@@ -19,6 +20,7 @@ export function Settings({
   transfers,
   cardPayments,
   contactEntries,
+  contacts,
   installments,
   budgets,
   activeUser,
@@ -27,6 +29,7 @@ export function Settings({
   cards,
   recurringRules,
   auditLog,
+  familyMembers,
   canEdit,
   canSwitchUser = true,
   onSetActiveUser,
@@ -37,7 +40,11 @@ export function Settings({
   onDeleteCategory,
   onMoveCategory,
   onRenameCategory,
+  onSetCategoryAllowFamilyMembers,
   onReclassifyCategory,
+  onAddFamilyMember,
+  onEditFamilyMember,
+  onDeleteFamilyMember,
   onUpdateUserLock,
   onUpdateUserNotifications,
   onAddBank,
@@ -60,6 +67,7 @@ export function Settings({
   transfers: Transfer[];
   cardPayments: CardPayment[];
   contactEntries: ContactEntry[];
+  contacts: Contact[];
   installments: Installment[];
   budgets: Budget[];
   /** Perfil actualmente activo: la sección Seguridad edita el bloqueo de este perfil, no el de otros. */
@@ -70,6 +78,7 @@ export function Settings({
   recurringRules: RecurringRule[];
   /** Historial de alta/modificación/baja, ver sección Auditoría. */
   auditLog: AuditEntry[];
+  familyMembers: FamilyMember[];
   canEdit: boolean;
   canSwitchUser?: boolean;
   onSetActiveUser: (id: string) => void;
@@ -80,7 +89,12 @@ export function Settings({
   onDeleteCategory: (id: string) => void;
   onMoveCategory: (id: string, newParentId: string) => void;
   onRenameCategory: (id: string, newName: string) => void;
+  /** Activa/desactiva si una categoría permite elegir integrante de familia. */
+  onSetCategoryAllowFamilyMembers: (id: string, allow: boolean) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
+  onAddFamilyMember: () => void;
+  onEditFamilyMember: (m: FamilyMember) => void;
+  onDeleteFamilyMember: (id: string) => void;
   onUpdateUserLock: (partial: Partial<AppLock>) => void;
   onUpdateUserNotifications: (partial: Partial<NotificationPrefs>) => void;
   onAddBank: () => void;
@@ -96,7 +110,7 @@ export function Settings({
   onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "bancos" | "tarjetas" | "recurrentes" | "auditoria" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "bancos" | "tarjetas" | "recurrentes" | "auditoria" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -117,6 +131,7 @@ export function Settings({
           [
             ["usuarios", "Usuarios"],
             ["categorias", "Categorías"],
+            ["familia", "Familia"],
             ["bancos", "Bancos"],
             ["tarjetas", "Tarjetas"],
             ["recurrentes", "Recurrentes"],
@@ -163,7 +178,17 @@ export function Settings({
           onDelete={onDeleteCategory}
           onMove={onMoveCategory}
           onRename={onRenameCategory}
+          onSetAllowFamilyMembers={onSetCategoryAllowFamilyMembers}
           onReclassify={onReclassifyCategory}
+        />
+      )}
+      {section === "familia" && (
+        <FamilyMembersSettings
+          familyMembers={familyMembers}
+          canEdit={canEdit}
+          onAdd={onAddFamilyMember}
+          onEdit={onEditFamilyMember}
+          onDelete={onDeleteFamilyMember}
         />
       )}
       {section === "bancos" && (
@@ -197,6 +222,8 @@ export function Settings({
           accounts={accounts}
           banks={banks}
           cards={cards}
+          contacts={contacts}
+          users={users}
           canEdit={canEdit}
           onAdd={onAddRecurringRule}
           onEdit={onEditRecurringRule}

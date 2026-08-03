@@ -72,6 +72,22 @@ export interface Transaction {
    * teórica, ver `lib/mortgage.ts`), ni el saldo/proyección del préstamo.
    */
   mortgageLoanId?: string;
+  /**
+   * A qué integrante(s) de la familia corresponde este gasto/ingreso (ej. una
+   * clase de tenis de Luli, una salida con las nenas), solo relevante cuando
+   * la categoría elegida tiene `allowFamilyMembers` (ver `Category` y
+   * `FamilyMember`). Puede ser uno, varios, o quedar vacío/sin definir.
+   */
+  familyMemberIds?: string[];
+  /**
+   * Reparto opcional del monto entre los integrantes elegidos en
+   * `familyMemberIds` (ej. comprarle ropa a dos hijas por montos distintos:
+   * cada una con lo suyo, en vez de solo compartir la etiqueta). Clave =
+   * `FamilyMember.id`, valor = monto en unidades mínimas. Si no está
+   * cargado (o falta algún integrante), se entiende que el monto es
+   * compartido entre todos sin desglosar (ej. un almuerzo en familia).
+   */
+  familyMemberAmounts?: Record<string, number>;
 }
 
 export interface Bank {
@@ -258,6 +274,10 @@ export interface Installment {
   updatedAt?: string;
   /** Con qué tarjeta física se hizo la compra, si la tarjeta tiene extensiones (ver Transaction.cardExtensionId). */
   cardExtensionId?: string;
+  /** Ver `Transaction.familyMemberIds`. */
+  familyMemberIds?: string[];
+  /** Ver `Transaction.familyMemberAmounts`. */
+  familyMemberAmounts?: Record<string, number>;
 }
 
 /**
@@ -306,6 +326,24 @@ export interface Category {
    * quedan como categoría madre automáticamente.
    */
   parentId?: string;
+  /**
+   * Si está activo, al cargar un gasto o ingreso en esta categoría puntual
+   * (no se hereda automáticamente a subcategorías: cada una se activa por
+   * separado) se puede elegir a qué integrante(s) de la familia corresponde
+   * (ver `FamilyMember` y `Transaction.familyMemberIds`). Pensado para gastos
+   * como una clase o una salida que a veces es de uno, a veces de otro.
+   */
+  allowFamilyMembers?: boolean;
+}
+
+/**
+ * Integrante de la familia (ej. vos, tu pareja, tus hijas) al que se le puede
+ * asignar un gasto o ingreso puntual en las categorías que lo permitan (ver
+ * `Category.allowFamilyMembers`). Se administra en Configuración → Familia.
+ */
+export interface FamilyMember {
+  id: string;
+  name: string;
 }
 
 /**
@@ -807,6 +845,7 @@ export interface FinanceData {
   mortgageLoans: MortgageLoan[];
   recurringRules: RecurringRule[];
   categories: Category[];
+  familyMembers: FamilyMember[];
   notes: Note[];
   appLock: AppLock;
   sortOrders: SortOrders;
@@ -817,7 +856,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 13;
+export const CURRENT_SCHEMA_VERSION = 14;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -867,6 +906,7 @@ export function emptyFinanceData(): FinanceData {
     mortgageLoans: [],
     recurringRules: [],
     categories: defaultCategories(),
+    familyMembers: [],
     notes: [],
     appLock: { enabled: false, pinHash: null },
     sortOrders: { banks: [], accountsByBank: [], accountsByCurrency: [] },

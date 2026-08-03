@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Search, X, History } from "lucide-react";
+import { Search, X, History, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { TextInput, Segment } from "../../components/ui";
+import { TextInput, Segment, IconBtn } from "../../components/ui";
 import { formatDateTimeDMY } from "../../lib/dates";
 import { entityTypeLabel, auditActionLabel } from "../../lib/audit";
+import { exportAuditLogToExcel } from "../../lib/excelExport";
 import { UserBadge } from "../../components/UserBadge";
 import type { AppUser, AuditEntry, AuditAction } from "../../types";
 
@@ -38,9 +39,16 @@ export function AuditSettings({ auditLog, users }: { auditLog: AuditEntry[]; use
 
   return (
     <div>
-      <p className="text-xs mb-3" style={{ color: C.textMuted }}>
-        Alta, modificación y baja de cada movimiento, transferencia, pago de tarjeta, cuota y movimiento con persona. Las bajas solo se pueden consultar acá: el registro ya no existe en ningún otro lado.
-      </p>
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <p className="text-xs" style={{ color: C.textMuted }}>
+          Alta, modificación y baja de cada movimiento, transferencia, pago de tarjeta, cuota y movimiento con persona. Las bajas solo se pueden consultar acá: el registro ya no existe en ningún otro lado.
+        </p>
+        {filtered.length > 0 && (
+          <IconBtn label="Exportar auditoría a Excel" onClick={() => exportAuditLogToExcel(filtered, users)}>
+            <Download size={16} />
+          </IconBtn>
+        )}
+      </div>
 
       <div className="relative mb-3">
         <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.textFaint }} />

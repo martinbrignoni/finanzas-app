@@ -152,6 +152,12 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 13, auditLog: [] };
   }
 
+  if (data.schemaVersion === 13) {
+    // v14: integrantes de familia asignables a gastos/ingresos en las
+    // categorías que lo permitan (Configuración → Familia y → Categorías).
+    data = { ...data, schemaVersion: 14, familyMembers: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -188,6 +194,7 @@ function migrate(raw: any): FinanceData {
     mortgageLoans: data.mortgageLoans ?? [],
     recurringRules: data.recurringRules ?? [],
     categories: data.categories ?? [],
+    familyMembers: data.familyMembers ?? [],
     notes: data.notes ?? [],
     appLock: data.appLock ?? { enabled: false, pinHash: null },
     sortOrders: data.sortOrders ?? { banks: [], accountsByBank: [], accountsByCurrency: [] },

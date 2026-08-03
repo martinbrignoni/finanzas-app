@@ -1,11 +1,11 @@
 import { useState, useEffect, Fragment } from "react";
-import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag, History } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag, History, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
-import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope } from "../../lib/categories";
+import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope, findCategoryByPath, categoryAllowsFamilyMembers } from "../../lib/categories";
 import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
@@ -17,8 +17,9 @@ import { canEditOwnRecord } from "../../lib/permissions";
 import { cardLabel, cardExtensionLabel, dueForCardInMonth } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { auditActionLabel } from "../../lib/audit";
+import { exportMovementsToExcel } from "../../lib/excelExport";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, MortgageLoan, AuditEntry, AuditEntityType } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, MortgageLoan, AuditEntry, AuditEntityType, FamilyMember } from "../../types";
 
 /** Modal de solo lectura con el historial de alta/modificación/baja de un registro puntual (ver `AuditEntry`). */
 function AuditTrailModal({
@@ -212,6 +213,7 @@ export function Transactions({
   accounts,
   banks,
   categories,
+  familyMembers,
   auditLog,
   users,
   activeUser,
@@ -239,6 +241,8 @@ export function Transactions({
   banks: Bank[];
   /** Para decidir si mostrar la categoría entera o solo la hoja (ver `categoryDisplayName`). */
   categories: Category[];
+  /** Para mostrar a quién de la familia corresponde cada gasto/ingreso, si tiene asignado (ver `Transaction.familyMemberIds`). */
+  familyMembers: FamilyMember[];
   /** Historial de alta/modificación/baja de cada registro, ver botón "Auditoría" en cada fila. */
   auditLog: AuditEntry[];
   /** Para mostrar de quién es cada movimiento (solo tiene sentido mostrarlo si hay más de un perfil). */
@@ -264,6 +268,20 @@ export function Transactions({
   const [pendingOnly, setPendingOnly] = useState(false);
   // Solo tiene sentido marcar de quién es cada movimiento si hay más de un perfil cargando datos.
   const showAuthor = users.length > 1;
+  // Integrantes de familia asignados a un gasto/ingreso o cuota (ver `familyMemberIds`/`familyMemberAmounts`), para mostrar en la lista.
+  // Si hay reparto por monto cargado, muestra "Nombre $monto" por cada uno; si no, solo los nombres.
+  const familyMemberNames = (ids: string[] | undefined, amounts: Record<string, number> | undefined, currency: Currency): string => {
+    if (!ids || ids.length === 0) return "";
+    return ids
+      .map((id) => {
+        const name = familyMembers.find((m) => m.id === id)?.name;
+        if (!name) return null;
+        const amt = amounts?.[id];
+        return amt ? `${name} ${formatMoney(amt, currency)}` : name;
+      })
+      .filter(Boolean)
+      .join(", ");
+  };
 
   const [auditView, setAuditView] = useState<{
     title: string;
@@ -328,13 +346,21 @@ export function Transactions({
     <div className="pb-24">
       <div className="flex items-center justify-between mb-3 gap-2">
         <h1 className="text-2xl font-display" style={{ color: C.text }}>Movimientos</h1>
-        <div className="w-40">
-          <Select aria-label="Filtrar por período" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
-            <option value="all">Todos los períodos</option>
-            {availableMonths.map((mk) => (
-              <option key={mk} value={mk}>{capitalize(monthLabel(mk))}</option>
-            ))}
-          </Select>
+        <div className="flex items-center gap-2">
+          <IconBtn
+            label="Exportar todos los movimientos a Excel"
+            onClick={() => exportMovementsToExcel(transactions, installments, transfers, cardPayments, contactEntries, accounts, banks, cards, contacts, familyMembers, users)}
+          >
+            <Download size={15} />
+          </IconBtn>
+          <div className="w-40">
+            <Select aria-label="Filtrar por período" value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)}>
+              <option value="all">Todos los períodos</option>
+              {availableMonths.map((mk) => (
+                <option key={mk} value={mk}>{capitalize(monthLabel(mk))}</option>
+              ))}
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -435,6 +461,12 @@ export function Transactions({
                         {cardExtensionLabel(cards, t.cardId, t.cardExtensionId) && ` (${cardExtensionLabel(cards, t.cardId, t.cardExtensionId)})`}
                         {!t.accountId && !t.cardId && <span style={{ color: C.uyu }}> · Sin medio de pago</span>}
                       </span>
+                      {familyMemberNames(t.familyMemberIds, t.familyMemberAmounts, t.currency) && (
+                        <span className="flex items-center gap-0.5" style={{ color: C.usd }}>
+                          <User size={10} />
+                          {familyMemberNames(t.familyMemberIds, t.familyMemberAmounts, t.currency)}
+                        </span>
+                      )}
                       {showAuthor && <UserBadge users={users} userId={t.createdByUserId} />}
                     </div>
                   </div>
@@ -534,6 +566,12 @@ export function Transactions({
                         {cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId) && ` (${cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId)})`}
                         {` · ${inst.numInstallments} cuota${inst.numInstallments > 1 ? "s" : ""}`}
                       </span>
+                      {familyMemberNames(inst.familyMemberIds, inst.familyMemberAmounts, inst.currency) && (
+                        <span className="flex items-center gap-0.5" style={{ color: C.usd }}>
+                          <User size={10} />
+                          {familyMemberNames(inst.familyMemberIds, inst.familyMemberAmounts, inst.currency)}
+                        </span>
+                      )}
                       {showAuthor && <UserBadge users={users} userId={inst.createdByUserId} />}
                     </div>
                   </div>
@@ -692,6 +730,12 @@ interface FormState {
   category: string;
   date: string;
   note: string;
+  /** A qué integrante(s) de familia corresponde, solo cuando la categoría elegida lo permite (ver `Category.allowFamilyMembers`). */
+  familyMemberIds: string[];
+  /** Si se eligió más de un integrante, permite indicar qué parte del monto corresponde a cada uno (ver `Transaction.familyMemberAmounts`). */
+  splitFamilyAmounts: boolean;
+  /** Monto (en texto, moneda del movimiento) por integrante, cuando `splitFamilyAmounts` está activo. */
+  familyMemberAmounts: Record<string, string>;
   accountId: string; // "" significa sin cuenta asignada
   paymentMethod: PaymentMethod;
   cardId: string; // "" significa sin tarjeta elegida
@@ -751,6 +795,7 @@ export function MovementModal({
   installments,
   categories,
   contacts,
+  familyMembers,
   mortgageLoans,
   canEditContacts,
   canEditCards,
@@ -780,6 +825,8 @@ export function MovementModal({
   installments: Installment[];
   categories: Category[];
   contacts: Contact[];
+  /** Integrantes de familia asignables en las categorías que lo permitan (ver `Category.allowFamilyMembers`). */
+  familyMembers: FamilyMember[];
   /** Préstamos hipotecarios cargados, para poder vincular un gasto como el pago de su cuota (ver `Transaction.mortgageLoanId`). */
   mortgageLoans: MortgageLoan[];
   /** Permiso del módulo Personas: gobierna si se puede elegir "Persona" como medio de pago o como sub-tipo de transferencia. */
@@ -835,6 +882,11 @@ export function MovementModal({
       ? initialInstallment.date ?? `${initialInstallment.startMonth}-01`
       : todayISO(),
     note: initialTransfer ? initialTransfer.note ?? "" : initial ? initial.note ?? "" : initialInstallment ? initialInstallment.note ?? "" : "",
+    familyMemberIds: initialInstallment?.familyMemberIds ?? initial?.familyMemberIds ?? [],
+    splitFamilyAmounts: !!(initialInstallment?.familyMemberAmounts ?? initial?.familyMemberAmounts),
+    familyMemberAmounts: Object.fromEntries(
+      Object.entries(initialInstallment?.familyMemberAmounts ?? initial?.familyMemberAmounts ?? {}).map(([memberId, minor]) => [memberId, String(fromMinor(minor))])
+    ),
     accountId: initialContactEntry?.accountId ?? initial?.accountId ?? "",
     paymentMethod: initialContactEntry
       ? initialContactEntry.cardId
@@ -882,6 +934,13 @@ export function MovementModal({
   const selectedCard = cards.find((c) => c.id === form.cardId);
   const selectedContact = contacts.find((c) => c.id === form.contactId);
   const cardDueThisMonth = form.cardId ? dueForCardInMonth(form.cardId, installments, currentMonthKey()) : null;
+  // Solo se ofrece elegir integrante de familia si la categoría elegida lo permite (ver Configuración → Categorías).
+  const selectedCategoryForFamily = findCategoryByPath(form.category, categories);
+  const showFamilyMembersField =
+    (form.kind === "gasto" || form.kind === "ingreso") &&
+    !!selectedCategoryForFamily &&
+    categoryAllowsFamilyMembers(selectedCategoryForFamily, categories) &&
+    familyMembers.length > 0;
 
   const fromAcc = accounts.find((a) => a.id === form.fromAccountId);
   const toAcc = accounts.find((a) => a.id === form.toAccountId);
@@ -1073,6 +1132,26 @@ export function MovementModal({
       if (personaAmountMinor > amountMinor) return setError("El monto a cargo de la persona no puede ser mayor al del gasto/ingreso.");
     }
 
+    // Reparto opcional del monto entre los integrantes de familia elegidos
+    // (ver `familyMemberAmounts`): lo que no se desglosa a mano queda
+    // entendido como compartido entre todos, así que no exigimos que sume
+    // exacto, solo que no se pase del total.
+    let familyMemberAmountsMinor: Record<string, number> | undefined;
+    if (showFamilyMembersField && form.familyMemberIds.length > 1 && form.splitFamilyAmounts) {
+      const parsed: Record<string, number> = {};
+      let sum = 0;
+      for (const memberId of form.familyMemberIds) {
+        const raw = form.familyMemberAmounts[memberId]?.trim();
+        if (!raw) continue;
+        const amt = parseAmountInput(raw);
+        if (amt === null || amt < 0) return setError("Ingresá un monto válido para el reparto entre integrantes.");
+        parsed[memberId] = amt;
+        sum += amt;
+      }
+      if (sum > netAmountMinor) return setError("Lo repartido entre los integrantes no puede sumar más que el monto del gasto/ingreso.");
+      if (Object.keys(parsed).length > 0) familyMemberAmountsMinor = parsed;
+    }
+
     if (showInstallmentsField) {
       const numCuotas = Math.max(1, parseInt(form.numInstallments) || 1);
       if (isEditingInstallment || numCuotas > 1) {
@@ -1091,6 +1170,8 @@ export function MovementModal({
           receiptPaths: form.receiptPaths,
           createdByUserId: initialInstallment?.createdByUserId,
           cardExtensionId: form.cardExtensionId || undefined,
+          familyMemberIds: showFamilyMembersField && form.familyMemberIds.length > 0 ? form.familyMemberIds : undefined,
+          familyMemberAmounts: familyMemberAmountsMinor,
         });
         maybeCreateIvaCredit(ivaAmountMinor, numCuotas);
         return;
@@ -1109,6 +1190,8 @@ export function MovementModal({
       cardId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardId || undefined : undefined,
       cardExtensionId: form.kind === "gasto" && form.paymentMethod === "tarjeta" ? form.cardExtensionId || undefined : undefined,
       mortgageLoanId: form.kind === "gasto" ? form.mortgageLoanId || undefined : undefined,
+      familyMemberIds: showFamilyMembersField && form.familyMemberIds.length > 0 ? form.familyMemberIds : undefined,
+      familyMemberAmounts: familyMemberAmountsMinor,
       receiptPaths: form.receiptPaths,
       createdByUserId: initial?.createdByUserId,
     });
@@ -1530,6 +1613,80 @@ export function MovementModal({
               + Nueva categoría
             </button>
           </div>
+          {showFamilyMembersField && (
+            <Field label="¿Para quién? (opcional)">
+              {() => (
+                <div className="flex flex-wrap gap-1.5">
+                  {familyMembers.map((m) => {
+                    const selected = form.familyMemberIds.includes(m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => {
+                            if (selected) {
+                              const restAmounts = { ...f.familyMemberAmounts };
+                              delete restAmounts[m.id];
+                              return { ...f, familyMemberIds: f.familyMemberIds.filter((id) => id !== m.id), familyMemberAmounts: restAmounts };
+                            }
+                            return { ...f, familyMemberIds: [...f.familyMemberIds, m.id] };
+                          })
+                        }
+                        className="text-xs font-semibold px-3 py-1.5 rounded-full"
+                        style={{
+                          background: selected ? C.usd : C.surface2,
+                          color: selected ? "#0A1413" : C.textMuted,
+                          border: `1px solid ${selected ? C.usd : C.border}`,
+                        }}
+                      >
+                        {m.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Field>
+          )}
+          {showFamilyMembersField && form.familyMemberIds.length > 1 && (
+            <>
+              <Field label="¿Repartir el monto entre ellos? (opcional)">
+                {() => (
+                  <Segment
+                    value={form.splitFamilyAmounts ? "si" : "no"}
+                    onChange={(v) => setForm((f) => ({ ...f, splitFamilyAmounts: v === "si" }))}
+                    options={[{ value: "no", label: "No, es compartido" }, { value: "si", label: "Sí, por monto" }]}
+                  />
+                )}
+              </Field>
+              {form.splitFamilyAmounts && (
+                <>
+                  {form.familyMemberIds.map((id) => {
+                    const member = familyMembers.find((m) => m.id === id);
+                    return (
+                      <Field key={id} label={`Parte de ${member?.name ?? "?"} (${form.currency})`}>
+                        {(fieldId) => (
+                          <TextInput
+                            id={fieldId}
+                            type="text"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={form.familyMemberAmounts[id] ?? ""}
+                            onChange={(e) => setForm((f) => ({ ...f, familyMemberAmounts: { ...f.familyMemberAmounts, [id]: e.target.value } }))}
+                            placeholder="0"
+                          />
+                        )}
+                      </Field>
+                    );
+                  })}
+                  <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+                    Dejá en blanco lo que no quieras desglosar; se entiende que esa parte queda compartida entre todos.
+                  </p>
+                </>
+              )}
+            </>
+          )}
           <Field label="Fecha">
             {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
           </Field>

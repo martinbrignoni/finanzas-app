@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, ChevronRight, Users } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
-import { categoryFullPath, isMinuchiRootCategory } from "../../lib/categories";
+import { categoryFullPath, isMinuchiRootCategory, categoryAllowsFamilyMembers } from "../../lib/categories";
 import { formatMoney } from "../../lib/money";
 import { formatDateDMY, monthKeyOf, monthLabel, capitalize } from "../../lib/dates";
 import { exportCategoryToExcel } from "../../lib/excelExport";
@@ -19,6 +19,7 @@ export function CategoriesSettings({
   onDelete,
   onMove,
   onRename,
+  onSetAllowFamilyMembers,
   onReclassify,
 }: {
   categories: Category[];
@@ -32,6 +33,8 @@ export function CategoriesSettings({
   onMove: (id: string, newParentId: string) => void;
   /** Cambia el nombre de una categoría (madre, categoría o subcategoría) existente. */
   onRename: (id: string, newName: string) => void;
+  /** Activa/desactiva si esta categoría permite elegir integrante de familia al cargar un movimiento. */
+  onSetAllowFamilyMembers: (id: string, allow: boolean) => void;
   /** Reasigna todos los movimientos de una categoría a otra (antes de poder borrar la primera). */
   onReclassify: (fromName: string, toName: string) => void;
 }) {
@@ -107,6 +110,7 @@ export function CategoriesSettings({
               >
                 {hijas.length > 0 && (madreExpanded ? <ChevronDown size={14} color={C.textFaint} /> : <ChevronRight size={14} color={C.textFaint} />)}
                 <span className="font-semibold truncate" style={{ color: C.text }}>{madre.name}</span>
+                {categoryAllowsFamilyMembers(madre, categories) && <Users size={12} color={C.textFaint} />}
               </button>
               <div className="flex items-center gap-1 shrink-0">
                 {countMovements(madre) > 0 && (
@@ -119,7 +123,7 @@ export function CategoriesSettings({
                 )}
                 {canEdit && (
                   <>
-                    <IconBtn label={`Renombrar ${madre.name}`} onClick={() => setRenameTarget(madre)}><Pencil size={14} /></IconBtn>
+                    <IconBtn label={`Editar ${madre.name}`} onClick={() => setRenameTarget(madre)}><Pencil size={14} /></IconBtn>
                     <IconBtn label={`Eliminar ${madre.name}`} danger onClick={() => handleDelete(madre)}><Trash2 size={14} /></IconBtn>
                   </>
                 )}
@@ -141,6 +145,7 @@ export function CategoriesSettings({
                     >
                       {nietas.length > 0 && (catExpanded ? <ChevronDown size={13} color={C.textFaint} /> : <ChevronRight size={13} color={C.textFaint} />)}
                       <span className="truncate" style={{ color: C.text }}>{cat.name}</span>
+                      {categoryAllowsFamilyMembers(cat, categories) && <Users size={11} color={C.textFaint} />}
                     </button>
                     <div className="flex items-center gap-1 shrink-0">
                       {countMovements(cat) > 0 && (
@@ -153,7 +158,7 @@ export function CategoriesSettings({
                       )}
                       {canEdit && (
                         <>
-                          <IconBtn label={`Renombrar ${cat.name}`} onClick={() => setRenameTarget(cat)}><Pencil size={13} /></IconBtn>
+                          <IconBtn label={`Editar ${cat.name}`} onClick={() => setRenameTarget(cat)}><Pencil size={13} /></IconBtn>
                           <IconBtn label={`Mover ${cat.name}`} onClick={() => setMoveTarget(cat)}><ArrowRightLeft size={13} /></IconBtn>
                           <IconBtn label={`Eliminar ${cat.name}`} danger onClick={() => handleDelete(cat)}><Trash2 size={13} /></IconBtn>
                         </>
@@ -166,7 +171,10 @@ export function CategoriesSettings({
                       className="pl-10 py-2 pr-3 flex items-center justify-between text-xs"
                       style={{ background: C.surface, borderTop: `1px solid ${C.border}` }}
                     >
-                      <span style={{ color: C.textMuted }}>{sub.name}</span>
+                      <span className="flex items-center gap-1" style={{ color: C.textMuted }}>
+                        {sub.name}
+                        {categoryAllowsFamilyMembers(sub, categories) && <Users size={10} color={C.textFaint} />}
+                      </span>
                       <div className="flex items-center gap-1">
                         {countMovements(sub) > 0 && (
                           <>
@@ -178,7 +186,7 @@ export function CategoriesSettings({
                         )}
                         {canEdit && (
                           <>
-                            <IconBtn label={`Renombrar ${sub.name}`} onClick={() => setRenameTarget(sub)}><Pencil size={12} /></IconBtn>
+                            <IconBtn label={`Editar ${sub.name}`} onClick={() => setRenameTarget(sub)}><Pencil size={12} /></IconBtn>
                             <IconBtn label={`Mover ${sub.name}`} onClick={() => setMoveTarget(sub)}><ArrowRightLeft size={12} /></IconBtn>
                             <IconBtn label={`Eliminar ${sub.name}`} danger onClick={() => handleDelete(sub)}><Trash2 size={12} /></IconBtn>
                           </>
@@ -278,6 +286,7 @@ export function CategoriesSettings({
           category={renameTarget}
           categories={categories}
           onRename={onRename}
+          onSetAllowFamilyMembers={onSetAllowFamilyMembers}
           onClose={() => setRenameTarget(null)}
         />
       )}
@@ -490,20 +499,26 @@ function MoveCategoryModal({
   );
 }
 
-/** Cambia el nombre de una categoría (madre, categoría o subcategoría) ya existente. */
+/** Edita el nombre de una categoría (madre, categoría o subcategoría) ya existente, y si permite elegir integrante de familia. */
 function RenameCategoryModal({
   category,
   categories,
   onRename,
+  onSetAllowFamilyMembers,
   onClose,
 }: {
   category: Category;
   categories: Category[];
   onRename: (id: string, newName: string) => void;
+  onSetAllowFamilyMembers: (id: string, allow: boolean) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(category.name);
+  const [allowFamilyMembers, setAllowFamilyMembers] = useState(!!category.allowFamilyMembers);
   const [error, setError] = useState<string | null>(null);
+
+  const parent = categories.find((c) => c.id === category.parentId);
+  const inheritedFromAbove = !!parent && categoryAllowsFamilyMembers(parent, categories);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -512,18 +527,39 @@ function RenameCategoryModal({
       (c) => c.id !== category.id && c.type === category.type && c.parentId === category.parentId && c.name.toLowerCase() === trimmed.toLowerCase()
     );
     if (dup) return setError("Ya existe una categoría con ese nombre en este nivel.");
-    onRename(category.id, trimmed);
+    if (trimmed !== category.name) onRename(category.id, trimmed);
+    if (allowFamilyMembers !== !!category.allowFamilyMembers) onSetAllowFamilyMembers(category.id, allowFamilyMembers);
     onClose();
   };
 
   return (
-    <Modal title={`Renombrar "${category.name}"`} onClose={onClose}>
+    <Modal title={`Editar "${category.name}"`} onClose={onClose}>
       <p className="text-xs mb-3" style={{ color: C.textMuted }}>
         Los movimientos, cuotas y presupuestos ya cargados con esta categoría (y sus subcategorías) se actualizan solos al nuevo nombre.
       </p>
       <Field label="Nombre">
         {(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} />}
       </Field>
+      {inheritedFromAbove ? (
+        <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+          Ya está heredado de "{parent!.name}": esta categoría (y las que cuelguen de ella) ya permiten elegir integrante de familia sin necesidad de activarlo acá también.
+        </p>
+      ) : (
+        <>
+          <Field label="¿Permite elegir integrante de familia?">
+            {() => (
+              <Segment
+                value={allowFamilyMembers ? "si" : "no"}
+                onChange={(v) => setAllowFamilyMembers(v === "si")}
+                options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+              />
+            )}
+          </Field>
+          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+            Si está en "Sí", al cargar un gasto o ingreso en esta categoría (y en las que cuelguen de ella) vas a poder elegir para quién de la familia es (uno, varios, o dejarlo sin asignar).
+          </p>
+        </>
+      )}
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
@@ -552,12 +588,15 @@ export function CategoryModal({
   const [madreId, setMadreId] = useState("");
   const [categoriaId, setCategoriaId] = useState("");
   const [name, setName] = useState("");
+  const [allowFamilyMembers, setAllowFamilyMembers] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const roots = categories.filter((c) => c.type === type && !c.parentId);
   const madre = categories.find((c) => c.id === madreId);
   const categoriaOptions = madre ? categories.filter((c) => c.parentId === madre.id) : [];
   const parentId = categoriaId || madreId || undefined;
+  const effectiveParent = categories.find((c) => c.id === parentId);
+  const inheritedFromAbove = !!effectiveParent && categoryAllowsFamilyMembers(effectiveParent, categories);
 
   const nameLabel = categoriaId ? "Nombre de la subcategoría" : madreId ? "Nombre de la categoría" : "Nombre de la categoría madre";
 
@@ -566,7 +605,7 @@ export function CategoryModal({
     if (!trimmed) return setError("Ingresá un nombre.");
     const dup = categories.some((c) => c.type === type && c.parentId === parentId && c.name.toLowerCase() === trimmed.toLowerCase());
     if (dup) return setError("Ya existe una categoría con ese nombre en este nivel.");
-    onSave({ id: crypto.randomUUID(), name: trimmed, type, parentId });
+    onSave({ id: crypto.randomUUID(), name: trimmed, type, parentId, allowFamilyMembers: allowFamilyMembers || undefined });
   };
 
   return (
@@ -604,6 +643,27 @@ export function CategoryModal({
       <Field label={nameLabel}>
         {(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="ej. UTE" />}
       </Field>
+
+      {inheritedFromAbove ? (
+        <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+          Ya heredado de "{effectiveParent!.name}": esta categoría nueva ya va a permitir elegir integrante de familia, sin necesidad de activarlo acá también.
+        </p>
+      ) : (
+        <>
+          <Field label="¿Permite elegir integrante de familia?">
+            {() => (
+              <Segment
+                value={allowFamilyMembers ? "si" : "no"}
+                onChange={(v) => setAllowFamilyMembers(v === "si")}
+                options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+              />
+            )}
+          </Field>
+          <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+            Si está en "Sí", al cargar un gasto o ingreso en esta categoría (y en las que cuelguen de ella) vas a poder elegir para quién de la familia es (ej. una clase o una salida que a veces es tuya, a veces de otro).
+          </p>
+        </>
+      )}
 
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>

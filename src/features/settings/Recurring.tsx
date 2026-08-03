@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, ArrowUpRight, ArrowDownRight, Repeat } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowUpRight, ArrowDownRight, Repeat, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { CategoryPicker } from "../../components/CategoryPicker";
@@ -11,7 +11,8 @@ import { formatDateDMY, todayISO } from "../../lib/dates";
 import { accountSelectLabel } from "../../lib/accounts";
 import { cardLabel } from "../../lib/cards";
 import { contactKind, IVA_CONTACT_NAME } from "../../lib/contacts";
-import type { Account, Bank, Card, Category, Contact, Currency, RecurrencePeriod, RecurringRule, TransactionType } from "../../types";
+import { exportRecurringRulesToExcel } from "../../lib/excelExport";
+import type { Account, AppUser, Bank, Card, Category, Contact, Currency, RecurrencePeriod, RecurringRule, TransactionType } from "../../types";
 import { RECURRENCE_PERIOD_LABELS } from "../../types";
 
 /**
@@ -25,6 +26,8 @@ export function RecurringRulesSettings({
   accounts,
   banks,
   cards,
+  contacts,
+  users,
   canEdit,
   onAdd,
   onEdit,
@@ -35,6 +38,8 @@ export function RecurringRulesSettings({
   accounts: Account[];
   banks: Bank[];
   cards: Card[];
+  contacts: Contact[];
+  users: AppUser[];
   canEdit: boolean;
   onAdd: () => void;
   onEdit: (r: RecurringRule) => void;
@@ -56,16 +61,23 @@ export function RecurringRulesSettings({
         <p className="text-xs" style={{ color: C.textMuted }}>
           Se generan solos en Movimientos, llegada la fecha, cada vez que abrís la app.
         </p>
-        {canEdit && (
-          <button
-            onClick={onAdd}
-            aria-label="Nueva regla recurrente"
-            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 ml-2"
-            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
-          >
-            <Plus size={18} />
-          </button>
-        )}
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          {rules.length > 0 && (
+            <IconBtn label="Exportar reglas recurrentes a Excel" onClick={() => exportRecurringRulesToExcel(rules, accounts, banks, cards, contacts, users)}>
+              <Download size={16} />
+            </IconBtn>
+          )}
+          {canEdit && (
+            <button
+              onClick={onAdd}
+              aria-label="Nueva regla recurrente"
+              className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+              style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+            >
+              <Plus size={18} />
+            </button>
+          )}
+        </div>
       </div>
 
       {rules.length === 0 && (

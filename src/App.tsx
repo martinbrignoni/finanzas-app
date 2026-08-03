@@ -28,7 +28,7 @@ import {
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
-  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule,
+  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule, FamilyMember,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -45,6 +45,7 @@ import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 import { RecurringRuleModal } from "./features/settings/Recurring";
+import { FamilyMemberModal } from "./features/settings/FamilyMembers";
 
 type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "configuracion";
 
@@ -74,6 +75,7 @@ type ModalState =
   | { type: "mortgageLoan"; payload?: MortgageLoan }
   | { type: "mortgagePrepayment"; payload: { loanId: string; prepayment?: MortgagePrepayment } }
   | { type: "recurringRule"; payload?: RecurringRule }
+  | { type: "familyMember"; payload?: FamilyMember }
   | null;
 
 const repo = getRepository();
@@ -500,6 +502,9 @@ export default function App() {
       };
     });
   }, []);
+  const setCategoryAllowFamilyMembers = useCallback((id: string, allow: boolean) => {
+    setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, allowFamilyMembers: allow || undefined } : c)) } : d));
+  }, []);
   const reclassifyCategory = useCallback((fromName: string, toName: string) => {
     setData((d) =>
       d
@@ -731,6 +736,35 @@ export default function App() {
     [requestConfirm, deleteRecurringRule]
   );
 
+  // --- integrantes de familia ---
+  const upsertFamilyMember = useCallback((m: FamilyMember) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.familyMembers.findIndex((x) => x.id === m.id);
+      const familyMembers = idx >= 0 ? d.familyMembers.map((x) => (x.id === m.id ? m : x)) : [...d.familyMembers, m];
+      return { ...d, familyMembers };
+    });
+    closeModal();
+  }, []);
+  const deleteFamilyMember = useCallback((id: string) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            familyMembers: d.familyMembers.filter((x) => x.id !== id),
+            // Saca al integrante borrado de cualquier movimiento que ya lo tuviera asignado, para no dejar ids huérfanos.
+            transactions: d.transactions.map((t) =>
+              t.familyMemberIds?.includes(id) ? { ...t, familyMemberIds: t.familyMemberIds.filter((x) => x !== id) } : t
+            ),
+          }
+        : d
+    );
+  }, []);
+  const confirmDeleteFamilyMember = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este integrante? Se saca de los movimientos donde ya estaba asignado (esos movimientos no se borran).", () => deleteFamilyMember(id)),
+    [requestConfirm, deleteFamilyMember]
+  );
+
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
     const commit = () => {
@@ -936,6 +970,7 @@ export default function App() {
                 accounts={data.accounts}
                 banks={data.banks}
                 categories={data.categories}
+                familyMembers={data.familyMembers}
                 auditLog={data.auditLog}
                 users={data.users}
                 activeUser={activeUser}
@@ -1034,6 +1069,7 @@ export default function App() {
                 accounts={data.accounts}
                 banks={data.banks}
                 cards={data.cards}
+                users={data.users}
                 canEdit={has("personas", "edit")}
                 activeUser={activeUser}
                 onAddContact={() => setModal({ type: "contact" })}
@@ -1066,6 +1102,7 @@ export default function App() {
                 transfers={data.transfers}
                 cardPayments={data.cardPayments}
                 contactEntries={data.contactEntries}
+                contacts={data.contacts}
                 installments={data.installments}
                 budgets={data.budgets}
                 activeUser={activeUser}
@@ -1074,6 +1111,7 @@ export default function App() {
                 cards={data.cards}
                 recurringRules={data.recurringRules}
                 auditLog={data.auditLog}
+                familyMembers={data.familyMembers}
                 canEdit={has("configuracion", "edit")}
                 canSwitchUser={!lockedToNonAdmin}
                 onSetActiveUser={setActiveUser}
@@ -1084,7 +1122,11 @@ export default function App() {
                 onDeleteCategory={confirmDeleteCategory}
                 onMoveCategory={moveCategory}
                 onRenameCategory={renameCategory}
+                onSetCategoryAllowFamilyMembers={setCategoryAllowFamilyMembers}
                 onReclassifyCategory={reclassifyCategory}
+                onAddFamilyMember={() => setModal({ type: "familyMember" })}
+                onEditFamilyMember={(m) => setModal({ type: "familyMember", payload: m })}
+                onDeleteFamilyMember={confirmDeleteFamilyMember}
                 onUpdateUserLock={updateActiveUserLock}
                 onUpdateUserNotifications={updateActiveUserNotifications}
                 onAddBank={() => setModal({ type: "bank" })}
@@ -1146,6 +1188,7 @@ export default function App() {
           installments={data.installments}
           categories={data.categories}
           contacts={data.contacts}
+          familyMembers={data.familyMembers}
           mortgageLoans={data.mortgageLoans}
           canEditContacts={has("personas", "edit")}
           canEditCards={has("tarjetas", "edit")}
@@ -1237,6 +1280,14 @@ export default function App() {
           onSave={upsertRecurringRule}
           onSaveCategory={addCategory}
           onSaveContact={addContact}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "familyMember" && (
+        <FamilyMemberModal
+          initial={modal.payload}
+          familyMembers={data.familyMembers}
+          onSave={upsertFamilyMember}
           onClose={closeModal}
         />
       )}

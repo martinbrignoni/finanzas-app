@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, CreditCard, Tag, ChevronDown, Repeat } from "lucide-react";
+import { User, Plus, Pencil, Trash2, ChevronRight, Split, Landmark, CreditCard, Tag, ChevronDown, Repeat, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -12,6 +12,7 @@ import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/acc
 import { cardLabel, cardExtensionLabel } from "../../lib/cards";
 import { canEditOwnRecord } from "../../lib/permissions";
 import { fetchRateForDate } from "../../lib/exchangeRates";
+import { exportContactsToExcel } from "../../lib/excelExport";
 import type { Contact, ContactEntry, Account, Bank, Card, Currency, Category, AppUser } from "../../types";
 
 /** Resumen de saldo de una persona: "Te debe $X" (verde), "Le debés $X" (rojo), o "Saldado" si está en cero en todas las monedas. */
@@ -38,6 +39,7 @@ export function Contacts({
   accounts,
   banks,
   cards,
+  users,
   canEdit,
   activeUser,
   onAddContact,
@@ -54,6 +56,7 @@ export function Contacts({
   accounts: Account[];
   banks: Bank[];
   cards: Card[];
+  users: AppUser[];
   canEdit: boolean;
   /** Perfil activo: decide, junto con canEdit, si puede editar/eliminar cada movimiento puntual (ver `canEditOwnRecord`). */
   activeUser: AppUser | null;
@@ -86,6 +89,12 @@ export function Contacts({
     <div className="pb-24">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-display" style={{ color: C.text }}>Personas</h1>
+        <div className="flex items-center gap-1">
+          {contacts.length > 0 && (
+            <IconBtn label="Exportar todas las personas a Excel" onClick={() => exportContactsToExcel(contacts, contactEntries, accounts, banks, cards, users)}>
+              <Download size={16} />
+            </IconBtn>
+          )}
         {canEdit && (
           <div className="relative">
             <button
@@ -123,6 +132,7 @@ export function Contacts({
             )}
           </div>
         )}
+        </div>
       </div>
 
       {contacts.length === 0 && (

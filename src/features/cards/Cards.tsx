@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CreditCard, Pencil, Trash2, Plus, X, Landmark, ShoppingBag, AlertTriangle, ChevronRight } from "lucide-react";
+import { CreditCard, Pencil, Trash2, Plus, X, Landmark, ShoppingBag, AlertTriangle, ChevronRight, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -11,7 +11,8 @@ import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/acc
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
 import { canEditOwnRecord } from "../../lib/permissions";
 import { cardLabel, dueForCardInMonth, cardConsumptionForMonth } from "../../lib/cards";
-import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser, ContactEntry } from "../../types";
+import { exportCardToExcel } from "../../lib/excelExport";
+import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser, ContactEntry, Contact, FamilyMember } from "../../types";
 
 /** Nombre a mostrar para quién hizo un gasto con tarjeta: el titular (undefined) o una extensión puntual. */
 function cardHolderLabel(card: Card | undefined, extensionId: string | undefined): string | null {
@@ -172,6 +173,9 @@ export function Cards({
           payments={data.cardPayments.filter((p) => p.cardId === viewCard.id)}
           accounts={data.accounts}
           banks={data.banks}
+          contacts={data.contacts}
+          familyMembers={data.familyMembers}
+          users={data.users}
           cardStatements={data.cardStatements}
           canEdit={canEdit}
           canEditMovements={canEditMovements}
@@ -271,6 +275,9 @@ function CardDetailModal({
   payments,
   accounts,
   banks,
+  contacts,
+  familyMembers,
+  users,
   cardStatements,
   canEdit,
   canEditMovements,
@@ -292,6 +299,9 @@ function CardDetailModal({
   payments: CardPayment[];
   accounts: Account[];
   banks: Bank[];
+  contacts: Contact[];
+  familyMembers: FamilyMember[];
+  users: AppUser[];
   cardStatements: CardStatement[];
   canEdit: boolean;
   canEditMovements: boolean;
@@ -371,6 +381,16 @@ function CardDetailModal({
 
   return (
     <Modal title={cardLabel(card, banks)} onClose={onClose}>
+      <div className="flex justify-end -mt-2 mb-2">
+        <button
+          type="button"
+          onClick={() => exportCardToExcel(card, banks, installments, expenses, contactEntries, payments, accounts, contacts, familyMembers, users)}
+          className="text-xs font-semibold flex items-center gap-1"
+          style={{ color: C.usd }}
+        >
+          <Download size={13} /> Exportar a Excel
+        </button>
+      </div>
       <div className="rounded-xl p-3 mb-4" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
         <div className="mb-2">
           <Select aria-label="Período" value={statementMonth} onChange={(e) => handleMonthChange(e.target.value)}>
