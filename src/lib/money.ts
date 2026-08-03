@@ -37,3 +37,11 @@ export function parseAmountInput(raw: string): number | null {
   if (!Number.isFinite(n) || n < 0) return null;
   return toMinor(n);
 }
+
+/** Tasa básica de IVA en Uruguay (22%), usada solo para sugerir un monto editable en "¿IVA Compras/Ventas?" (Nuevo Movimiento y Recurrentes). */
+export const IVA_TASA_BASICA = 0.22;
+
+/** IVA contenido en un monto que ya lo incluye (extracción), redondeado a centésimos. */
+export function ivaIncluidoEn(amountGross: number): number {
+  return Math.round(((amountGross * IVA_TASA_BASICA) / (1 + IVA_TASA_BASICA)) * 100) / 100;
+}

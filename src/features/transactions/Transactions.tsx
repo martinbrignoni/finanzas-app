@@ -9,10 +9,10 @@ import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchi
 import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
-import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
+import { formatMoney, parseAmountInput, fromMinor, ivaIncluidoEn } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
-import { contactKind } from "../../lib/contacts";
+import { contactKind, IVA_CONTACT_NAME, resolveIvaContact } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
 import { cardLabel, cardExtensionLabel, dueForCardInMonth } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
@@ -673,14 +673,6 @@ type PaymentMethod = "ninguno" | "cuenta" | "tarjeta" | "persona";
 type MovementKind = "gasto" | "ingreso" | "transferencia";
 type TransferKind = "cuentas" | "tarjeta" | "personas";
 
-/** Nombre fijo del contacto (Personas) al que se le acredita el IVA descontado, ver "¿Descuenta IVA?" más abajo. */
-const IVA_CONTACT_NAME = "Gustavo Brignoni";
-/** Tasa básica de IVA en Uruguay (22%), usada solo para sugerir un monto editable en "¿Descuenta IVA?". */
-const IVA_TASA_BASICA = 0.22;
-/** IVA contenido en un monto que ya lo incluye (extracción), redondeado a centésimos. */
-function ivaIncluidoEn(amountGross: number): number {
-  return Math.round(((amountGross * IVA_TASA_BASICA) / (1 + IVA_TASA_BASICA)) * 100) / 100;
-}
 
 interface FormState {
   kind: MovementKind;
@@ -949,11 +941,8 @@ export function MovementModal({
   const maybeCreateIvaCredit = (ivaAmountMinor: number, numCuotas?: number) => {
     if (ivaAmountMinor <= 0) return;
     const isVentas = form.kind === "ingreso";
-    const existingContact = contacts.find((c) => c.name.trim().toLowerCase() === IVA_CONTACT_NAME.toLowerCase());
-    const contactId = existingContact?.id ?? crypto.randomUUID();
-    if (!existingContact) {
-      onSaveContact({ id: contactId, name: IVA_CONTACT_NAME, kind: "persona" });
-    }
+    const { id: contactId, contactToCreate } = resolveIvaContact(contacts);
+    if (contactToCreate) onSaveContact(contactToCreate);
     onSaveContactEntry({
       id: crypto.randomUUID(),
       contactId,

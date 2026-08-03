@@ -653,11 +653,13 @@ export interface NotificationPrefs {
   categories: Partial<Record<NotifiableModuleKey, boolean>>;
 }
 
-export type RecurrencePeriod = "mensual" | "semanal" | "anual";
+export type RecurrencePeriod = "diaria" | "semanal" | "mensual" | "trimestral" | "anual";
 
 export const RECURRENCE_PERIOD_LABELS: Record<RecurrencePeriod, string> = {
-  mensual: "Mensual",
+  diaria: "Diaria",
   semanal: "Semanal",
+  mensual: "Mensual",
+  trimestral: "Trimestral",
   anual: "Anual",
 };
 
@@ -683,6 +685,22 @@ export interface RecurringRule {
   accountId?: string;
   /** Solo aplica si `type` es "gasto" (igual que en Transaction). */
   cardId?: string;
+  /**
+   * IVA Compras (gasto) / IVA Ventas (ingreso), igual que en el modal de
+   * Nuevo Movimiento: cada ocurrencia generada registra el monto neto
+   * (`amountMinor` menos este importe) y, aparte, un movimiento en Personas
+   * contra Gustavo Brignoni por este importe (ver `lib/recurring.ts` y
+   * `lib/contacts.ts#IVA_CONTACT_NAME`).
+   */
+  ivaAmountMinor?: number;
+  /**
+   * Persona/concepto como medio de pago (mutuamente excluyente con
+   * `accountId`/`cardId`): cada ocurrencia generada registra además un
+   * movimiento en Personas con este contacto. Si `personaAmountMinor` no
+   * está cargado, se asume el 100% de `amountMinor`.
+   */
+  personaContactId?: string;
+  personaAmountMinor?: number;
   period: RecurrencePeriod;
   /** Próxima fecha (YYYY-MM-DD) en que corresponde generar el movimiento. */
   nextDueDate: string;

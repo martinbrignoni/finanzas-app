@@ -1233,8 +1233,10 @@ export default function App() {
           banks={data.banks}
           cards={data.cards}
           categories={data.categories}
+          contacts={data.contacts}
           onSave={upsertRecurringRule}
           onSaveCategory={addCategory}
+          onSaveContact={addContact}
           onClose={closeModal}
         />
       )}

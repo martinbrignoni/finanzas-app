@@ -1,5 +1,23 @@
 import type { Contact, ContactEntry, Currency } from "../types";
 
+/**
+ * Nombre fijo del contacto (Personas) al que se le acreditan/debitan los
+ * movimientos de IVA Compras/Ventas (ver Transactions.tsx y lib/recurring.ts).
+ */
+export const IVA_CONTACT_NAME = "Gustavo Brignoni";
+
+/**
+ * Busca el contacto de IVA por nombre (sin distinguir mayúsculas); si no
+ * existe todavía, devuelve uno nuevo para crear junto con el movimiento que
+ * lo necesita (ver `contactToCreate`).
+ */
+export function resolveIvaContact(contacts: Contact[]): { id: string; contactToCreate?: Contact } {
+  const existing = contacts.find((c) => c.name.trim().toLowerCase() === IVA_CONTACT_NAME.toLowerCase());
+  if (existing) return { id: existing.id };
+  const id = crypto.randomUUID();
+  return { id, contactToCreate: { id, name: IVA_CONTACT_NAME, kind: "persona" } };
+}
+
 /** `contact.kind`, con "persona" como default para contactos cargados antes de este campo. */
 export function contactKind(contact: Contact): "persona" | "concepto" {
   return contact.kind ?? "persona";
