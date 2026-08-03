@@ -57,7 +57,7 @@ function ConverterModal({ latest, onClose }: { latest: Record<string, ExchangeRa
   return (
     <Modal title="Convertidor de moneda" onClose={onClose}>
       <Field label="Monto">
-        {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+        {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
       </Field>
       <Field label="Moneda de origen">
         {() => <Segment value={from} onChange={setFrom} options={CONVERTER_CURRENCIES.map((c) => ({ value: c.id, label: c.id }))} />}

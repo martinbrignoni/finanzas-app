@@ -812,7 +812,7 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       </Field>
       <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Caja de ahorro, Cuenta corriente..." />}</Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Saldo inicial">{(id) => <TextInput id={id} type="number" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0" />}</Field>
+        <Field label="Saldo inicial">{(id) => <TextInput id={id} type="text" inputMode="decimal" step="0.01" value={initialBalance} onChange={(e) => setInitialBalance(e.target.value)} placeholder="0" />}</Field>
         <Field label="Moneda">{() => <Segment value={currency} onChange={setCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}</Field>
       </div>
       <Field label="Titular (opcional)">

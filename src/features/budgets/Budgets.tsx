@@ -94,7 +94,7 @@ export function BudgetModal({ categories, initial, onSave, onClose }: {
     <Modal title={initial ? "Editar presupuesto" : "Nuevo presupuesto"} onClose={onClose}>
       <CategoryPicker categories={categories} type="gasto" value={category} onChange={setCategory} />
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Límite mensual">{(id) => <TextInput id={id} type="number" min="0" step="0.01" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="0" />}</Field>
+        <Field label="Límite mensual">{(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="0" />}</Field>
         <Field label="Moneda">{() => <Segment value={currency} onChange={setCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}</Field>
       </div>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}

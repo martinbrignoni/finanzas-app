@@ -1273,7 +1273,7 @@ export function MovementModal({
                   {(id) => (
                     <TextInput
                       id={id}
-                      type="number"
+                      type="text"
                       inputMode="decimal"
                       min="0"
                       step="0.01"
@@ -1290,7 +1290,7 @@ export function MovementModal({
                       {(id) => (
                         <TextInput
                           id={id}
-                          type="number"
+                          type="text"
                           inputMode="decimal"
                           min="0"
                           step="0.01"
@@ -1307,7 +1307,7 @@ export function MovementModal({
                       {(id) => (
                         <TextInput
                           id={id}
-                          type="number"
+                          type="text"
                           inputMode="decimal"
                           min="0"
                           step="0.01"
@@ -1344,7 +1344,7 @@ export function MovementModal({
                 </Field>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Monto">
-                    {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+                    {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
                   </Field>
                   <Field label="Moneda">
                     {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
@@ -1426,7 +1426,7 @@ export function MovementModal({
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Monto">
-                  {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+                  {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
                 </Field>
                 <Field label="Moneda">
                   {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v, accountId: "" }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
@@ -1512,7 +1512,7 @@ export function MovementModal({
         <>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Monto">
-              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
+              {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} placeholder="0" />}
             </Field>
             <Field label="Moneda">
               {() => <Segment value={form.currency} onChange={(v) => setForm((f) => ({ ...f, currency: v }))} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
@@ -1576,7 +1576,7 @@ export function MovementModal({
                     {(id) => (
                       <TextInput
                         id={id}
-                        type="number"
+                        type="text"
                         inputMode="decimal"
                         min="0"
                         step="0.01"
@@ -1663,7 +1663,7 @@ export function MovementModal({
                 {(id) => (
                   <TextInput
                     id={id}
-                    type="number"
+                    type="text"
                     inputMode="numeric"
                     min="1"
                     value={form.numInstallments}
@@ -1719,7 +1719,7 @@ export function MovementModal({
                 {(id) => (
                   <TextInput
                     id={id}
-                    type="number"
+                    type="text"
                     inputMode="decimal"
                     min="0"
                     step="0.01"

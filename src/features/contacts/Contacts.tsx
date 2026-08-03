@@ -518,7 +518,7 @@ export function ContactEntryModal({
       </p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Monto">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
         </Field>
         <Field label="Moneda">
           {() => <Segment value={currency} onChange={(v) => { setCurrency(v); setAccountId(""); }} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
@@ -638,7 +638,7 @@ export function SplitExpenseModal({
       <Field label="Descripción">{(id) => <TextInput id={id} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Cena, alquiler, salidero..." />}</Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Monto total">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} placeholder="0" />}
         </Field>
         <Field label="Moneda">
           {() => <Segment value={currency} onChange={(v) => { setCurrency(v); setAccountId(""); }} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
@@ -725,7 +725,7 @@ export function SplitExpenseModal({
                   <span className="text-xs flex-1" style={{ color: C.text }}>{contacts.find((c) => c.id === cId)?.name}</span>
                   <div className="w-28">
                     <TextInput
-                      type="number"
+                      type="text"
                       inputMode="decimal"
                       min="0"
                       step="0.01"
@@ -828,7 +828,7 @@ export function ConvertCurrencyModal({
         )}
       </Field>
       <Field label={`Monto a convertir (${fromCurrency})`}>
-        {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+        {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
       </Field>
       <Field label="Fecha">
         {(id) => <TextInput id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
@@ -837,7 +837,7 @@ export function ConvertCurrencyModal({
         {(id) => (
           <TextInput
             id={id}
-            type="number"
+            type="text"
             inputMode="decimal"
             min="0"
             step="0.01"

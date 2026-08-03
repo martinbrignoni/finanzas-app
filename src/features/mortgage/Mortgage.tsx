@@ -531,7 +531,7 @@ export function LoanModal({
       <Field label="Nombre">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej. Hipoteca BROU" />}</Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Monto del préstamo">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" />}
         </Field>
         <Field label="Moneda">
           {() => <Segment value={currency} onChange={setCurrency} options={CURRENCY_OPTIONS} />}
@@ -547,10 +547,10 @@ export function LoanModal({
       </p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Tasa anual (%)">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} placeholder="Ej. 4.5" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={annualRate} onChange={(e) => setAnnualRate(e.target.value)} placeholder="Ej. 4.5" />}
         </Field>
         <Field label="Plazo">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="1" value={termValue} onChange={(e) => setTermValue(e.target.value)} placeholder="Ej. 20" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="1" value={termValue} onChange={(e) => setTermValue(e.target.value)} placeholder="Ej. 20" />}
         </Field>
       </div>
       <Field label="¿Cómo se expresa la tasa?">
@@ -626,7 +626,7 @@ export function LoanModal({
         <div className="rounded-lg p-3 mb-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Cuotas de gracia">
-              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="1" step="1" value={gracePeriodValue} onChange={(e) => setGracePeriodValue(e.target.value)} placeholder="Ej. 6" />}
+              {(id) => <TextInput id={id} type="text" inputMode="decimal" min="1" step="1" value={gracePeriodValue} onChange={(e) => setGracePeriodValue(e.target.value)} placeholder="Ej. 6" />}
             </Field>
             <Field label="Durante la gracia">
               {() => (
@@ -648,7 +648,7 @@ export function LoanModal({
       <Field label="Nota (opcional)">{(id) => <TextInput id={id} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
 
       <Field label={`Ajuste de cuota por período (opcional, en ${currency})`}>
-        {(id) => <TextInput id={id} type="number" inputMode="decimal" step="0.01" value={paymentAdjustment} onChange={(e) => setPaymentAdjustment(e.target.value)} placeholder="Ej. 1.34 o -1.34" />}
+        {(id) => <TextInput id={id} type="text" inputMode="decimal" step="0.01" value={paymentAdjustment} onChange={(e) => setPaymentAdjustment(e.target.value)} placeholder="Ej. 1.34 o -1.34" />}
       </Field>
       <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
         Para cuando la cuota real del banco queda a unos pesos/UI de la calculada (redondeo de tasa, convención de días, etc.) y querés que la tabla coincida exacto. Se suma a la cuota y al interés de cada período regular (no a los de gracia); no cambia la amortización de capital. Podés poner un número negativo si tu cuota real es más baja.
@@ -670,10 +670,10 @@ export function LoanModal({
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Valor de la propiedad (USD)">
-              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={propertyValueUsd} onChange={(e) => setPropertyValueUsd(e.target.value)} placeholder="0" />}
+              {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={propertyValueUsd} onChange={(e) => setPropertyValueUsd(e.target.value)} placeholder="0" />}
             </Field>
             <Field label="Importe solicitado (USD)">
-              {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={requestedAmountUsd} onChange={(e) => setRequestedAmountUsd(e.target.value)} placeholder="0" />}
+              {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={requestedAmountUsd} onChange={(e) => setRequestedAmountUsd(e.target.value)} placeholder="0" />}
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -681,7 +681,7 @@ export function LoanModal({
               {(id) => (
                 <TextInput
                   id={id}
-                  type="number"
+                  type="text"
                   inputMode="decimal"
                   min="0"
                   step="0.001"
@@ -695,7 +695,7 @@ export function LoanModal({
               {(id) => (
                 <TextInput
                   id={id}
-                  type="number"
+                  type="text"
                   inputMode="decimal"
                   min="0"
                   step="0.0001"
@@ -767,7 +767,7 @@ export function PrepaymentModal({
       </p>
       <Field label="Fecha">{(id) => <TextInput id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}</Field>
       <Field label={`Monto (${loan.currency})`}>
-        {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+        {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
       </Field>
       {isAmerican ? (
         <p className="text-xs mb-3" style={{ color: C.textFaint }}>

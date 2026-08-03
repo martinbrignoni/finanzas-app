@@ -622,12 +622,12 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
         )}
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Día de cierre">{(id) => <TextInput id={id} type="number" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />}</Field>
-        <Field label="Día de vencimiento">{(id) => <TextInput id={id} type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}</Field>
+        <Field label="Día de cierre">{(id) => <TextInput id={id} type="text" inputMode="numeric" min={1} max={31} value={closingDay} onChange={(e) => setClosingDay(e.target.value)} />}</Field>
+        <Field label="Día de vencimiento">{(id) => <TextInput id={id} type="text" inputMode="numeric" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}</Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Límite de crédito (opcional)">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="Sin cargar" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="Sin cargar" />}
         </Field>
         <Field label="Moneda del límite">
           {() => <Segment value={creditLimitCurrency} onChange={setCreditLimitCurrency} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
@@ -757,7 +757,7 @@ export function CardPaymentModal({
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Monto">
-          {(id) => <TextInput id={id} type="number" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
+          {(id) => <TextInput id={id} type="text" inputMode="decimal" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />}
         </Field>
         <Field label="Moneda">
           {() => <Segment value={currency} onChange={(v) => { setCurrency(v); setAccountId(""); }} options={[{ value: "UYU", label: "UYU" }, { value: "USD", label: "USD" }]} />}
