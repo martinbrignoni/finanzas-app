@@ -95,6 +95,14 @@ export interface Transaction {
    * se conciliò (o se conciliò y después se desmarcó).
    */
   reconciledAt?: string;
+  /**
+   * Para Ingresos en una categoría con `Category.trackOrders` activo (ej.
+   * MINUCHI > Ventas): qué representa este cobro dentro del pedido. Siempre
+   * va acompañado de `orderNumber`.
+   */
+  orderType?: "pedido" | "sena" | "saldo";
+  /** Número de pedido asignado a mano por el usuario (texto libre: puede tener formato "P-123"). Ver `orderType`. */
+  orderNumber?: string;
 }
 
 export interface Bank {
@@ -378,6 +386,14 @@ export interface Category {
    * como una clase o una salida que a veces es de uno, a veces de otro.
    */
   allowFamilyMembers?: boolean;
+  /**
+   * Si está activo, al cargar un Ingreso en esta categoría puntual (se hereda
+   * a las que cuelguen de ella, igual que `allowFamilyMembers`) se pide
+   * elegir qué es el cobro (Pedido / Seña pedido / Saldo pedido) y un número
+   * de pedido (ver `Transaction.orderType`/`orderNumber`). Pensado para
+   * MINUCHI > Ventas.
+   */
+  trackOrders?: boolean;
 }
 
 /**

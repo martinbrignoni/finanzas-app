@@ -43,6 +43,7 @@ export function Settings({
   onMoveCategory,
   onRenameCategory,
   onSetCategoryAllowFamilyMembers,
+  onSetCategoryTrackOrders,
   onReclassifyCategory,
   onAddFamilyMember,
   onEditFamilyMember,
@@ -99,6 +100,8 @@ export function Settings({
   onRenameCategory: (id: string, newName: string) => void;
   /** Activa/desactiva si una categoría permite elegir integrante de familia. */
   onSetCategoryAllowFamilyMembers: (id: string, allow: boolean) => void;
+  /** Activa/desactiva si una categoría de Ingreso pide tipo y número de pedido (ver `Category.trackOrders`). */
+  onSetCategoryTrackOrders: (id: string, track: boolean) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
   onAddFamilyMember: () => void;
   onEditFamilyMember: (m: FamilyMember) => void;
@@ -192,6 +195,7 @@ export function Settings({
           onMove={onMoveCategory}
           onRename={onRenameCategory}
           onSetAllowFamilyMembers={onSetCategoryAllowFamilyMembers}
+          onSetTrackOrders={onSetCategoryTrackOrders}
           onReclassify={onReclassifyCategory}
         />
       )}

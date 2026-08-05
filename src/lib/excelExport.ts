@@ -216,6 +216,8 @@ export function exportMovementsToExcel(
       "Cuota hipoteca": t.mortgageLoanId ? "Sí" : "",
       Recurrente: t.recurringRuleId ? "Sí" : "",
       "Integrante(s) de familia": familyDetail(familyMembers, t.familyMemberIds, t.familyMemberAmounts),
+      "Tipo de pedido": t.orderType === "sena" ? "Seña pedido" : t.orderType === "saldo" ? "Saldo pedido" : t.orderType === "pedido" ? "Pedido" : "",
+      "N° de pedido": t.orderNumber ?? "",
       Comprobantes: t.receiptPaths?.length ?? (t.receiptPath ? 1 : 0),
       "Cargado por": userName(users, t.createdByUserId),
       Alta: t.createdAt ? formatDateTimeDMY(t.createdAt) : "",

@@ -5,7 +5,7 @@ import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, Icon
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
-import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope, findCategoryByPath, categoryAllowsFamilyMembers } from "../../lib/categories";
+import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope, findCategoryByPath, categoryAllowsFamilyMembers, categoryTracksOrders } from "../../lib/categories";
 import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
@@ -150,6 +150,8 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
       acc ? accountLabel(acc, banks) : undefined,
       card?.name,
       cardExtensionLabel(cards, t.cardId, t.cardExtensionId) ?? undefined,
+      t.orderNumber ? `pedido ${t.orderNumber}` : undefined,
+      t.orderType === "sena" ? "seña pedido" : t.orderType === "saldo" ? "saldo pedido" : t.orderType === "pedido" ? "pedido" : undefined,
     ].filter((x): x is string => !!x).join(" ");
   }
   if (item.kind === "transfer") {
@@ -451,6 +453,7 @@ export function Transactions({
                       <span>
                         {t.category ? categoryDisplayName(t.category, categories) : <span style={{ color: C.uyu }}>Sin categorizar</span>}
                         {t.note ? ` · ${t.note}` : ""}
+                        {t.orderNumber ? ` · ${t.orderType === "sena" ? "Seña pedido" : t.orderType === "saldo" ? "Saldo pedido" : "Pedido"} #${t.orderNumber}` : ""}
                       </span>
                     </div>
                     <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
@@ -736,6 +739,10 @@ interface FormState {
   splitFamilyAmounts: boolean;
   /** Monto (en texto, moneda del movimiento) por integrante, cuando `splitFamilyAmounts` está activo. */
   familyMemberAmounts: Record<string, string>;
+  /** Qué es el cobro, solo cuando la categoría elegida lo pide (ver `Category.trackOrders`). */
+  orderType: "pedido" | "sena" | "saldo";
+  /** Número de pedido asignado a mano, junto con `orderType`. */
+  orderNumber: string;
   accountId: string; // "" significa sin cuenta asignada
   paymentMethod: PaymentMethod;
   cardId: string; // "" significa sin tarjeta elegida
@@ -898,6 +905,8 @@ export function MovementModal({
     familyMemberAmounts: Object.fromEntries(
       Object.entries(initialInstallment?.familyMemberAmounts ?? initial?.familyMemberAmounts ?? {}).map(([memberId, minor]) => [memberId, String(fromMinor(minor))])
     ),
+    orderType: initial?.orderType ?? "pedido",
+    orderNumber: initial?.orderNumber ?? "",
     accountId: initialContactEntry?.accountId ?? initial?.accountId ?? "",
     paymentMethod: initialContactEntry
       ? initialContactEntry.cardId
@@ -956,6 +965,9 @@ export function MovementModal({
     !!selectedCategoryForFamily &&
     categoryAllowsFamilyMembers(selectedCategoryForFamily, categories) &&
     familyMembers.length > 0;
+  // Solo para Ingreso en una categoría con `trackOrders` (ej. MINUCHI > Ventas, ver Configuración → Categorías).
+  const showOrderFields =
+    form.kind === "ingreso" && !!selectedCategoryForFamily && categoryTracksOrders(selectedCategoryForFamily, categories);
 
   const fromAcc = accounts.find((a) => a.id === form.fromAccountId);
   const toAcc = accounts.find((a) => a.id === form.toAccountId);
@@ -1122,6 +1134,7 @@ export function MovementModal({
     // La categoría es opcional a propósito: permite cargar rápido y
     // categorizar después (ver el filtro de "pendientes" en Movimientos).
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
+    if (showOrderFields && !form.orderNumber.trim()) return setError("Ingresá el número de pedido.");
 
     // "¿IVA Compras?" / "¿IVA Ventas?": el gasto o ingreso que queda
     // categorizado (y el que sale/entra por la cuenta/tarjeta vía este
@@ -1207,6 +1220,8 @@ export function MovementModal({
       mortgageLoanId: form.kind === "gasto" ? form.mortgageLoanId || undefined : undefined,
       familyMemberIds: showFamilyMembersField && form.familyMemberIds.length > 0 ? form.familyMemberIds : undefined,
       familyMemberAmounts: familyMemberAmountsMinor,
+      orderType: showOrderFields ? form.orderType : undefined,
+      orderNumber: showOrderFields ? form.orderNumber.trim() || undefined : undefined,
       receiptPaths: form.receiptPaths,
       createdByUserId: initial?.createdByUserId,
     });
@@ -1700,6 +1715,33 @@ export function MovementModal({
                   </p>
                 </>
               )}
+            </>
+          )}
+          {showOrderFields && (
+            <>
+              <Field label="¿Qué es?">
+                {() => (
+                  <Segment
+                    value={form.orderType}
+                    onChange={(v) => setForm((f) => ({ ...f, orderType: v }))}
+                    options={[
+                      { value: "pedido", label: "Pedido" },
+                      { value: "sena", label: "Seña pedido" },
+                      { value: "saldo", label: "Saldo pedido" },
+                    ]}
+                  />
+                )}
+              </Field>
+              <Field label="Número de pedido">
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    value={form.orderNumber}
+                    onChange={(e) => setForm((f) => ({ ...f, orderNumber: e.target.value }))}
+                    placeholder="Ej. 123"
+                  />
+                )}
+              </Field>
             </>
           )}
           <Field label="Fecha">

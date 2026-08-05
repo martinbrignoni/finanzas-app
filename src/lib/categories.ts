@@ -92,6 +92,20 @@ export function categoryAllowsFamilyMembers(category: Category, categories: Cate
 }
 
 /**
+ * Igual que `categoryAllowsFamilyMembers`, pero para `Category.trackOrders`
+ * (MINUCHI > Ventas): alcanza con activarlo en la madre o en una categoría
+ * intermedia para que ya quede activo en todo lo que cuelgue de ella.
+ */
+export function categoryTracksOrders(category: Category, categories: Category[]): boolean {
+  let current: Category | undefined = category;
+  while (current) {
+    if (current.trackOrders) return true;
+    current = current.parentId ? categories.find((c) => c.id === current!.parentId) : undefined;
+  }
+  return false;
+}
+
+/**
  * Nombre con el que se identifica el emprendimiento aparte "MINUCHI" (ver
  * Configuración → Categorías e Inicio): tiene su propia categoría madre de
  * ingreso y de gasto, para poder analizar sus números sin mezclarlos con las

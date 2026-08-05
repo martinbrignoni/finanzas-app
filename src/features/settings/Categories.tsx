@@ -3,7 +3,7 @@ import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, Chev
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
-import { categoryFullPath, isMinuchiRootCategory, categoryAllowsFamilyMembers } from "../../lib/categories";
+import { categoryFullPath, isMinuchiRootCategory, categoryAllowsFamilyMembers, categoryTracksOrders } from "../../lib/categories";
 import { formatMoney } from "../../lib/money";
 import { formatDateDMY, monthKeyOf, monthLabel, capitalize } from "../../lib/dates";
 import { exportCategoryToExcel } from "../../lib/excelExport";
@@ -20,6 +20,7 @@ export function CategoriesSettings({
   onMove,
   onRename,
   onSetAllowFamilyMembers,
+  onSetTrackOrders,
   onReclassify,
 }: {
   categories: Category[];
@@ -35,6 +36,8 @@ export function CategoriesSettings({
   onRename: (id: string, newName: string) => void;
   /** Activa/desactiva si esta categoría permite elegir integrante de familia al cargar un movimiento. */
   onSetAllowFamilyMembers: (id: string, allow: boolean) => void;
+  /** Activa/desactiva si esta categoría pide tipo de pedido y número de pedido al cargar un Ingreso (ver `Category.trackOrders`). */
+  onSetTrackOrders: (id: string, track: boolean) => void;
   /** Reasigna todos los movimientos de una categoría a otra (antes de poder borrar la primera). */
   onReclassify: (fromName: string, toName: string) => void;
 }) {
@@ -287,6 +290,7 @@ export function CategoriesSettings({
           categories={categories}
           onRename={onRename}
           onSetAllowFamilyMembers={onSetAllowFamilyMembers}
+          onSetTrackOrders={onSetTrackOrders}
           onClose={() => setRenameTarget(null)}
         />
       )}
@@ -505,20 +509,24 @@ function RenameCategoryModal({
   categories,
   onRename,
   onSetAllowFamilyMembers,
+  onSetTrackOrders,
   onClose,
 }: {
   category: Category;
   categories: Category[];
   onRename: (id: string, newName: string) => void;
   onSetAllowFamilyMembers: (id: string, allow: boolean) => void;
+  onSetTrackOrders: (id: string, track: boolean) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(category.name);
   const [allowFamilyMembers, setAllowFamilyMembers] = useState(!!category.allowFamilyMembers);
+  const [trackOrders, setTrackOrders] = useState(!!category.trackOrders);
   const [error, setError] = useState<string | null>(null);
 
   const parent = categories.find((c) => c.id === category.parentId);
   const inheritedFromAbove = !!parent && categoryAllowsFamilyMembers(parent, categories);
+  const ordersInheritedFromAbove = !!parent && categoryTracksOrders(parent, categories);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -529,6 +537,7 @@ function RenameCategoryModal({
     if (dup) return setError("Ya existe una categoría con ese nombre en este nivel.");
     if (trimmed !== category.name) onRename(category.id, trimmed);
     if (allowFamilyMembers !== !!category.allowFamilyMembers) onSetAllowFamilyMembers(category.id, allowFamilyMembers);
+    if (trackOrders !== !!category.trackOrders) onSetTrackOrders(category.id, trackOrders);
     onClose();
   };
 
@@ -560,6 +569,28 @@ function RenameCategoryModal({
           </p>
         </>
       )}
+      {category.type === "ingreso" && (
+        ordersInheritedFromAbove ? (
+          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+            Ya está heredado de "{parent!.name}": esta categoría (y las que cuelguen de ella) ya piden tipo y número de pedido sin necesidad de activarlo acá también.
+          </p>
+        ) : (
+          <>
+            <Field label="¿Pedidos (ej. MINUCHI &gt; Ventas)?">
+              {() => (
+                <Segment
+                  value={trackOrders ? "si" : "no"}
+                  onChange={(v) => setTrackOrders(v === "si")}
+                  options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              Si está en "Sí", al cargar un Ingreso en esta categoría (y en las que cuelguen de ella) se va a pedir elegir qué es el cobro (Pedido / Seña pedido / Saldo pedido) y el número de pedido.
+            </p>
+          </>
+        )
+      )}
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
@@ -589,6 +620,7 @@ export function CategoryModal({
   const [categoriaId, setCategoriaId] = useState("");
   const [name, setName] = useState("");
   const [allowFamilyMembers, setAllowFamilyMembers] = useState(false);
+  const [trackOrders, setTrackOrders] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const roots = categories.filter((c) => c.type === type && !c.parentId);
@@ -597,6 +629,7 @@ export function CategoryModal({
   const parentId = categoriaId || madreId || undefined;
   const effectiveParent = categories.find((c) => c.id === parentId);
   const inheritedFromAbove = !!effectiveParent && categoryAllowsFamilyMembers(effectiveParent, categories);
+  const ordersInheritedFromAbove = !!effectiveParent && categoryTracksOrders(effectiveParent, categories);
 
   const nameLabel = categoriaId ? "Nombre de la subcategoría" : madreId ? "Nombre de la categoría" : "Nombre de la categoría madre";
 
@@ -605,7 +638,14 @@ export function CategoryModal({
     if (!trimmed) return setError("Ingresá un nombre.");
     const dup = categories.some((c) => c.type === type && c.parentId === parentId && c.name.toLowerCase() === trimmed.toLowerCase());
     if (dup) return setError("Ya existe una categoría con ese nombre en este nivel.");
-    onSave({ id: crypto.randomUUID(), name: trimmed, type, parentId, allowFamilyMembers: allowFamilyMembers || undefined });
+    onSave({
+      id: crypto.randomUUID(),
+      name: trimmed,
+      type,
+      parentId,
+      allowFamilyMembers: allowFamilyMembers || undefined,
+      trackOrders: trackOrders || undefined,
+    });
   };
 
   return (
@@ -663,6 +703,29 @@ export function CategoryModal({
             Si está en "Sí", al cargar un gasto o ingreso en esta categoría (y en las que cuelguen de ella) vas a poder elegir para quién de la familia es (ej. una clase o una salida que a veces es tuya, a veces de otro).
           </p>
         </>
+      )}
+
+      {type === "ingreso" && (
+        ordersInheritedFromAbove ? (
+          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+            Ya heredado de "{effectiveParent!.name}": esta categoría nueva ya va a pedir tipo y número de pedido, sin necesidad de activarlo acá también.
+          </p>
+        ) : (
+          <>
+            <Field label="¿Pedidos (ej. MINUCHI &gt; Ventas)?">
+              {() => (
+                <Segment
+                  value={trackOrders ? "si" : "no"}
+                  onChange={(v) => setTrackOrders(v === "si")}
+                  options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              Si está en "Sí", al cargar un Ingreso en esta categoría (y en las que cuelguen de ella) se va a pedir elegir qué es el cobro (Pedido / Seña pedido / Saldo pedido) y el número de pedido.
+            </p>
+          </>
+        )
       )}
 
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}

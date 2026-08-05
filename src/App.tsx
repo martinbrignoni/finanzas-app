@@ -516,6 +516,9 @@ export default function App() {
   const setCategoryAllowFamilyMembers = useCallback((id: string, allow: boolean) => {
     setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, allowFamilyMembers: allow || undefined } : c)) } : d));
   }, []);
+  const setCategoryTrackOrders = useCallback((id: string, track: boolean) => {
+    setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, trackOrders: track || undefined } : c)) } : d));
+  }, []);
   const reclassifyCategory = useCallback((fromName: string, toName: string) => {
     setData((d) =>
       d
@@ -1156,6 +1159,7 @@ export default function App() {
                 onMoveCategory={moveCategory}
                 onRenameCategory={renameCategory}
                 onSetCategoryAllowFamilyMembers={setCategoryAllowFamilyMembers}
+                onSetCategoryTrackOrders={setCategoryTrackOrders}
                 onReclassifyCategory={reclassifyCategory}
                 onAddFamilyMember={() => setModal({ type: "familyMember" })}
                 onEditFamilyMember={(m) => setModal({ type: "familyMember", payload: m })}
