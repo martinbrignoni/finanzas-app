@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Upload, X, Paperclip, Loader2 } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import { ConfirmDialog } from "./ui";
+import { ImageCropModal } from "./ImageCropModal";
 import { uploadReceipt, getReceiptUrl, deleteReceipt } from "../lib/receipts";
 
 /**
@@ -40,14 +41,17 @@ export function ReceiptField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  // Fotos elegidas (cámara o fototeca) que todavía no pasaron por el recorte:
+  // se muestran de a una en `ImageCropModal` antes de subirlas.
+  const [cropQueue, setCropQueue] = useState<File[]>([]);
   const otherInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return;
+  const uploadFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     setBusy(true);
     setError(null);
     try {
-      const newPaths = await Promise.all(Array.from(fileList).map((file) => uploadReceipt(file, movementId)));
+      const newPaths = await Promise.all(files.map((file) => uploadReceipt(file, movementId)));
       onChange([...paths, ...newPaths]);
     } catch (err) {
       console.error(err);
@@ -56,6 +60,18 @@ export function ReceiptField({
       setBusy(false);
     }
   };
+
+  // Las imágenes pasan primero por el recorte (una por una); PDF/Excel se suben directo.
+  const handleFiles = (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    const others = files.filter((f) => !f.type.startsWith("image/"));
+    if (others.length > 0) uploadFiles(others);
+    if (images.length > 0) setCropQueue((q) => [...q, ...images]);
+  };
+
+  const resolveCurrentCrop = () => setCropQueue((q) => q.slice(1));
 
   const handleView = async (path: string) => {
     setError(null);
@@ -139,6 +155,15 @@ export function ReceiptField({
           message="¿Eliminar este comprobante? No se puede deshacer."
           onConfirm={() => { handleRemove(confirmPath); setConfirmPath(null); }}
           onCancel={() => setConfirmPath(null)}
+        />
+      )}
+
+      {cropQueue.length > 0 && (
+        <ImageCropModal
+          file={cropQueue[0]}
+          onConfirm={(cropped) => { uploadFiles([cropped]); resolveCurrentCrop(); }}
+          onSkip={() => { uploadFiles([cropQueue[0]]); resolveCurrentCrop(); }}
+          onCancel={resolveCurrentCrop}
         />
       )}
     </div>
