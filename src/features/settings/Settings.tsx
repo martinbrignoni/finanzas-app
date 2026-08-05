@@ -10,9 +10,11 @@ import { RecurringRulesSettings } from "./Recurring";
 import { AuditSettings } from "./Audit";
 import { CardsSettings } from "./CardsSettings";
 import { FamilyMembersSettings } from "./FamilyMembers";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, Contact, NotificationPrefs, RecurringRule, AuditEntry, FamilyMember } from "../../types";
+import { BackupSettings } from "./Backup";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, Contact, NotificationPrefs, RecurringRule, AuditEntry, FamilyMember, FinanceData } from "../../types";
 
 export function Settings({
+  financeData,
   users,
   activeUserId,
   categories,
@@ -60,6 +62,8 @@ export function Settings({
   onDeleteRecurringRule,
   onSignOut,
 }: {
+  /** El `FinanceData` completo, solo para la sección Respaldo (ver `BackupSettings`). */
+  financeData: FinanceData;
   users: AppUser[];
   activeUserId: string | null;
   categories: Category[];
@@ -110,7 +114,7 @@ export function Settings({
   onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "bancos" | "tarjetas" | "recurrentes" | "auditoria" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "bancos" | "tarjetas" | "recurrentes" | "auditoria" | "respaldo" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -136,6 +140,7 @@ export function Settings({
             ["tarjetas", "Tarjetas"],
             ["recurrentes", "Recurrentes"],
             ["auditoria", "Auditoría"],
+            ["respaldo", "Respaldo"],
             ["seguridad", "Seguridad"],
             ["notificaciones", "Notificaciones"],
           ] as [typeof section, string][]
@@ -232,6 +237,7 @@ export function Settings({
         />
       )}
       {section === "auditoria" && <AuditSettings auditLog={auditLog} users={users} />}
+      {section === "respaldo" && <BackupSettings data={financeData} />}
       {section === "seguridad" && activeUser && (
         <SecuritySettings user={activeUser} onUpdateUserLock={onUpdateUserLock} />
       )}

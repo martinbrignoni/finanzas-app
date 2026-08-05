@@ -10,6 +10,7 @@ import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChang
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import { generateDueRecurringTransactions } from "./lib/recurring";
 import { generateDueMortgagePayments } from "./lib/mortgage";
+import { maybeRunAutomaticBackup } from "./lib/backup";
 import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
 import {
   makeCreateEntry,
@@ -124,6 +125,9 @@ export default function App() {
         const withRecurring = generateDueRecurringTransactions(loaded);
         const withMortgage = await generateDueMortgagePayments(withRecurring);
         setData(withMortgage);
+        // Respaldo automático (ver lib/backup.ts): no bloquea la carga ni
+        // hace falta esperarlo, corre en silencio y no rompe nada si falla.
+        maybeRunAutomaticBackup(withMortgage).catch(() => {});
       })
       .finally(() => setRefreshing(false));
   }, []);
@@ -1101,6 +1105,7 @@ export default function App() {
             )}
             {tab === "configuracion" && (
               <Settings
+                financeData={data}
                 users={data.users}
                 activeUserId={data.activeUserId}
                 categories={data.categories}
