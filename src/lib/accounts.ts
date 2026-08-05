@@ -1,4 +1,4 @@
-import type { Account, Bank, Transaction, Transfer, CardPayment, ContactEntry } from "../types";
+import type { Account, Bank, Transaction, Transfer, CardPayment, ContactEntry, Card, Contact } from "../types";
 import { contactEntryAccountImpact } from "./contacts";
 
 /**
@@ -179,4 +179,16 @@ export function accountLedger(
   });
 
   return withBalance.reverse();
+}
+
+/**
+ * Etiqueta corta y legible de un `AccountLedgerEntry`, usada tanto en la
+ * pantalla de Conciliar (`features/accounts/Reconciliation.tsx`) como en su
+ * exportación a Excel (`lib/excelExport.ts`) — vive acá para no duplicarla.
+ */
+export function ledgerEntryLabel(entry: AccountLedgerEntry, cards: Card[], contacts: Contact[]): string {
+  if (entry.kind === "card-payment") return `Pago tarjeta ${cards.find((c) => c.id === entry.cardPayment!.cardId)?.name ?? "eliminada"}`;
+  if (entry.kind === "contact-entry") return `Personas: ${contacts.find((c) => c.id === entry.contactEntry!.contactId)?.name ?? "contacto eliminado"}${entry.contactEntry!.description ? ` · ${entry.contactEntry!.description}` : ""}`;
+  if (entry.kind === "transfer-out" || entry.kind === "transfer-in") return `Transferencia${entry.transfer!.note ? ` · ${entry.transfer!.note}` : ""}`;
+  return `${entry.transaction!.category ?? "Sin categorizar"}${entry.transaction!.note ? ` · ${entry.transaction!.note}` : ""}`;
 }

@@ -12,6 +12,7 @@ import { generateDueRecurringTransactions } from "./lib/recurring";
 import { generateDueMortgagePayments } from "./lib/mortgage";
 import { maybeRunAutomaticBackup } from "./lib/backup";
 import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
+import type { AccountLedgerEntry } from "./lib/accounts";
 import {
   makeCreateEntry,
   makeUpdateEntry,
@@ -538,6 +539,29 @@ export default function App() {
         : d
     );
   }, []);
+  /** Marca un movimiento del ledger de una cuenta como conciliado (ver Cuentas -> Conciliar). Solo toca `reconciledAt` del registro real detrás del entry, no afecta nada más. */
+  const markLedgerEntryReconciled = useCallback((entry: AccountLedgerEntry, reconciledAt: string | undefined) => {
+    setData((d) => {
+      if (!d) return d;
+      if (entry.kind === "transaction" && entry.transaction) {
+        const id = entry.transaction.id;
+        return { ...d, transactions: d.transactions.map((t) => (t.id === id ? { ...t, reconciledAt } : t)) };
+      }
+      if ((entry.kind === "transfer-out" || entry.kind === "transfer-in") && entry.transfer) {
+        const id = entry.transfer.id;
+        return { ...d, transfers: d.transfers.map((tr) => (tr.id === id ? { ...tr, reconciledAt } : tr)) };
+      }
+      if (entry.kind === "card-payment" && entry.cardPayment) {
+        const id = entry.cardPayment.id;
+        return { ...d, cardPayments: d.cardPayments.map((p) => (p.id === id ? { ...p, reconciledAt } : p)) };
+      }
+      if (entry.kind === "contact-entry" && entry.contactEntry) {
+        const id = entry.contactEntry.id;
+        return { ...d, contactEntries: d.contactEntries.map((e) => (e.id === id ? { ...e, reconciledAt } : e)) };
+      }
+      return d;
+    });
+  }, []);
   const saveCardStatement = useCallback((s: CardStatement) => {
     setData((d) =>
       d
@@ -1023,16 +1047,14 @@ export default function App() {
                 }
                 accountStatements={data.accountStatements}
                 onSaveAccountStatement={saveAccountStatement}
-                onEditBank={(b) => setModal({ type: "bank", payload: b })}
-                onDeleteBank={confirmDeleteBank}
-                onEditAccount={(a) => setModal({ type: "account", payload: { bankId: a.bankId, account: a } })}
-                onDeleteAccount={confirmDeleteAccount}
+                onUpdateAccount={updateAccountFields}
                 onEditTransaction={(t) => setModal({ type: "movement", payload: { transaction: t } })}
                 onDeleteTransaction={confirmDeleteTransaction}
                 onEditTransfer={(t) => setModal({ type: "movement", payload: { transfer: t } })}
                 onDeleteTransfer={confirmDeleteTransfer}
                 onEditCardPayment={(p) => setModal({ type: "cardPayment", payload: { cardId: p.cardId, payment: p } })}
                 onDeleteCardPayment={confirmDeleteCardPayment}
+                onMarkReconciled={markLedgerEntryReconciled}
               />
             )}
             {tab === "tarjetas" && (
@@ -1144,6 +1166,10 @@ export default function App() {
                 onAddAccount={(bankId) => setModal({ type: "account", payload: { bankId } })}
                 onUpdateBank={updateBankFields}
                 onUpdateAccount={updateAccountFields}
+                onEditBank={(b) => setModal({ type: "bank", payload: b })}
+                onDeleteBank={confirmDeleteBank}
+                onEditAccount={(a) => setModal({ type: "account", payload: { bankId: a.bankId, account: a } })}
+                onDeleteAccount={confirmDeleteAccount}
                 onAddCard={() => setModal({ type: "card" })}
                 onEditCard={(c) => setModal({ type: "card", payload: c })}
                 onDeleteCard={confirmDeleteCard}

@@ -88,6 +88,13 @@ export interface Transaction {
    * compartido entre todos sin desglosar (ej. un almuerzo en familia).
    */
   familyMemberAmounts?: Record<string, number>;
+  /**
+   * Fecha/hora ISO en que este movimiento quedó marcado como conciliado
+   * contra un estado de cuenta o un archivo de movimientos subido (ver
+   * Cuentas → Conciliar y `lib/reconciliation.ts`). `undefined` = todavía no
+   * se conciliò (o se conciliò y después se desmarcó).
+   */
+  reconciledAt?: string;
 }
 
 export interface Bank {
@@ -137,6 +144,31 @@ export interface Account {
    * retroactivamente meses de antes de haberlo prendido.
    */
   statementRemindersSince?: string;
+  /**
+   * Nombre de la hoja (pestaña) del Excel que se sube en Cuentas → Conciliar
+   * para identificar cuál corresponde a esta caja, cuando el archivo trae
+   * varias cuentas/tarjetas juntas en un mismo libro. Sin definir = se usa
+   * `name` tal cual.
+   */
+  reconciliationSheetName?: string;
+  /**
+   * Último archivo de conciliación subido para esta caja que todavía no fue
+   * reemplazado por otro ni por el estado oficial (ver Conciliar movimientos).
+   * Se guarda para no perderlo al cerrar el modal: sirve para ir cargando
+   * movimientos pendientes de a poco y volver a revisar sin tener que
+   * resubir el archivo cada vez. Se limpia solo al subir un archivo "Estado
+   * oficial" (ya no hace falta seguir arrastrándolo) o al subir uno nuevo
+   * (lo reemplaza).
+   */
+  reconciliationDraft?: ReconciliationDraft;
+}
+
+/** Ver `Account.reconciliationDraft`. */
+export interface ReconciliationDraft {
+  fileName: string;
+  /** Fecha y hora ISO completa (no solo YYYY-MM-DD) en que se subió este archivo. */
+  uploadedAt: string;
+  lines: { date: string; description: string; amountMinor: number }[];
 }
 
 /**
@@ -183,6 +215,8 @@ export interface Transfer {
   createdAt?: string;
   /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
   updatedAt?: string;
+  /** Ver `Transaction.reconciledAt`. */
+  reconciledAt?: string;
 }
 
 /** Titular adicional ("extensión") de una tarjeta: alguien más con su propia tarjeta física sobre la misma línea. */
@@ -312,6 +346,8 @@ export interface CardPayment {
   createdAt?: string;
   /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
   updatedAt?: string;
+  /** Ver `Transaction.reconciledAt`. */
+  reconciledAt?: string;
 }
 
 export interface Budget {
@@ -426,6 +462,8 @@ export interface ContactEntry {
   createdAt?: string;
   /** Fecha/hora ISO de la última modificación. Usado para desempatar el orden en Movimientos. */
   updatedAt?: string;
+  /** Ver `Transaction.reconciledAt`. */
+  reconciledAt?: string;
 }
 
 /**

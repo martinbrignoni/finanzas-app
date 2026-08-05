@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Landmark, Wallet, ChevronDown, ChevronUp, AlertTriangle, Plus, Pencil } from "lucide-react";
+import { Landmark, Wallet, ChevronDown, ChevronUp, AlertTriangle, Plus, Pencil, Trash2 } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Field, Segment, TextArea, CurrencyPill, ConfirmDialog, IconBtn } from "../../components/ui";
 import { accountBalance } from "../../lib/accounts";
@@ -28,6 +28,10 @@ export function BanksSettings({
   onAddAccount,
   onUpdateBank,
   onUpdateAccount,
+  onEditBank,
+  onDeleteBank,
+  onEditAccount,
+  onDeleteAccount,
 }: {
   banks: Bank[];
   accounts: Account[];
@@ -40,6 +44,12 @@ export function BanksSettings({
   onAddAccount: (bankId: string) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
+  /** Abre el modal completo (nombre, sucursal) — separado de onUpdateBank, que es para toggles rápidos como "pide sucursal". */
+  onEditBank: (b: Bank) => void;
+  onDeleteBank: (id: string) => void;
+  /** Abre el modal completo (nombre, moneda, saldo inicial, titular, etc.) — separado de onUpdateAccount, que es para toggles rápidos (activa/inactiva, mensaje). */
+  onEditAccount: (a: Account) => void;
+  onDeleteAccount: (id: string) => void;
 }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
@@ -106,6 +116,10 @@ export function BanksSettings({
               canEdit={canEdit}
               onUpdateBank={onUpdateBank}
               onUpdateAccount={onUpdateAccount}
+              onEditBank={onEditBank}
+              onDeleteBank={onDeleteBank}
+              onEditAccount={onEditAccount}
+              onDeleteAccount={onDeleteAccount}
             />
           ))}
         </div>
@@ -124,6 +138,10 @@ function BankSettingsCard({
   canEdit,
   onUpdateBank,
   onUpdateAccount,
+  onEditBank,
+  onDeleteBank,
+  onEditAccount,
+  onDeleteAccount,
 }: {
   bank: Bank;
   accounts: Account[];
@@ -134,14 +152,26 @@ function BankSettingsCard({
   canEdit: boolean;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
+  onEditBank: (b: Bank) => void;
+  onDeleteBank: (id: string) => void;
+  onEditAccount: (a: Account) => void;
+  onDeleteAccount: (id: string) => void;
 }) {
   return (
     <div className="rounded-2xl p-4" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.surface3 }}>
-          <Landmark size={15} color={C.uyu} />
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.surface3 }}>
+            <Landmark size={15} color={C.uyu} />
+          </div>
+          <span className="text-sm font-semibold truncate" style={{ color: C.text }}>{bank.name}</span>
         </div>
-        <span className="text-sm font-semibold" style={{ color: C.text }}>{bank.name}</span>
+        {canEdit && (
+          <div className="flex gap-1 shrink-0">
+            <IconBtn label="Editar banco" onClick={() => onEditBank(bank)}><Pencil size={14} /></IconBtn>
+            <IconBtn label="Eliminar banco" danger onClick={() => onDeleteBank(bank.id)}><Trash2 size={14} /></IconBtn>
+          </div>
+        )}
       </div>
 
       <Field label="Pide sucursal en las cuentas">
@@ -165,6 +195,8 @@ function BankSettingsCard({
               balance={accountBalance(acc, transactions, transfers, cardPayments, undefined, contactEntries)}
               canEdit={canEdit}
               onUpdate={(partial) => onUpdateAccount(acc.id, partial)}
+              onEdit={() => onEditAccount(acc)}
+              onDelete={() => onDeleteAccount(acc.id)}
             />
           ))}
         </div>
@@ -178,12 +210,17 @@ function AccountSettingsRow({
   balance,
   canEdit,
   onUpdate,
+  onEdit,
+  onDelete,
 }: {
   account: Account;
   /** Saldo actual (a hoy) de la cuenta, para poder validar que esté en cero antes de desactivarla. */
   balance: number;
   canEdit: boolean;
   onUpdate: (partial: Partial<Account>) => void;
+  /** Abre el modal completo (nombre, moneda, saldo inicial, titular, hoja de conciliación, etc.). */
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState(account.shareMessage ?? "");
@@ -256,6 +293,26 @@ function AccountSettingsRow({
             <div className="flex items-start gap-1.5 mb-2 text-[11px] rounded-lg p-2" style={{ background: `${C.negative}18`, color: C.negative }}>
               <AlertTriangle size={13} className="shrink-0 mt-px" />
               <span>{error}</span>
+            </div>
+          )}
+          {canEdit && (
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={onEdit}
+                className="flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+                style={{ border: `1px solid ${C.border}`, color: C.text }}
+              >
+                <Pencil size={12} /> Editar caja
+              </button>
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+                style={{ border: `1px solid ${C.negative}`, color: C.negative }}
+              >
+                <Trash2 size={12} /> Eliminar caja
+              </button>
             </div>
           )}
           <div className="mb-3">

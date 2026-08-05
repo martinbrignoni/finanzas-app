@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Landmark, Wallet, Pencil, Trash2, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Users, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle } from "lucide-react";
+import { Landmark, Wallet, Pencil, Trash2, FileSpreadsheet, ArrowUpRight, ArrowDownRight, ArrowRightLeft, CreditCard as CreditCardIcon, Users, Share2, Check, ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, ListChecks } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
 import { ReceiptButton } from "../../components/ReceiptField";
 import { StatementFileRow } from "../../components/StatementFileRow";
+import { ReconciliationModal } from "./Reconciliation";
 import { receiptPathsOf, uploadReceipt, getReceiptUrl, deleteReceipt } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText, isAccountVisibleAt } from "../../lib/accounts";
+import { accountBalance, accountsByBank, accountLabel, accountLedger, shareableAccountText, isAccountVisibleAt, type AccountLedgerEntry } from "../../lib/accounts";
 import { orderItems, moveWithinGroup } from "../../lib/order";
 import { pendingStatementMonths, getStatement } from "../../lib/accountStatements";
 import { exportBankToExcel } from "../../lib/excelExport";
@@ -33,16 +34,14 @@ export function Accounts({
   onSetAccountsViewMode,
   accountStatements,
   onSaveAccountStatement,
-  onEditBank,
-  onDeleteBank,
-  onEditAccount,
-  onDeleteAccount,
+  onUpdateAccount,
   onEditTransaction,
   onDeleteTransaction,
   onEditTransfer,
   onDeleteTransfer,
   onEditCardPayment,
   onDeleteCardPayment,
+  onMarkReconciled,
 }: {
   banks: Bank[];
   accounts: Account[];
@@ -64,16 +63,16 @@ export function Accounts({
   onSetAccountsViewMode: (mode: "banco" | "moneda") => void;
   accountStatements: AccountStatement[];
   onSaveAccountStatement: (s: AccountStatement) => void;
-  onEditBank: (b: Bank) => void;
-  onDeleteBank: (id: string) => void;
-  onEditAccount: (a: Account) => void;
-  onDeleteAccount: (id: string) => void;
+  /** Patch genérico de campos de una cuenta (mismo mutador que usa Configuración → Bancos para los toggles rápidos). Acá se usa solo para guardar/limpiar el archivo de conciliación cargado (`Account.reconciliationDraft`). */
+  onUpdateAccount: (id: string, partial: Partial<Account>) => void;
   onEditTransaction: (t: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   onEditTransfer: (t: Transfer) => void;
   onDeleteTransfer: (id: string) => void;
   onEditCardPayment: (p: CardPayment) => void;
   onDeleteCardPayment: (id: string) => void;
+  /** Marca (o desmarca) un movimiento del ledger como conciliado (ver Conciliar → `lib/reconciliation.ts`). */
+  onMarkReconciled: (entry: AccountLedgerEntry, reconciledAt: string | undefined) => void;
 }) {
   const [viewAccountId, setViewAccountId] = useState<string | null>(null);
   const viewAccount = accounts.find((a) => a.id === viewAccountId) ?? null;
@@ -236,12 +235,6 @@ export function Accounts({
                           >
                             <FileSpreadsheet size={15} />
                           </IconBtn>
-                          {canEdit && (
-                            <>
-                              <IconBtn label="Editar banco" onClick={() => onEditBank(bank)}><Pencil size={15} /></IconBtn>
-                              <IconBtn label="Eliminar banco" danger onClick={() => onDeleteBank(bank.id)}><Trash2 size={15} /></IconBtn>
-                            </>
-                          )}
                         </>
                       )}
                     </div>
@@ -294,12 +287,6 @@ export function Accounts({
                                     >
                                       {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
                                     </IconBtn>
-                                    {canEdit && (
-                                      <>
-                                        <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
-                                        <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
-                                      </>
-                                    )}
                                   </>
                                 )}
                               </div>
@@ -387,12 +374,6 @@ export function Accounts({
                               >
                                 {copiedAccountId === acc.id ? <Check size={13} color={C.positive} /> : <Share2 size={13} />}
                               </IconBtn>
-                              {canEdit && (
-                                <>
-                                  <IconBtn label="Editar caja" onClick={(e) => { e.stopPropagation(); onEditAccount(acc); }}><Pencil size={13} /></IconBtn>
-                                  <IconBtn label="Eliminar caja" danger onClick={(e) => { e.stopPropagation(); onDeleteAccount(acc.id); }}><Trash2 size={13} /></IconBtn>
-                                </>
-                              )}
                               </>
                               )}
                             </div>
@@ -433,12 +414,14 @@ export function Accounts({
           asOfDate={asOfDate}
           accountStatements={accountStatements}
           onSaveAccountStatement={onSaveAccountStatement}
+          onUpdateAccount={onUpdateAccount}
           onEditTransaction={onEditTransaction}
           onDeleteTransaction={onDeleteTransaction}
           onEditTransfer={onEditTransfer}
           onDeleteTransfer={onDeleteTransfer}
           onEditCardPayment={onEditCardPayment}
           onDeleteCardPayment={onDeleteCardPayment}
+          onMarkReconciled={onMarkReconciled}
           onClose={() => setViewAccountId(null)}
         />
       )}
@@ -461,12 +444,14 @@ function AccountLedgerModal({
   asOfDate,
   accountStatements,
   onSaveAccountStatement,
+  onUpdateAccount,
   onEditTransaction,
   onDeleteTransaction,
   onEditTransfer,
   onDeleteTransfer,
   onEditCardPayment,
   onDeleteCardPayment,
+  onMarkReconciled,
   onClose,
 }: {
   account: Account;
@@ -485,15 +470,21 @@ function AccountLedgerModal({
   asOfDate: string;
   accountStatements: AccountStatement[];
   onSaveAccountStatement: (s: AccountStatement) => void;
+  onUpdateAccount: (id: string, partial: Partial<Account>) => void;
   onEditTransaction: (t: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   onEditTransfer: (t: Transfer) => void;
   onDeleteTransfer: (id: string) => void;
   onEditCardPayment: (p: CardPayment) => void;
   onDeleteCardPayment: (id: string) => void;
+  onMarkReconciled: (entry: AccountLedgerEntry, reconciledAt: string | undefined) => void;
   onClose: () => void;
 }) {
   const entries = accountLedger(account, transactions, transfers, cardPayments, asOfDate, contactEntries);
+  // Para conciliar no importa qué fecha se esté consultando en la vista (`asOfDate`): siempre
+  // contra todo el historial, para no dejar afuera movimientos por estar mirando un saldo pasado.
+  const reconciliationEntries = accountLedger(account, transactions, transfers, cardPayments, undefined, contactEntries);
+  const [showReconciliation, setShowReconciliation] = useState(false);
   const balance = accountBalance(account, transactions, transfers, cardPayments, asOfDate, contactEntries);
   const isToday = asOfDate === todayISO();
   const [copied, setCopied] = useState(false);
@@ -620,6 +611,15 @@ function AccountLedgerModal({
         {statementError && <p className="text-xs" style={{ color: C.negative }}>{statementError}</p>}
       </div>
 
+      <button
+        type="button"
+        onClick={() => setShowReconciliation(true)}
+        className="w-full py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 mb-4"
+        style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+      >
+        <ListChecks size={14} /> Conciliar movimientos
+      </button>
+
       {entries.length === 0 ? (
         <p className="text-sm text-center py-6" style={{ color: C.textMuted }}>Sin movimientos en esta cuenta todavía.</p>
       ) : (
@@ -649,6 +649,9 @@ function AccountLedgerModal({
             const receiptPaths = receiptPathsOf(entry.transaction ?? entry.transfer ?? entry.cardPayment ?? entry.contactEntry);
             // Registro real detrás de esta fila (no aplica a las dos patas de una transferencia por separado: ambas comparten el mismo Transfer).
             const record = entry.transaction ?? entry.cardPayment ?? entry.transfer;
+            // A diferencia de edición/borrado, marcar conciliado no depende de canEditOwnRecord: es un chequeo
+            // de cuenta, no una corrección del movimiento en sí (ver Conciliar movimientos → lib/reconciliation.ts).
+            const reconciledAt = entry.transaction?.reconciledAt ?? entry.transfer?.reconciledAt ?? entry.cardPayment?.reconciledAt ?? entry.contactEntry?.reconciledAt;
 
             return (
               <div key={key} className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
@@ -680,7 +683,26 @@ function AccountLedgerModal({
                     </div>
                     <div>
                       <div className="text-sm" style={{ color: C.text }}>{label}{note ? ` · ${note}` : ""}</div>
-                      <div className="text-xs" style={{ color: C.textFaint }}>{formatDateDMY(entry.date)}</div>
+                      <div className="text-xs flex items-center gap-1" style={{ color: C.textFaint }}>
+                        {formatDateDMY(entry.date)}
+                        {reconciledAt && (
+                          canEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => onMarkReconciled(entry, undefined)}
+                              className="flex items-center gap-0.5"
+                              style={{ color: C.positive }}
+                              title={`Conciliado el ${formatDateDMY(reconciledAt)} · tocá para desconciliar`}
+                            >
+                              <Check size={11} /> Conciliado
+                            </button>
+                          ) : (
+                            <span className="flex items-center gap-0.5" style={{ color: C.positive }} title={`Conciliado el ${formatDateDMY(reconciledAt)}`}>
+                              <Check size={11} /> Conciliado
+                            </span>
+                          )
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5">
@@ -727,6 +749,23 @@ function AccountLedgerModal({
           })}
         </div>
       )}
+
+      {showReconciliation && (
+        <ReconciliationModal
+          account={account}
+          ledgerEntries={reconciliationEntries}
+          cards={cards}
+          contacts={contacts}
+          canEdit={canEdit}
+          activeUser={activeUser}
+          onUpdateAccount={onUpdateAccount}
+          onEditTransaction={onEditTransaction}
+          onEditTransfer={onEditTransfer}
+          onEditCardPayment={onEditCardPayment}
+          onMarkReconciled={onMarkReconciled}
+          onClose={() => setShowReconciliation(false)}
+        />
+      )}
     </Modal>
   );
 }
@@ -764,6 +803,7 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? "");
   const [branch, setBranch] = useState(initial?.branch ?? "");
   const [statementReminders, setStatementReminders] = useState(initial?.statementReminders ?? false);
+  const [reconciliationSheetName, setReconciliationSheetName] = useState(initial?.reconciliationSheetName ?? "");
   const [error, setError] = useState<string | null>(null);
 
   const holderSuggestions = Array.from(new Set(accounts.map((a) => a.holderName).filter((h): h is string => !!h)));
@@ -794,6 +834,7 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       branch: bankUsesBranch ? branch.trim() || undefined : initial?.branch,
       statementReminders,
       statementRemindersSince,
+      reconciliationSheetName: reconciliationSheetName.trim() || undefined,
     });
   };
 
@@ -844,6 +885,12 @@ export function AccountModal({ bankId, banks, initial, accounts, onSave, onClose
       </Field>
       <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
         Con esto activado, cada mes que cierre te avisamos acá hasta que subas el PDF y el Excel del estado de cuenta de esa caja.
+      </p>
+      <Field label="Nombre de hoja para conciliar (opcional)">
+        {(id) => <TextInput id={id} value={reconciliationSheetName} onChange={(e) => setReconciliationSheetName(e.target.value)} placeholder={name.trim() || "Igual al nombre de la caja"} />}
+      </Field>
+      <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+        Al conciliar (ver botón "Conciliar movimientos" en el detalle de la caja) se busca una hoja con este nombre dentro del Excel que subas. Si lo dejás vacío, se busca una hoja llamada igual que el nombre de la caja.
       </p>
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>

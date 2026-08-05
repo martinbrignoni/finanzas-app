@@ -1,11 +1,12 @@
 import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
-import { accountBalance, accountLabel } from "./accounts";
+import { accountBalance, accountLabel, ledgerEntryLabel, type AccountLedgerEntry } from "./accounts";
 import { categoryFullPath } from "./categories";
 import { cardLabel, cardExtensionLabel } from "./cards";
 import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry, Category, Installment, Card, Contact, FamilyMember, AppUser, Budget, RecurringRule, AuditEntry } from "../types";
 import { RECURRENCE_PERIOD_LABELS } from "../types";
 import type { ExchangeRateRow } from "./exchangeRates";
+import type { ReconciliationResult } from "./reconciliation";
 import { contactEntryAccountImpact, contactKind, contactBalance, isContactSettled } from "./contacts";
 import { entityTypeLabel, auditActionLabel } from "./audit";
 import { todayISO, formatDateTimeDMY, currentMonthKey, monthKeyOf } from "./dates";
@@ -564,4 +565,68 @@ export function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRat
 
   const today = todayISO();
   XLSX.writeFile(wb, `Cotizaciones_BCU_${today}.xlsx`);
+}
+
+/**
+ * Exporta el resultado de una conciliación (`reconcileAccount`, ver
+ * `lib/reconciliation.ts`) a un único Excel con todo junto: lo registrado en
+ * la app, lo que trae el archivo del banco, y en qué categoría cayó cada
+ * cosa (Concilia / Posible diferencia / cada lado sin contraparte).
+ */
+export function exportReconciliationToExcel(account: Account, cards: Card[], contacts: Contact[], result: ReconciliationResult): void {
+  const row = (
+    categoria: string,
+    opts: {
+      appEntry?: AccountLedgerEntry;
+      bancoFecha?: string;
+      bancoDescripcion?: string;
+      bancoMontoMinor?: number;
+      diferenciaMinor?: number;
+    }
+  ) => ({
+    Categoría: categoria,
+    "Fecha (app)": opts.appEntry?.date ?? "",
+    "Descripción (app)": opts.appEntry ? ledgerEntryLabel(opts.appEntry, cards, contacts) : "",
+    "Monto (app)": opts.appEntry ? fromMinor(opts.appEntry.amountMinor) : "",
+    "Fecha (banco)": opts.bancoFecha ?? "",
+    "Descripción (banco)": opts.bancoDescripcion ?? "",
+    "Monto (banco)": opts.bancoMontoMinor !== undefined ? fromMinor(opts.bancoMontoMinor) : "",
+    Diferencia: opts.diferenciaMinor !== undefined ? fromMinor(opts.diferenciaMinor) : "",
+  });
+
+  const rows = [
+    ...result.matched.map((m) =>
+      row("Concilia", {
+        appEntry: m.ledgerEntry,
+        bancoFecha: m.statementLine.date,
+        bancoDescripcion: m.statementLine.description,
+        bancoMontoMinor: m.statementLine.amountMinor,
+        diferenciaMinor: 0,
+      })
+    ),
+    ...result.suggested.map((s) =>
+      row("Posible diferencia", {
+        appEntry: s.ledgerEntry,
+        bancoFecha: s.statementLine.date,
+        bancoDescripcion: s.statementLine.description,
+        bancoMontoMinor: s.statementLine.amountMinor,
+        diferenciaMinor: s.amountDiffMinor,
+      })
+    ),
+    ...result.unmatchedInFile.map((line) =>
+      row("En el banco, no cargado en la app", {
+        bancoFecha: line.date,
+        bancoDescripcion: line.description,
+        bancoMontoMinor: line.amountMinor,
+      })
+    ),
+    ...result.unmatchedInApp.map((entry) =>
+      row("Cargado en la app, no aparece en el banco", { appEntry: entry })
+    ),
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length ? rows : [{ Categoría: "Sin diferencias ni movimientos" }]), sheetName("Conciliación"));
+  const today = todayISO();
+  XLSX.writeFile(wb, `Conciliacion_${sheetName(account.name)}_${today}.xlsx`);
 }

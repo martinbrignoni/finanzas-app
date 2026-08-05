@@ -53,6 +53,10 @@ export function Settings({
   onAddAccount,
   onUpdateBank,
   onUpdateAccount,
+  onEditBank,
+  onDeleteBank,
+  onEditAccount,
+  onDeleteAccount,
   onAddCard,
   onEditCard,
   onDeleteCard,
@@ -105,6 +109,10 @@ export function Settings({
   onAddAccount: (bankId: string) => void;
   onUpdateBank: (id: string, partial: Partial<Bank>) => void;
   onUpdateAccount: (id: string, partial: Partial<Account>) => void;
+  onEditBank: (b: Bank) => void;
+  onDeleteBank: (id: string) => void;
+  onEditAccount: (a: Account) => void;
+  onDeleteAccount: (id: string) => void;
   onAddCard: () => void;
   onEditCard: (c: Card) => void;
   onDeleteCard: (id: string) => void;
@@ -209,6 +217,10 @@ export function Settings({
           onAddAccount={onAddAccount}
           onUpdateBank={onUpdateBank}
           onUpdateAccount={onUpdateAccount}
+          onEditBank={onEditBank}
+          onDeleteBank={onDeleteBank}
+          onEditAccount={onEditAccount}
+          onDeleteAccount={onDeleteAccount}
         />
       )}
       {section === "tarjetas" && (
