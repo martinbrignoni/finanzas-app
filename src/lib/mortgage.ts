@@ -1,6 +1,7 @@
 import { toMinor, fromMinor, formatMoney } from "./money";
 import { addMonthsToDate, daysBetween, todayISO, monthKeyOf } from "./dates";
-import type { MortgageLoan, MortgageCurrency, MortgagePrepayment, Transaction } from "../types";
+import { fetchNearestRateForDate } from "./exchangeRates";
+import type { MortgageLoan, MortgageCurrency, MortgagePrepayment, Transaction, FinanceData, Currency } from "../types";
 
 /**
  * Cálculo de préstamos por sistema francés, alemán o americano (ver
@@ -678,19 +679,110 @@ export interface MortgageDueItem {
  * amortización extraordinaria fuera de fecha: no son "la cuota del mes").
  * Si un préstamo ya tiene un `Transaction` cargado en Movimientos con
  * `mortgageLoanId` igual al del préstamo y fecha dentro de `mk`, se excluye:
- * se interpreta que esa cuota ya se registró como pagada.
+ * se interpreta que esa cuota ya se registró como pagada. Los vencimientos
+ * anteriores a `loan.paymentAutomationStartDate` (si está configurada la
+ * generación automática) también se excluyen: se consideran ya resueltos,
+ * sin necesidad de un `Transaction` real (ver `generateDueMortgagePayments`).
  */
 export function mortgageDueInMonth(loans: MortgageLoan[], transactions: Transaction[], mk: string): MortgageDueItem[] {
   const items: MortgageDueItem[] = [];
   for (const loan of loans) {
     const alreadyRecorded = transactions.some((t) => t.mortgageLoanId === loan.id && monthKeyOf(t.date) === mk);
     if (alreadyRecorded) continue;
-    const rows = buildSchedule(loan).filter((r) => !r.isPrepaymentSettlement && monthKeyOf(r.dueDate) === mk);
+    const rows = buildSchedule(loan).filter(
+      (r) =>
+        !r.isPrepaymentSettlement &&
+        monthKeyOf(r.dueDate) === mk &&
+        (!loan.paymentAutomationStartDate || r.dueDate >= loan.paymentAutomationStartDate)
+    );
     const amountMinor = rows.reduce((s, r) => s + r.paymentMinor, 0);
     if (amountMinor <= 0) continue;
     items.push({ loanId: loan.id, loanName: loan.name, currency: loan.currency, amountMinor, dueDate: rows[rows.length - 1].dueDate });
   }
   return items;
+}
+
+/**
+ * Genera como `Transaction` de gasto normales todas las cuotas vencidas
+ * (vencimiento <= hoy) de cada préstamo que tenga la generación automática
+ * configurada (`paymentCategory`, `paymentAccountId` y
+ * `paymentAutomationStartDate` cargados). Si la app estuvo un tiempo sin
+ * abrirse, genera de una sola vez todas las cuotas que quedaron pendientes en
+ * ese lapso ("catch-up"), igual que `generateDueRecurringTransactions`. Las
+ * cuotas anteriores a `paymentAutomationStartDate` nunca se generan (se
+ * consideran ya resueltas de antes de activar la automatización).
+ *
+ * En préstamos en UI, la cuota (en UI) se convierte a UYU con
+ * `fetchNearestRateForDate` (la cotización de la UI más cercana a la fecha de
+ * vencimiento, mirando para ambos lados: el banco a veces cobra con la del
+ * día hábil anterior, a veces con la del siguiente, según cómo caigan fines
+ * de semana o feriados). Si todavía no hay ninguna cotización cargada cerca
+ * de esa fecha, esa cuota puntual se deja pendiente para el próximo intento
+ * (no se genera con una cotización inventada); las demás cuotas del mismo
+ * préstamo se procesan igual.
+ *
+ * Editar o eliminar después el movimiento generado (fecha, monto, cotización,
+ * etc.) no afecta el cálculo de la tabla de amortización (siempre teórica) ni
+ * el saldo/proyección del préstamo — es solo el registro contable del pago,
+ * pensado para poder ajustarlo si el banco terminó cobrando distinto.
+ *
+ * No muta `d`; devuelve un `FinanceData` nuevo (o el mismo objeto si no había
+ * ninguna cuota vencida sin generar, para no disparar guardados de más).
+ */
+export async function generateDueMortgagePayments(d: FinanceData): Promise<FinanceData> {
+  const today = todayISO();
+  let transactions = d.transactions;
+  let changed = false;
+
+  for (const loan of d.mortgageLoans) {
+    if (!loan.paymentCategory || !loan.paymentAccountId || !loan.paymentAutomationStartDate) continue;
+
+    const rows = buildSchedule(loan).filter(
+      (r) =>
+        !r.isPrepaymentSettlement &&
+        r.dueDate >= loan.paymentAutomationStartDate! &&
+        r.dueDate <= today
+    );
+
+    for (const row of rows) {
+      const mk = monthKeyOf(row.dueDate);
+      const alreadyRecorded = transactions.some((t) => t.mortgageLoanId === loan.id && monthKeyOf(t.date) === mk);
+      if (alreadyRecorded) continue;
+
+      let amountMinor = row.paymentMinor;
+      const currency: Currency = loan.currency === "UI" ? "UYU" : loan.currency;
+      let note = `Cuota ${loan.name}`;
+
+      if (loan.currency === "UI") {
+        const rate = await fetchNearestRateForDate("UI", row.dueDate);
+        if (!rate) continue; // sin cotización cerca de esta fecha todavía: se reintenta la próxima vez que se abra la app
+        amountMinor = toMinor(fromMinor(row.paymentMinor) * rate.sell);
+        note = `Cuota ${loan.name} (UI a $${rate.sell} del ${rate.rate_date}, editable si el banco cobró con otra cotización)`;
+      }
+
+      const now = new Date().toISOString();
+      transactions = [
+        ...transactions,
+        {
+          id: crypto.randomUUID(),
+          type: "gasto",
+          amountMinor,
+          currency,
+          category: loan.paymentCategory,
+          date: row.dueDate,
+          note,
+          accountId: loan.paymentAccountId,
+          mortgageLoanId: loan.id,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ];
+      changed = true;
+    }
+  }
+
+  if (!changed) return d;
+  return { ...d, transactions };
 }
 
 /** Formatea un monto según la moneda del préstamo. UI no es una `Currency` de cuentas/movimientos, así que no puede pasar por `formatMoney`. */

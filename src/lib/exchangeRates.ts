@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { daysBetween } from "./dates";
 
 export type ExchangeRateCurrency = "USD" | "EUR" | "ARS" | "BRL" | "UI" | "UR";
 
@@ -25,6 +26,37 @@ export async function fetchRateForDate(currency: ExchangeRateCurrency, date: str
     .limit(1);
   if (error || !data || data.length === 0) return null;
   return data[0] as ExchangeRateRow;
+}
+
+/**
+ * Cotización más cercana a `date`, mirando tanto para atrás como para
+ * adelante (a diferencia de `fetchRateForDate`, que solo mira para atrás).
+ * Pensada para reconciliar cuando el banco termina cobrando una cuota con la
+ * cotización de un día distinto al vencimiento (fin de semana, feriado): a
+ * veces usa la del día hábil anterior, a veces la del siguiente. Ante un
+ * empate exacto de distancia, prioriza la anterior. `null` si no hay ninguna
+ * cotización cargada de esa moneda (ni antes ni después).
+ */
+export async function fetchNearestRateForDate(currency: ExchangeRateCurrency, date: string): Promise<ExchangeRateRow | null> {
+  const [before, afterQuery] = await Promise.all([
+    fetchRateForDate(currency, date),
+    supabase
+      .from("exchange_rates")
+      .select("currency, rate_date, published_date, sell, arbitrage")
+      .eq("currency", currency)
+      .gte("rate_date", date)
+      .order("rate_date", { ascending: true })
+      .limit(1),
+  ]);
+  const after: ExchangeRateRow | null =
+    !afterQuery.error && afterQuery.data && afterQuery.data.length > 0 ? (afterQuery.data[0] as ExchangeRateRow) : null;
+
+  if (!before) return after;
+  if (!after || before.rate_date === date) return before;
+
+  const daysBefore = daysBetween(before.rate_date, date);
+  const daysAfter = daysBetween(date, after.rate_date);
+  return daysAfter < daysBefore ? after : before;
 }
 
 /** Las cotizaciones más recientes (una fila por moneda), para mostrar de un vistazo. */

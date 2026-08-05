@@ -19,7 +19,7 @@ import { fetchRateForDate } from "../../lib/exchangeRates";
 import { auditActionLabel } from "../../lib/audit";
 import { exportMovementsToExcel } from "../../lib/excelExport";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, MortgageLoan, AuditEntry, AuditEntityType, FamilyMember } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, AuditEntry, AuditEntityType, FamilyMember } from "../../types";
 
 /** Modal de solo lectura con el historial de alta/modificación/baja de un registro puntual (ver `AuditEntry`). */
 function AuditTrailModal({
@@ -778,6 +778,17 @@ interface FormState {
 }
 
 /**
+ * Extensión (titular adicional) de `card` vinculada a `activeUser`, si hay
+ * alguna (ver `CardExtension.linkedUserId`), para preseleccionarla al elegir
+ * esa tarjeta en vez de dejar "Titular" por defecto. Devuelve "" (Titular)
+ * si no hay tarjeta, no hay usuario activo, o ninguna extensión coincide.
+ */
+function defaultCardExtensionId(card: Card | undefined, activeUser: AppUser | null): string {
+  if (!card || !activeUser) return "";
+  return card.extensions?.find((e) => e.linkedUserId === activeUser.id)?.id ?? "";
+}
+
+/**
  * Modal único para cargar cualquier movimiento. Tipo (Gasto / Ingreso /
  * Transferencia) y, dentro de Transferencia, sub-tipo (Entre cuentas /
  * Tarjeta / Personas). Unifica lo que antes eran varios modales separados,
@@ -789,6 +800,7 @@ export function MovementModal({
   initialInstallment,
   initialContactEntry,
   presetCardId,
+  activeUser,
   accounts,
   banks,
   cards,
@@ -796,7 +808,6 @@ export function MovementModal({
   categories,
   contacts,
   familyMembers,
-  mortgageLoans,
   canEditContacts,
   canEditCards,
   onSaveTransaction,
@@ -818,6 +829,8 @@ export function MovementModal({
   initialContactEntry?: ContactEntry;
   /** Si se abre el modal para cargar un gasto desde una tarjeta puntual (ej. desde Tarjetas), la precarga como medio de pago. */
   presetCardId?: string;
+  /** Perfil activo: al elegir una tarjeta con extensiones, preselecciona la extensión vinculada a este perfil (ver `CardExtension.linkedUserId`), o "Titular" si ninguna coincide. */
+  activeUser: AppUser | null;
   accounts: Account[];
   banks: Bank[];
   cards: Card[];
@@ -827,8 +840,6 @@ export function MovementModal({
   contacts: Contact[];
   /** Integrantes de familia asignables en las categorías que lo permitan (ver `Category.allowFamilyMembers`). */
   familyMembers: FamilyMember[];
-  /** Préstamos hipotecarios cargados, para poder vincular un gasto como el pago de su cuota (ver `Transaction.mortgageLoanId`). */
-  mortgageLoans: MortgageLoan[];
   /** Permiso del módulo Personas: gobierna si se puede elegir "Persona" como medio de pago o como sub-tipo de transferencia. */
   canEditContacts: boolean;
   /** Permiso del módulo Tarjetas: gobierna si se puede registrar un pago de tarjeta desde acá (Transferencia > Tarjeta). */
@@ -904,7 +915,11 @@ export function MovementModal({
       ? "tarjeta"
       : "ninguno",
     cardId: initialContactEntry?.cardId ?? initialInstallment?.cardId ?? initial?.cardId ?? presetCardId ?? "",
-    cardExtensionId: initialContactEntry?.cardExtensionId ?? initialInstallment?.cardExtensionId ?? initial?.cardExtensionId ?? "",
+    cardExtensionId:
+      initialContactEntry?.cardExtensionId ??
+      initialInstallment?.cardExtensionId ??
+      initial?.cardExtensionId ??
+      (presetCardId ? defaultCardExtensionId(cards.find((c) => c.id === presetCardId), activeUser) : ""),
     mortgageLoanId: initial?.mortgageLoanId ?? "",
     // Es un registro adicional que se dispara al guardar, no un dato propio
     // del movimiento: al editar uno ya cargado, arranca siempre en "No" (si
@@ -1558,7 +1573,7 @@ export function MovementModal({
                         id={id}
                         value={form.cardId}
                         placeholder="Elegí una tarjeta"
-                        onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: "" }))}
+                        onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
                         options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                       />
                     )
@@ -1694,22 +1709,6 @@ export function MovementModal({
             {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
           </Field>
 
-          {form.kind === "gasto" && mortgageLoans.length > 0 && (
-            <>
-              <Field label="¿Es el pago de una cuota hipotecaria? (opcional)">
-                {(id) => (
-                  <Select id={id} value={form.mortgageLoanId} onChange={(e) => setForm((f) => ({ ...f, mortgageLoanId: e.target.value }))}>
-                    <option value="">No</option>
-                    {mortgageLoans.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </Select>
-                )}
-              </Field>
-              <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
-                Vinculándolo, Inicio deja de reclamar la cuota de este préstamo en "Vencimientos" una vez que quede cargado este mes.
-              </p>
-            </>
-          )}
-
           {(form.kind === "gasto" || form.kind === "ingreso") && (
             <>
               <Field label={form.kind === "ingreso" ? "¿IVA Ventas?" : "¿IVA Compras?"}>
@@ -1793,7 +1792,7 @@ export function MovementModal({
                     id={id}
                     value={form.cardId}
                     placeholder="Elegí una tarjeta"
-                    onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: "" }))}
+                    onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
                     options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                   />
                 )

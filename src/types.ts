@@ -189,6 +189,14 @@ export interface Transfer {
 export interface CardExtension {
   id: string;
   name: string; // ej. "Luli"
+  /**
+   * Perfil (`AppUser.id`) al que corresponde esta extensión, si es uno de
+   * los perfiles de la app. Cuando ese perfil está activo y elige esta
+   * tarjeta en Nuevo Movimiento, se preselecciona esta extensión en vez de
+   * "Titular" (ver `defaultCardExtensionId` en Transactions.tsx). Opcional:
+   * no hace falta vincularla si la extensión no corresponde a ningún perfil.
+   */
+  linkedUserId?: string;
 }
 
 export interface Card {
@@ -578,6 +586,28 @@ export interface MortgageLoan {
    */
   referenceUsdToUyuRate?: number;
   referenceUiRate?: number;
+  /**
+   * Categoría (ruta completa) a la que se imputa la cuota generada
+   * automáticamente al vencer (ver `lib/mortgage.ts#generateDueMortgagePayments`).
+   * Sin definir (o sin `paymentAccountId`/`paymentAutomationStartDate`) = no
+   * se generan cuotas solas para este préstamo. En préstamos en UI, la cuota
+   * (en UI) se convierte a UYU con la cotización de la UI más cercana a la
+   * fecha de vencimiento (antes o después, ver `fetchNearestRateForDate`),
+   * porque `Transaction.currency` no admite "UI" — el movimiento generado
+   * queda en UYU, editable después si el banco terminó cobrando con otra
+   * cotización.
+   */
+  paymentCategory?: string;
+  /** Cuenta desde la que se debita la cuota generada automáticamente (en UYU si el préstamo está en UI, o en la moneda del préstamo si es UYU/USD). */
+  paymentAccountId?: string;
+  /**
+   * A partir de qué fecha (inclusive) se generan cuotas solas: los
+   * vencimientos anteriores a esta fecha no se reclaman en "Vencimientos" ni
+   * se generan como movimiento (se consideran ya resueltos/pagos). Se
+   * completa sola con la fecha de hoy la primera vez que se cargan
+   * `paymentCategory`/`paymentAccountId`, pero se puede editar.
+   */
+  paymentAutomationStartDate?: string; // YYYY-MM-DD
 }
 
 /**

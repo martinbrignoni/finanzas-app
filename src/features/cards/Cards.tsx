@@ -575,7 +575,7 @@ function CardDetailModal({
   );
 }
 
-export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card; banks: Bank[]; onSave: (c: Card) => void; onClose: () => void }) {
+export function CardModal({ initial, banks, users, onSave, onClose }: { initial?: Card; banks: Bank[]; users: AppUser[]; onSave: (c: Card) => void; onClose: () => void }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [bankId, setBankId] = useState(initial?.bankId ?? banks[0]?.id ?? "");
   const [closingDay, setClosingDay] = useState(String(initial?.closingDay ?? 20));
@@ -589,6 +589,8 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
 
   const addExtension = () => setExtensions((list) => [...list, { id: crypto.randomUUID(), name: "" }]);
   const updateExtension = (id: string, name: string) => setExtensions((list) => list.map((e) => (e.id === id ? { ...e, name } : e)));
+  const updateExtensionUser = (id: string, linkedUserId: string) =>
+    setExtensions((list) => list.map((e) => (e.id === id ? { ...e, linkedUserId: linkedUserId || undefined } : e)));
   const removeExtension = (id: string) => setExtensions((list) => list.filter((e) => e.id !== id));
 
   const handleSave = () => {
@@ -681,16 +683,28 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
       {hasExtensions && (
         <div className="mb-3">
           {extensions.map((ext) => (
-            <div key={ext.id} className="flex items-center gap-2 mb-2">
-              <TextInput
-                value={ext.name}
-                onChange={(e) => updateExtension(ext.id, e.target.value)}
-                placeholder="Nombre (ej. Luli)"
-                autoFocus
-              />
-              <button type="button" onClick={() => removeExtension(ext.id)} aria-label="Quitar extensión" className="shrink-0" style={{ color: C.negative }}>
-                <X size={16} />
-              </button>
+            <div key={ext.id} className="mb-2">
+              <div className="flex items-center gap-2 mb-1">
+                <TextInput
+                  value={ext.name}
+                  onChange={(e) => updateExtension(ext.id, e.target.value)}
+                  placeholder="Nombre (ej. Luli)"
+                  autoFocus
+                />
+                <button type="button" onClick={() => removeExtension(ext.id)} aria-label="Quitar extensión" className="shrink-0" style={{ color: C.negative }}>
+                  <X size={16} />
+                </button>
+              </div>
+              {users.length > 0 && (
+                <Select
+                  aria-label={`Perfil vinculado a la extensión ${ext.name || ""}`.trim()}
+                  value={ext.linkedUserId ?? ""}
+                  onChange={(e) => updateExtensionUser(ext.id, e.target.value)}
+                >
+                  <option value="">Sin vincular a un perfil</option>
+                  {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </Select>
+              )}
             </div>
           ))}
           <button
@@ -702,7 +716,7 @@ export function CardModal({ initial, banks, onSave, onClose }: { initial?: Card;
             <Plus size={13} /> Agregar titular adicional
           </button>
           <p className="text-xs mt-1.5" style={{ color: C.textFaint }}>
-            Al cargar un gasto con esta tarjeta vas a poder elegir si lo pagaste vos o esta persona.
+            Al cargar un gasto con esta tarjeta vas a poder elegir si lo pagaste vos o esta persona. Si vinculás la extensión a un perfil, cuando ese perfil esté activo y elija esta tarjeta en Nuevo Movimiento va a quedar preseleccionada en vez de "Titular".
           </p>
         </div>
       )}

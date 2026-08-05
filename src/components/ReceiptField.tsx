@@ -1,15 +1,17 @@
-import { useState } from "react";
-import { Upload, X, Paperclip, Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Upload, X, Paperclip, Loader2, Camera, Image, File as FileIcon } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import { ConfirmDialog } from "./ui";
 import { uploadReceipt, getReceiptUrl, deleteReceipt } from "../lib/receipts";
 
 /**
- * Acepta fotos (con opción de sacarla en el momento o elegirla del carrete)
- * y también PDF/Excel como comprobante. Sin el atributo `capture`, el
- * selector nativo del celular muestra las opciones de Cámara, Fototeca y
- * Archivos (iCloud Drive, Google Drive, etc.) en una sola hoja. Con
- * `multiple`, se pueden elegir varios de una sola vez.
+ * Adjuntar comprobante ofrece 3 opciones, siempre en este orden: Tomar foto,
+ * Fototeca, Seleccionar archivo. Cada una dispara su propio `<input type
+ * "file">` oculto con `accept`/`capture` distinto (ver `ATTACH_OPTIONS` más
+ * abajo) en vez de dejar que el selector nativo del celular decida el orden
+ * (que con un solo input sin `capture` no se puede controlar). "Fototeca" no
+ * lleva `capture`: en algunos navegadores igual puede mostrar la cámara como
+ * opción adicional dentro de la hoja nativa, pero prioriza fotos existentes.
  */
 const RECEIPT_ACCEPT =
   "image/*,.pdf,application/pdf,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -40,6 +42,10 @@ export function ReceiptField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmPath, setConfirmPath] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
@@ -91,16 +97,55 @@ export function ReceiptField({
         </div>
       )}
 
-      <label
-        className="w-full py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-        style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
-      >
-        {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-        {busy ? "Subiendo..." : paths.length > 0 ? "Agregar otro comprobante" : "Adjuntar comprobante"}
+      <div className="relative">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setMenuOpen((v) => !v)}
+          className="w-full py-2.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5"
+          style={{ border: `1px dashed ${C.borderLight}`, color: C.textMuted }}
+        >
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          {busy ? "Subiendo..." : paths.length > 0 ? "Agregar otro comprobante" : "Adjuntar comprobante"}
+        </button>
+
+        {menuOpen && !busy && (
+          <div
+            className="absolute left-0 right-0 top-full mt-1 z-40 rounded-lg overflow-hidden"
+            style={{ background: C.surface, border: `1px solid ${C.border}` }}
+          >
+            <button
+              type="button"
+              onClick={() => { setMenuOpen(false); cameraInputRef.current?.click(); }}
+              className="w-full text-left px-3 py-2.5 text-xs flex items-center gap-2"
+              style={{ color: C.text, borderBottom: `1px solid ${C.border}` }}
+            >
+              <Camera size={14} color={C.textMuted} /> Tomar foto
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMenuOpen(false); galleryInputRef.current?.click(); }}
+              className="w-full text-left px-3 py-2.5 text-xs flex items-center gap-2"
+              style={{ color: C.text, borderBottom: `1px solid ${C.border}` }}
+            >
+              <Image size={14} color={C.textMuted} /> Fototeca
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMenuOpen(false); fileInputRef.current?.click(); }}
+              className="w-full text-left px-3 py-2.5 text-xs flex items-center gap-2"
+              style={{ color: C.text }}
+            >
+              <FileIcon size={14} color={C.textMuted} /> Seleccionar archivo
+            </button>
+          </div>
+        )}
+
         <input
+          ref={cameraInputRef}
           type="file"
-          accept={RECEIPT_ACCEPT}
-          multiple
+          accept="image/*"
+          capture="environment"
           className="hidden"
           disabled={busy}
           onChange={(e) => {
@@ -108,7 +153,31 @@ export function ReceiptField({
             e.target.value = ""; // permite volver a elegir el mismo archivo más adelante
           }}
         />
-      </label>
+        <input
+          ref={galleryInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          disabled={busy}
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={RECEIPT_ACCEPT}
+          multiple
+          className="hidden"
+          disabled={busy}
+          onChange={(e) => {
+            handleFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      </div>
 
       {error && <p className="text-xs mt-1" style={{ color: C.negative }}>{error}</p>}
 

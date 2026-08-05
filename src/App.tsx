@@ -9,6 +9,7 @@ import { supabase } from "./lib/supabaseClient";
 import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import { generateDueRecurringTransactions } from "./lib/recurring";
+import { generateDueMortgagePayments } from "./lib/mortgage";
 import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
 import {
   makeCreateEntry,
@@ -112,12 +113,17 @@ export default function App() {
     setRefreshing(true);
     return repo
       .load()
-      .then((loaded) => {
+      .then(async (loaded) => {
         skipNotifyRef.current = true;
-        // Genera acá los movimientos recurrentes vencidos (ver lib/recurring.ts),
-        // como si fueran parte de los datos que se acaban de traer: no dispara
-        // aviso a otros dispositivos por esto (es "traer datos", no "editar").
-        setData(generateDueRecurringTransactions(loaded));
+        // Genera acá los movimientos recurrentes y las cuotas hipotecarias
+        // vencidas (ver lib/recurring.ts y lib/mortgage.ts), como si fueran
+        // parte de los datos que se acaban de traer: no dispara aviso a
+        // otros dispositivos por esto (es "traer datos", no "editar"). La
+        // parte de hipoteca es async (puede necesitar traer una cotización
+        // de UI de Cotizaciones para convertir la cuota).
+        const withRecurring = generateDueRecurringTransactions(loaded);
+        const withMortgage = await generateDueMortgagePayments(withRecurring);
+        setData(withMortgage);
       })
       .finally(() => setRefreshing(false));
   }, []);
@@ -1182,6 +1188,7 @@ export default function App() {
           initialInstallment={modal.payload?.installment}
           initialContactEntry={modal.payload?.contactEntry}
           presetCardId={modal.payload?.presetCardId}
+          activeUser={activeUser}
           accounts={data.accounts}
           banks={data.banks}
           cards={data.cards}
@@ -1189,7 +1196,6 @@ export default function App() {
           categories={data.categories}
           contacts={data.contacts}
           familyMembers={data.familyMembers}
-          mortgageLoans={data.mortgageLoans}
           canEditContacts={has("personas", "edit")}
           canEditCards={has("tarjetas", "edit")}
           onSaveTransaction={upsertTransaction}
@@ -1202,7 +1208,7 @@ export default function App() {
           onClose={closeModal}
         />
       )}
-      {modal?.type === "card" && <CardModal initial={modal.payload} banks={data.banks} onSave={upsertCard} onClose={closeModal} />}
+      {modal?.type === "card" && <CardModal initial={modal.payload} banks={data.banks} users={data.users} onSave={upsertCard} onClose={closeModal} />}
       {modal?.type === "budget" && <BudgetModal categories={data.categories} initial={modal.payload} onSave={saveBudget} onClose={closeModal} />}
       {modal?.type === "bank" && <BankModal initial={modal.payload} onSave={upsertBank} onClose={closeModal} />}
       {modal?.type === "account" && (
@@ -1258,7 +1264,7 @@ export default function App() {
         />
       )}
       {modal?.type === "mortgageLoan" && (
-        <LoanModal initial={modal.payload} onSave={upsertMortgageLoan} onClose={closeModal} />
+        <LoanModal initial={modal.payload} accounts={data.accounts} banks={data.banks} categories={data.categories} onSave={upsertMortgageLoan} onClose={closeModal} />
       )}
       {modal?.type === "mortgagePrepayment" && (
         <PrepaymentModal

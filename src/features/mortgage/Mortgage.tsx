@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { Building2, Plus, Pencil, Trash2, ChevronRight, Scissors, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Modal, Field, TextInput, Segment, PrimaryButton, IconBtn } from "../../components/ui";
+import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
+import { CategoryPicker } from "../../components/CategoryPicker";
 import { formatMoney, parseAmountInput, fromMinor, toMinor } from "../../lib/money";
 import { formatDateDMY, todayISO, daysBetween, addMonthsToDate } from "../../lib/dates";
 import { buildSchedule, loanSummary, formatMortgageAmount, formatUiAmount, convertUsdReference } from "../../lib/mortgage";
 import { exportMortgageLoanToExcel } from "../../lib/mortgageExcelExport";
 import { fetchRateForDate } from "../../lib/exchangeRates";
-import type { MortgageLoan, MortgagePrepayment, MortgageCurrency, AmortizationSystem, DayCountConvention } from "../../types";
+import { accountSelectLabel } from "../../lib/accounts";
+import type { MortgageLoan, MortgagePrepayment, MortgageCurrency, AmortizationSystem, DayCountConvention, Account, Bank, Category, Currency } from "../../types";
 
 const SYSTEM_LABELS: Record<AmortizationSystem, string> = {
   frances: "Sistema francés",
@@ -411,10 +413,16 @@ function LoanDetailModal({
 
 export function LoanModal({
   initial,
+  accounts,
+  banks,
+  categories,
   onSave,
   onClose,
 }: {
   initial?: MortgageLoan;
+  accounts: Account[];
+  banks: Bank[];
+  categories: Category[];
   onSave: (loan: MortgageLoan) => void;
   onClose: () => void;
 }) {
@@ -449,6 +457,12 @@ export function LoanModal({
   const [rateUi, setRateUi] = useState(initial?.referenceUiRate ? String(initial.referenceUiRate) : "");
   const [rateUyuAuto, setRateUyuAuto] = useState(() => !initial?.referenceUsdToUyuRate);
   const [rateUiAuto, setRateUiAuto] = useState(() => !initial?.referenceUiRate);
+
+  const [autoGenerate, setAutoGenerate] = useState(!!(initial?.paymentCategory && initial?.paymentAccountId));
+  const [paymentCategory, setPaymentCategory] = useState(initial?.paymentCategory ?? "");
+  const [paymentAccountId, setPaymentAccountId] = useState(initial?.paymentAccountId ?? "");
+  const [paymentAutomationStartDate, setPaymentAutomationStartDate] = useState(initial?.paymentAutomationStartDate ?? todayISO());
+
   const [error, setError] = useState<string | null>(null);
 
   // Sugiere el TC USD->UYU y la cotización de la UI de la fecha del préstamo
@@ -501,6 +515,10 @@ export function LoanModal({
       if (!Number.isFinite(adjNum)) return setError("Ingresá un ajuste de cuota válido.");
       paymentAdjustmentMinor = adjNum !== 0 ? toMinor(adjNum) : undefined;
     }
+    const wantsAutoGenerate = autoGenerate;
+    if (wantsAutoGenerate && !paymentCategory) return setError("Elegí la categoría a la que se imputa la cuota generada sola.");
+    if (wantsAutoGenerate && !paymentAccountId) return setError("Elegí la cuenta desde la que se debita la cuota generada sola.");
+    if (wantsAutoGenerate && !paymentAutomationStartDate) return setError("Elegí desde qué fecha empezar a generar cuotas solas.");
 
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
@@ -523,8 +541,16 @@ export function LoanModal({
       requestedAmountUsdMinor: showUsdInfo ? requestedAmountUsdMinor ?? undefined : undefined,
       referenceUsdToUyuRate: showUsdInfo && Number.isFinite(rateUyuNum) && rateUyuNum > 0 ? rateUyuNum : undefined,
       referenceUiRate: showUsdInfo && Number.isFinite(rateUiNum) && rateUiNum > 0 ? rateUiNum : undefined,
+      paymentCategory: wantsAutoGenerate ? paymentCategory : undefined,
+      paymentAccountId: wantsAutoGenerate ? paymentAccountId : undefined,
+      paymentAutomationStartDate: wantsAutoGenerate ? paymentAutomationStartDate : undefined,
     });
   };
+
+  // Los préstamos en UI generan el movimiento en UYU (convertido con la
+  // cotización de la UI), así que la cuenta de pago tiene que ser en UYU.
+  const paymentCurrency: Currency = currency === "UI" ? "UYU" : currency;
+  const eligiblePaymentAccounts = accounts.filter((a) => a.currency === paymentCurrency);
 
   return (
     <Modal title={initial ? "Editar préstamo" : "Nuevo préstamo"} onClose={onClose}>
@@ -714,6 +740,52 @@ export function LoanModal({
               Importe solicitado ≈ {formatMoney(toMinor(conversion.amountUyu), "UYU")} · {formatUiAmount(conversion.amountUi)}
             </div>
           )}
+        </div>
+      )}
+
+      <Field label="¿Generar la cuota sola cuando vence? (opcional)">
+        {() => (
+          <Segment
+            value={autoGenerate ? "on" : "off"}
+            onChange={(v) => setAutoGenerate(v === "on")}
+            options={[{ value: "off", label: "No" }, { value: "on", label: "Sí" }]}
+          />
+        )}
+      </Field>
+      {autoGenerate && (
+        <div className="rounded-lg p-3 mb-3" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
+          <p className="text-[11px] mb-2" style={{ color: C.textFaint }}>
+            Con esto cargado, cada cuota se va a registrar sola en Movimientos apenas venza (o al abrir la app, si venció mientras estaba cerrada), contra esta categoría y cuenta. Después la podés editar (fecha, monto, cotización) sin que afecte el cálculo del préstamo.
+          </p>
+          {currency === "UI" && (
+            <p className="text-[11px] mb-2" style={{ color: C.textFaint }}>
+              Como el préstamo está en UI, la cuota se convierte a UYU con la cotización de la UI más cercana a la fecha de vencimiento (busca para adelante y para atrás, por si cae fin de semana o feriado). Si el banco termina cobrando con otra cotización, editá el movimiento generado a mano — no afecta esta tabla.
+            </p>
+          )}
+          <Field label="Categoría de la cuota">
+            {() => <CategoryPicker categories={categories} type="gasto" value={paymentCategory} onChange={setPaymentCategory} allowEmpty />}
+          </Field>
+          <Field label={`Cuenta desde la que se paga (${paymentCurrency})`}>
+            {(id) => (
+              <Select id={id} value={paymentAccountId} onChange={(e) => setPaymentAccountId(e.target.value)}>
+                <option value="">Elegí una cuenta...</option>
+                {eligiblePaymentAccounts.map((a) => (
+                  <option key={a.id} value={a.id}>{accountSelectLabel(a, banks)}</option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          {eligiblePaymentAccounts.length === 0 && (
+            <p className="text-[11px] -mt-2 mb-2" style={{ color: C.negative }}>
+              No tenés ninguna cuenta en {paymentCurrency}. Cargá una en Configuración → Cuentas primero.
+            </p>
+          )}
+          <Field label="Generar cuotas solas desde">
+            {(id) => <TextInput id={id} type="date" value={paymentAutomationStartDate} onChange={(e) => setPaymentAutomationStartDate(e.target.value)} />}
+          </Field>
+          <p className="text-[10px] -mt-1" style={{ color: C.textFaint }}>
+            Las cuotas vencidas antes de esta fecha no se van a reclamar en "Vencimientos" ni a generar solas (se consideran ya resueltas).
+          </p>
         </div>
       )}
 
