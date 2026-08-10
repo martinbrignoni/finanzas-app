@@ -53,17 +53,14 @@ export function monthLabel(mk: string): string {
   return `${MONTHS_ES_FULL[m - 1]} ${y}`;
 }
 
-/** "Hoy", "Ayer" o "Lunes 10 de agosto" — para separadores por día (ver Movimientos). */
+/** "Lunes 10 de agosto", con "(HOY)" al final si la fecha es la de hoy — para separadores por día (ver Movimientos). */
 export function dayLabel(dateStr: string): string {
-  if (dateStr === todayISO()) return "Hoy";
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (dateStr === `${yesterday.getFullYear()}-${pad2(yesterday.getMonth() + 1)}-${pad2(yesterday.getDate())}`) return "Ayer";
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
   if (!match) return dateStr;
   const [, y, m, d] = match;
   const parsed = new Date(Number(y), Number(m) - 1, Number(d));
-  return `${WEEKDAYS_ES_FULL[parsed.getDay()]} ${Number(d)} de ${MONTHS_ES_FULL[Number(m) - 1]}`;
+  const base = `${WEEKDAYS_ES_FULL[parsed.getDay()]} ${Number(d)} de ${MONTHS_ES_FULL[Number(m) - 1]}`;
+  return dateStr === todayISO() ? `${base} (HOY)` : base;
 }
 
 export function monthShortLabel(mk: string): string {
