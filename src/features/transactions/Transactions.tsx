@@ -10,7 +10,7 @@ import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, fromMinor, ivaIncluidoEn } from "../../lib/money";
-import { monthKeyOf, todayISO, monthLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel, dayLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind, IVA_CONTACT_NAME, resolveIvaContact } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
@@ -427,15 +427,31 @@ export function Transactions({
       <div className="space-y-2">
         {(() => {
           let lastMonth: string | null = null;
+          let lastDate: string | null = null;
           return visibleItems.map((item) => {
             const mk = monthKeyOf(item.date);
+            const isNewMonth = mk !== lastMonth;
+            const isNewDay = item.date !== lastDate;
             const separator =
-              mk !== lastMonth ? (
-                <div className="text-xs font-semibold uppercase tracking-widest pt-3 pb-1" style={{ color: C.textFaint }}>
-                  {capitalize(monthLabel(mk))}
+              isNewMonth || isNewDay ? (
+                <div className="pt-3 pb-1">
+                  {isNewMonth && (
+                    <div className="text-xs font-semibold uppercase tracking-widest mb-1.5" style={{ color: C.textFaint }}>
+                      {capitalize(monthLabel(mk))}
+                    </div>
+                  )}
+                  {isNewDay && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-medium whitespace-nowrap" style={{ color: C.textFaint }}>
+                        {capitalize(dayLabel(item.date))}
+                      </span>
+                      <div className="flex-1 h-px" style={{ background: C.border }} />
+                    </div>
+                  )}
                 </div>
               ) : null;
             lastMonth = mk;
+            lastDate = item.date;
 
           if (item.kind === "transaction") {
             const t = item.data;
