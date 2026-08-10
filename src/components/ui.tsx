@@ -223,6 +223,7 @@ export function Combobox({
   const [open, setOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const selected = options.find((o) => o.value === value);
 
   useEffect(() => {
@@ -259,11 +260,16 @@ export function Combobox({
     onChange(opt.value);
     setOpen(false);
     setQuery("");
+    // Por las dudas el input haya quedado enfocado (ver comentario en el
+    // onClick de cada opción, más abajo): lo desenfocamos a mano para que
+    // el teclado del celular se cierre solo, ya que la selección ya se hizo.
+    inputRef.current?.blur();
   };
 
   return (
     <div className="relative" ref={containerRef}>
       <input
+        ref={inputRef}
         id={id}
         type="text"
         value={open ? query : selected?.label ?? ""}
@@ -308,7 +314,19 @@ export function Combobox({
                     key={opt.value}
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => selectOption(opt)}
+                    onClick={(e) => {
+                      // El botón vive dentro del <label htmlFor> del Field
+                      // (ver Field más arriba), que a su vez apunta al
+                      // <input> de este combobox. En iOS Safari, si no se
+                      // frena acá el evento, el label igual reenvía el click
+                      // al input y le abre el teclado apenas después de
+                      // elegir la opción. preventDefault + stopPropagation
+                      // cortan ese reenvío sin afectar la selección en sí
+                      // (que hacemos explícitamente abajo).
+                      e.preventDefault();
+                      e.stopPropagation();
+                      selectOption(opt);
+                    }}
                     className="w-full text-left px-3 py-2 text-sm"
                     style={{ color: opt.value === value ? C.usd : C.text, background: opt.value === value ? C.surface2 : "transparent" }}
                   >
