@@ -284,8 +284,11 @@ export function Combobox({
       {open && (
         <div
           className={
+            // En modo inline mostramos la lista completa (sin límite de alto
+            // ni scroll propio): el scroll de la página ya se encarga, y así
+            // se ven todas las opciones de una en vez de solo las primeras.
             inline
-              ? "mt-1.5 rounded-lg overflow-hidden max-h-56 overflow-y-auto"
+              ? "mt-1.5 rounded-lg overflow-hidden"
               : "absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg overflow-hidden max-h-56 overflow-y-auto"
           }
           style={{ background: C.surface, border: `1px solid ${C.border}` }}

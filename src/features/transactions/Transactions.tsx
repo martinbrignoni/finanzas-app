@@ -976,9 +976,14 @@ export function MovementModal({
     // si no, a veces mide la posición vieja y el scroll queda corto.
     // block: "end" para que TODO el bloque nuevo quede visible arriba del
     // ancla, no solo que "asome" un poco (eso pasaba con "nearest").
+    // behavior: "auto" (salto directo, no animado): con "smooth" el scroll
+    // tarda unos cientos de ms en terminar, y si el usuario toca una opción
+    // de la lista mientras todavía está animando, el toque puede terminar
+    // cayendo sobre el input de más arriba (que en ese instante ocupa esa
+    // posición en pantalla) y abrir el teclado en vez de elegir la opción.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        paymentMethodAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+        paymentMethodAnchorRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
       });
     });
   }, [form.paymentMethod]);
