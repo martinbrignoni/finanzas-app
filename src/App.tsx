@@ -11,6 +11,7 @@ import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import { generateDueRecurringTransactions } from "./lib/recurring";
 import { generateDueMortgagePayments } from "./lib/mortgage";
 import { maybeRunAutomaticBackup } from "./lib/backup";
+import { useUsageTracking } from "./lib/usage";
 import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
 import type { AccountLedgerEntry } from "./lib/accounts";
 import {
@@ -89,6 +90,10 @@ export default function App() {
   // árbol y cada componente vuelve a leer los colores actualizados de `C`.
   const themeMode = useThemeMode();
   const [data, setData] = useState<FinanceData | null>(null);
+  // Registra tiempo en la app por perfil (ver Configuración → Estadísticas).
+  // Usa este mismo `setData`, así que se guarda junto con todo lo demás sin
+  // agregar una infraestructura de guardado aparte.
+  useUsageTracking(data, setData);
   const [tab, setTab] = useState<TabId>("inicio");
   const [modal, setModal] = useState<ModalState>(null);
   const [saveError, setSaveError] = useState<string | null>(null);

@@ -912,6 +912,35 @@ export interface AuditEntry {
   changes?: AuditFieldChange[];
 }
 
+/**
+ * Bloque continuo de tiempo que un perfil pasó con la app abierta y visible
+ * (ver Configuración → Estadísticas y `lib/usage.ts`). Se abre uno nuevo al
+ * activar un perfil o al volver a poner la pestaña en primer plano, y se
+ * cierra (fijando `durationSeconds` final) cuando la pestaña pasa a segundo
+ * plano, se cierra, o se cambia de perfil activo. Mientras un bloque sigue
+ * abierto, se va actualizando cada pocos minutos (no en cada segundo, para no
+ * multiplicar los guardados) para no perder casi nada si el navegador se
+ * cierra de golpe.
+ *
+ * OJO: si el mismo perfil tiene la app abierta en dos dispositivos a la vez,
+ * el tiempo de ambos se cuenta por separado (no hay forma simple de saber si
+ * es la misma "presencia" sin instrumentar mucho más); para el uso
+ * personal/familiar de esta app, alcanza como aproximación. Tampoco mide
+ * "tiempo para cargar un movimiento" puntual — eso queda para más adelante.
+ */
+export interface UsageSession {
+  id: string;
+  /** Perfil (AppUser.id) dueño de este bloque. */
+  userId: string;
+  /** Fecha (YYYY-MM-DD) en que empezó el bloque, para agrupar por período igual que el resto de Estadísticas. */
+  date: string;
+  startedAt: string; // ISO datetime
+  /** Último momento confirmado activo dentro de este bloque (se actualiza mientras sigue abierto). */
+  lastActiveAt: string; // ISO datetime
+  /** Duración de este bloque hasta `lastActiveAt`, en segundos. */
+  durationSeconds: number;
+}
+
 export interface FinanceData {
   schemaVersion: number;
   transactions: Transaction[];
@@ -935,12 +964,14 @@ export interface FinanceData {
   sortOrders: SortOrders;
   /** Historial de altas/modificaciones/bajas de movimientos, transferencias, pagos de tarjeta, cuotas y movimientos con personas. Ver "Auditoría" en Configuración. */
   auditLog: AuditEntry[];
+  /** Bloques de tiempo con la app abierta por perfil, ver `UsageSession`. Se muestra en Configuración → Estadísticas. */
+  usageSessions: UsageSession[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 14;
+export const CURRENT_SCHEMA_VERSION = 15;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -995,6 +1026,7 @@ export function emptyFinanceData(): FinanceData {
     appLock: { enabled: false, pinHash: null },
     sortOrders: { banks: [], accountsByBank: [], accountsByCurrency: [] },
     auditLog: [],
+    usageSessions: [],
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };

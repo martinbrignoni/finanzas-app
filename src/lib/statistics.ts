@@ -38,6 +38,7 @@ export function statPeriodFrom(period: StatPeriod): string | undefined {
 
 export interface StatCount<T extends string | undefined = string> {
   key: T;
+  /** Cantidad de movimientos, salvo en `byUserTimeSeconds`, donde son segundos (ver `formatDurationHM`). */
   count: number;
 }
 
@@ -53,6 +54,20 @@ export interface StatisticsResult {
   /** `key` es el path completo de la categoría (solo gastos/ingresos tienen categoría). */
   byCategory: StatCount<string>[];
   byKind: StatCount<StatKind>[];
+  /** Tiempo con la app abierta y visible por perfil, en el período (ver `UsageSession`). `count` son segundos, no cantidad de bloques. */
+  byUserTimeSeconds: StatCount<string | undefined>[];
+  /** Suma de `byUserTimeSeconds`, en segundos. */
+  totalTimeSeconds: number;
+}
+
+/** "2 h 15 min", "45 min" o "0 min" — formato compacto para mostrar segundos acumulados. */
+export function formatDurationHM(totalSeconds: number): string {
+  const totalMinutes = Math.round(totalSeconds / 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} h`;
+  return `${h} h ${m} min`;
 }
 
 function bump<K>(map: Map<K, number>, key: K) {
@@ -68,10 +83,8 @@ function toSortedArray<K extends string | undefined>(map: Map<K, number>): StatC
 /**
  * Cuenta movimientos (gastos/ingresos, transferencias, pagos de tarjeta,
  * compras en cuotas y movimientos con personas) agrupados por perfil, cuenta,
- * tarjeta, categoría y tipo, dentro de un período. Es solo lectura: recorre
- * los datos ya guardados, no agrega ningún campo nuevo ni tracking (a
- * diferencia de "tiempo en la app", que requeriría instrumentar la app y
- * queda para más adelante).
+ * tarjeta, categoría y tipo, y suma el tiempo con la app abierta por perfil
+ * (ver `UsageSession`/`lib/usage.ts`), todo dentro de un período.
  */
 export function computeStatistics(data: FinanceData, period: StatPeriod): StatisticsResult {
   const from = statPeriodFrom(period);
@@ -118,6 +131,14 @@ export function computeStatistics(data: FinanceData, period: StatPeriod): Statis
     count(e.date, e.createdByUserId, "personas", [e.accountId], [e.cardId]);
   }
 
+  const byUserTime = new Map<string | undefined, number>();
+  let totalTimeSeconds = 0;
+  for (const s of data.usageSessions) {
+    if (!inRange(s.date)) continue;
+    byUserTime.set(s.userId, (byUserTime.get(s.userId) ?? 0) + s.durationSeconds);
+    totalTimeSeconds += s.durationSeconds;
+  }
+
   return {
     totalCount,
     byUser: toSortedArray(byUser),
@@ -125,5 +146,7 @@ export function computeStatistics(data: FinanceData, period: StatPeriod): Statis
     byCard: toSortedArray(byCard),
     byCategory: toSortedArray(byCategory),
     byKind: toSortedArray(byKind),
+    byUserTimeSeconds: toSortedArray(byUserTime),
+    totalTimeSeconds,
   };
 }

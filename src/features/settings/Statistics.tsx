@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { theme as C } from "../../styles/theme";
 import { Segment } from "../../components/ui";
 import { UserBadge } from "../../components/UserBadge";
-import { computeStatistics, STAT_KIND_LABELS, STAT_PERIOD_LABELS, type StatPeriod, type StatCount } from "../../lib/statistics";
+import { computeStatistics, formatDurationHM, STAT_KIND_LABELS, STAT_PERIOD_LABELS, type StatPeriod, type StatCount } from "../../lib/statistics";
 import { accountLabel } from "../../lib/accounts";
 import { cardLabel } from "../../lib/cards";
 import { categoryDisplayName } from "../../lib/categories";
@@ -14,11 +14,14 @@ function StatBarList({
   items,
   emptyText = "Sin datos en este período.",
   renderLabel,
+  formatValue = (n) => String(n),
 }: {
   title: string;
   items: StatCount<string | undefined>[];
   emptyText?: string;
   renderLabel: (key: string | undefined) => ReactNode;
+  /** Cómo mostrar `item.count` a la derecha de cada barra (por defecto, el número tal cual). Ver uso con `formatDurationHM` para tiempo. */
+  formatValue?: (count: number) => string;
 }) {
   const max = Math.max(1, ...items.map((i) => i.count));
   return (
@@ -32,7 +35,7 @@ function StatBarList({
             <div key={item.key ?? "__none__"}>
               <div className="flex items-center justify-between gap-2 text-xs mb-1">
                 <span className="min-w-0 truncate flex items-center gap-1.5" style={{ color: C.text }}>{renderLabel(item.key)}</span>
-                <span className="font-mono shrink-0" style={{ color: C.textMuted }}>{item.count}</span>
+                <span className="font-mono shrink-0" style={{ color: C.textMuted }}>{formatValue(item.count)}</span>
               </div>
               <div className="h-1.5 rounded-full overflow-hidden" style={{ background: C.surface2 }}>
                 <div className="h-full rounded-full" style={{ width: `${(item.count / max) * 100}%`, background: C.usd }} />
@@ -48,10 +51,8 @@ function StatBarList({
 /**
  * Conteos de movimientos (gastos/ingresos, transferencias, pagos de tarjeta,
  * compras en cuotas y movimientos con personas) agrupados por perfil, cuenta,
- * tarjeta, categoría y tipo, con filtro de período. Solo lectura, calculado
- * sobre los datos ya guardados: no requiere ni agrega tracking nuevo (a
- * diferencia de, por ejemplo, "tiempo en la app", que queda para más
- * adelante porque necesitaría instrumentar la app desde cero).
+ * tarjeta, categoría y tipo, más tiempo con la app abierta por perfil (ver
+ * `lib/usage.ts`), con filtro de período.
  */
 export function StatisticsSettings({
   data,
@@ -84,7 +85,7 @@ export function StatisticsSettings({
   return (
     <div>
       <p className="text-xs mb-3" style={{ color: C.textMuted }}>
-        Cantidad de movimientos cargados (gastos, ingresos, transferencias, pagos de tarjeta, compras en cuotas y movimientos con personas), agrupados por perfil, cuenta, tarjeta, categoría y tipo.
+        Cantidad de movimientos cargados (gastos, ingresos, transferencias, pagos de tarjeta, compras en cuotas y movimientos con personas) y tiempo con la app abierta, agrupados por perfil, cuenta, tarjeta, categoría y tipo.
       </p>
 
       <div className="mb-3">
@@ -95,13 +96,24 @@ export function StatisticsSettings({
         />
       </div>
 
-      <div
-        className="rounded-xl p-4 mb-3 text-center"
-        style={{ background: C.surface, border: `1px solid ${C.border}` }}
-      >
-        <div className="text-3xl font-display" style={{ color: C.text }}>{stats.totalCount}</div>
-        <div className="text-xs" style={{ color: C.textFaint }}>movimientos en el período</div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="rounded-xl p-4 text-center" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="text-3xl font-display" style={{ color: C.text }}>{stats.totalCount}</div>
+          <div className="text-xs" style={{ color: C.textFaint }}>movimientos</div>
+        </div>
+        <div className="rounded-xl p-4 text-center" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationHM(stats.totalTimeSeconds)}</div>
+          <div className="text-xs" style={{ color: C.textFaint }}>en la app</div>
+        </div>
       </div>
+
+      <StatBarList
+        title="Tiempo en la app por perfil"
+        items={stats.byUserTimeSeconds}
+        emptyText="Todavía no hay tiempo registrado en este período (empieza a contarse desde ahora)."
+        renderLabel={userLabel}
+        formatValue={formatDurationHM}
+      />
 
       {stats.totalCount === 0 ? (
         <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
