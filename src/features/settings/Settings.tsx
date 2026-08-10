@@ -10,9 +10,10 @@ import { RecurringRulesSettings } from "./Recurring";
 import { AuditSettings } from "./Audit";
 import { CardsSettings } from "./CardsSettings";
 import { FamilyMembersSettings } from "./FamilyMembers";
+import { VehiclesSettings } from "./Vehicles";
 import { BackupSettings } from "./Backup";
 import { StatisticsSettings } from "./Statistics";
-import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, Contact, NotificationPrefs, RecurringRule, AuditEntry, FamilyMember, FinanceData } from "../../types";
+import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, Contact, NotificationPrefs, RecurringRule, AuditEntry, FamilyMember, Vehicle, FinanceData } from "../../types";
 
 export function Settings({
   financeData,
@@ -33,6 +34,7 @@ export function Settings({
   recurringRules,
   auditLog,
   familyMembers,
+  vehicles,
   canEdit,
   canSwitchUser = true,
   onSetActiveUser,
@@ -45,10 +47,15 @@ export function Settings({
   onRenameCategory,
   onSetCategoryAllowFamilyMembers,
   onSetCategoryTrackOrders,
+  onSetCategoryRequiresVehicle,
+  onSetCategoryTrackFuel,
   onReclassifyCategory,
   onAddFamilyMember,
   onEditFamilyMember,
   onDeleteFamilyMember,
+  onAddVehicle,
+  onEditVehicle,
+  onDeleteVehicle,
   onUpdateUserLock,
   onUpdateUserNotifications,
   onAddBank,
@@ -89,6 +96,7 @@ export function Settings({
   /** Historial de alta/modificación/baja, ver sección Auditoría. */
   auditLog: AuditEntry[];
   familyMembers: FamilyMember[];
+  vehicles: Vehicle[];
   canEdit: boolean;
   canSwitchUser?: boolean;
   onSetActiveUser: (id: string) => void;
@@ -103,10 +111,17 @@ export function Settings({
   onSetCategoryAllowFamilyMembers: (id: string, allow: boolean) => void;
   /** Activa/desactiva si una categoría de Ingreso pide tipo y número de pedido (ver `Category.trackOrders`). */
   onSetCategoryTrackOrders: (id: string, track: boolean) => void;
+  /** Activa/desactiva si una categoría de Gasto exige elegir vehículo (ver `Category.requiresVehicle`). */
+  onSetCategoryRequiresVehicle: (id: string, require: boolean) => void;
+  /** Activa/desactiva si una categoría de Gasto pide litros/km (ver `Category.trackFuel`). */
+  onSetCategoryTrackFuel: (id: string, track: boolean) => void;
   onReclassifyCategory: (fromName: string, toName: string) => void;
   onAddFamilyMember: () => void;
   onEditFamilyMember: (m: FamilyMember) => void;
   onDeleteFamilyMember: (id: string) => void;
+  onAddVehicle: () => void;
+  onEditVehicle: (v: Vehicle) => void;
+  onDeleteVehicle: (id: string) => void;
   onUpdateUserLock: (partial: Partial<AppLock>) => void;
   onUpdateUserNotifications: (partial: Partial<NotificationPrefs>) => void;
   onAddBank: () => void;
@@ -126,7 +141,7 @@ export function Settings({
   onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "bancos" | "tarjetas" | "recurrentes" | "estadisticas" | "auditoria" | "respaldo" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "vehiculos" | "bancos" | "tarjetas" | "recurrentes" | "estadisticas" | "auditoria" | "respaldo" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -148,6 +163,7 @@ export function Settings({
             ["usuarios", "Usuarios"],
             ["categorias", "Categorías"],
             ["familia", "Familia"],
+            ["vehiculos", "Vehículos"],
             ["bancos", "Bancos"],
             ["tarjetas", "Tarjetas"],
             ["recurrentes", "Recurrentes"],
@@ -198,6 +214,8 @@ export function Settings({
           onRename={onRenameCategory}
           onSetAllowFamilyMembers={onSetCategoryAllowFamilyMembers}
           onSetTrackOrders={onSetCategoryTrackOrders}
+          onSetRequiresVehicle={onSetCategoryRequiresVehicle}
+          onSetTrackFuel={onSetCategoryTrackFuel}
           onReclassify={onReclassifyCategory}
         />
       )}
@@ -208,6 +226,15 @@ export function Settings({
           onAdd={onAddFamilyMember}
           onEdit={onEditFamilyMember}
           onDelete={onDeleteFamilyMember}
+        />
+      )}
+      {section === "vehiculos" && (
+        <VehiclesSettings
+          vehicles={vehicles}
+          canEdit={canEdit}
+          onAdd={onAddVehicle}
+          onEdit={onEditVehicle}
+          onDelete={onDeleteVehicle}
         />
       )}
       {section === "bancos" && (

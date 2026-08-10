@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, ChevronRight, Users } from "lucide-react";
+import { Plus, Trash2, Pencil, ArrowRightLeft, List, Download, ChevronDown, ChevronRight, Users, Car } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { CategoryPicker, defaultLeafCategoryValue } from "../../components/CategoryPicker";
-import { categoryFullPath, isMinuchiRootCategory, categoryAllowsFamilyMembers, categoryTracksOrders } from "../../lib/categories";
+import { categoryFullPath, isMinuchiRootCategory, categoryAllowsFamilyMembers, categoryTracksOrders, categoryRequiresVehicle } from "../../lib/categories";
 import { formatMoney } from "../../lib/money";
 import { formatDateDMY, monthKeyOf, monthLabel, capitalize } from "../../lib/dates";
 import { exportCategoryToExcel } from "../../lib/excelExport";
@@ -21,6 +21,8 @@ export function CategoriesSettings({
   onRename,
   onSetAllowFamilyMembers,
   onSetTrackOrders,
+  onSetRequiresVehicle,
+  onSetTrackFuel,
   onReclassify,
 }: {
   categories: Category[];
@@ -38,6 +40,10 @@ export function CategoriesSettings({
   onSetAllowFamilyMembers: (id: string, allow: boolean) => void;
   /** Activa/desactiva si esta categoría pide tipo de pedido y número de pedido al cargar un Ingreso (ver `Category.trackOrders`). */
   onSetTrackOrders: (id: string, track: boolean) => void;
+  /** Activa/desactiva si esta categoría exige elegir vehículo al cargar un Gasto (ver `Category.requiresVehicle`). */
+  onSetRequiresVehicle: (id: string, require: boolean) => void;
+  /** Activa/desactiva si esta categoría pide litros/km al cargar un Gasto (ver `Category.trackFuel`). */
+  onSetTrackFuel: (id: string, track: boolean) => void;
   /** Reasigna todos los movimientos de una categoría a otra (antes de poder borrar la primera). */
   onReclassify: (fromName: string, toName: string) => void;
 }) {
@@ -114,6 +120,7 @@ export function CategoriesSettings({
                 {hijas.length > 0 && (madreExpanded ? <ChevronDown size={14} color={C.textFaint} /> : <ChevronRight size={14} color={C.textFaint} />)}
                 <span className="font-semibold truncate" style={{ color: C.text }}>{madre.name}</span>
                 {categoryAllowsFamilyMembers(madre, categories) && <Users size={12} color={C.textFaint} />}
+                {categoryRequiresVehicle(madre, categories) && <Car size={12} color={C.textFaint} />}
               </button>
               <div className="flex items-center gap-1 shrink-0">
                 {countMovements(madre) > 0 && (
@@ -149,6 +156,7 @@ export function CategoriesSettings({
                       {nietas.length > 0 && (catExpanded ? <ChevronDown size={13} color={C.textFaint} /> : <ChevronRight size={13} color={C.textFaint} />)}
                       <span className="truncate" style={{ color: C.text }}>{cat.name}</span>
                       {categoryAllowsFamilyMembers(cat, categories) && <Users size={11} color={C.textFaint} />}
+                      {categoryRequiresVehicle(cat, categories) && <Car size={11} color={C.textFaint} />}
                     </button>
                     <div className="flex items-center gap-1 shrink-0">
                       {countMovements(cat) > 0 && (
@@ -177,6 +185,7 @@ export function CategoriesSettings({
                       <span className="flex items-center gap-1" style={{ color: C.textMuted }}>
                         {sub.name}
                         {categoryAllowsFamilyMembers(sub, categories) && <Users size={10} color={C.textFaint} />}
+                        {categoryRequiresVehicle(sub, categories) && <Car size={10} color={C.textFaint} />}
                       </span>
                       <div className="flex items-center gap-1">
                         {countMovements(sub) > 0 && (
@@ -291,6 +300,8 @@ export function CategoriesSettings({
           onRename={onRename}
           onSetAllowFamilyMembers={onSetAllowFamilyMembers}
           onSetTrackOrders={onSetTrackOrders}
+          onSetRequiresVehicle={onSetRequiresVehicle}
+          onSetTrackFuel={onSetTrackFuel}
           onClose={() => setRenameTarget(null)}
         />
       )}
@@ -510,6 +521,8 @@ function RenameCategoryModal({
   onRename,
   onSetAllowFamilyMembers,
   onSetTrackOrders,
+  onSetRequiresVehicle,
+  onSetTrackFuel,
   onClose,
 }: {
   category: Category;
@@ -517,16 +530,21 @@ function RenameCategoryModal({
   onRename: (id: string, newName: string) => void;
   onSetAllowFamilyMembers: (id: string, allow: boolean) => void;
   onSetTrackOrders: (id: string, track: boolean) => void;
+  onSetRequiresVehicle: (id: string, require: boolean) => void;
+  onSetTrackFuel: (id: string, track: boolean) => void;
   onClose: () => void;
 }) {
   const [name, setName] = useState(category.name);
   const [allowFamilyMembers, setAllowFamilyMembers] = useState(!!category.allowFamilyMembers);
   const [trackOrders, setTrackOrders] = useState(!!category.trackOrders);
+  const [requiresVehicle, setRequiresVehicle] = useState(!!category.requiresVehicle);
+  const [trackFuel, setTrackFuel] = useState(!!category.trackFuel);
   const [error, setError] = useState<string | null>(null);
 
   const parent = categories.find((c) => c.id === category.parentId);
   const inheritedFromAbove = !!parent && categoryAllowsFamilyMembers(parent, categories);
   const ordersInheritedFromAbove = !!parent && categoryTracksOrders(parent, categories);
+  const vehicleInheritedFromAbove = !!parent && categoryRequiresVehicle(parent, categories);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -538,6 +556,8 @@ function RenameCategoryModal({
     if (trimmed !== category.name) onRename(category.id, trimmed);
     if (allowFamilyMembers !== !!category.allowFamilyMembers) onSetAllowFamilyMembers(category.id, allowFamilyMembers);
     if (trackOrders !== !!category.trackOrders) onSetTrackOrders(category.id, trackOrders);
+    if (requiresVehicle !== !!category.requiresVehicle) onSetRequiresVehicle(category.id, requiresVehicle);
+    if (trackFuel !== !!category.trackFuel) onSetTrackFuel(category.id, trackFuel);
     onClose();
   };
 
@@ -591,6 +611,40 @@ function RenameCategoryModal({
           </>
         )
       )}
+      {category.type === "gasto" && (
+        vehicleInheritedFromAbove ? (
+          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+            Ya está heredado de "{parent!.name}": esta categoría (y las que cuelguen de ella) ya exigen elegir vehículo sin necesidad de activarlo acá también.
+          </p>
+        ) : (
+          <>
+            <Field label="¿Requiere elegir vehículo?">
+              {() => (
+                <Segment
+                  value={requiresVehicle ? "si" : "no"}
+                  onChange={(v) => setRequiresVehicle(v === "si")}
+                  options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              Si está en "Sí", al cargar un Gasto en esta categoría (y en las que cuelguen de ella) va a ser obligatorio elegir a qué vehículo corresponde (ver Configuración → Vehículos). Pensado para Transporte.
+            </p>
+            <Field label="¿Registra combustible?">
+              {() => (
+                <Segment
+                  value={trackFuel ? "si" : "no"}
+                  onChange={(v) => setTrackFuel(v === "si")}
+                  options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              Si está en "Sí", además de exigir vehículo, se van a poder cargar litros, km parciales y km totales (los tres opcionales). Pensado para Combustible.
+            </p>
+          </>
+        )
+      )}
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
     </Modal>
@@ -621,6 +675,8 @@ export function CategoryModal({
   const [name, setName] = useState("");
   const [allowFamilyMembers, setAllowFamilyMembers] = useState(false);
   const [trackOrders, setTrackOrders] = useState(false);
+  const [requiresVehicle, setRequiresVehicle] = useState(false);
+  const [trackFuel, setTrackFuel] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const roots = categories.filter((c) => c.type === type && !c.parentId);
@@ -630,6 +686,7 @@ export function CategoryModal({
   const effectiveParent = categories.find((c) => c.id === parentId);
   const inheritedFromAbove = !!effectiveParent && categoryAllowsFamilyMembers(effectiveParent, categories);
   const ordersInheritedFromAbove = !!effectiveParent && categoryTracksOrders(effectiveParent, categories);
+  const vehicleInheritedFromAbove = !!effectiveParent && categoryRequiresVehicle(effectiveParent, categories);
 
   const nameLabel = categoriaId ? "Nombre de la subcategoría" : madreId ? "Nombre de la categoría" : "Nombre de la categoría madre";
 
@@ -645,6 +702,8 @@ export function CategoryModal({
       parentId,
       allowFamilyMembers: allowFamilyMembers || undefined,
       trackOrders: trackOrders || undefined,
+      requiresVehicle: requiresVehicle || undefined,
+      trackFuel: trackFuel || undefined,
     });
   };
 
@@ -723,6 +782,41 @@ export function CategoryModal({
             </Field>
             <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
               Si está en "Sí", al cargar un Ingreso en esta categoría (y en las que cuelguen de ella) se va a pedir elegir qué es el cobro (Pedido / Seña pedido / Saldo pedido) y el número de pedido.
+            </p>
+          </>
+        )
+      )}
+
+      {type === "gasto" && (
+        vehicleInheritedFromAbove ? (
+          <p className="text-xs mb-3" style={{ color: C.textFaint }}>
+            Ya heredado de "{effectiveParent!.name}": esta categoría nueva ya va a exigir elegir vehículo, sin necesidad de activarlo acá también.
+          </p>
+        ) : (
+          <>
+            <Field label="¿Requiere elegir vehículo?">
+              {() => (
+                <Segment
+                  value={requiresVehicle ? "si" : "no"}
+                  onChange={(v) => setRequiresVehicle(v === "si")}
+                  options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              Si está en "Sí", al cargar un Gasto en esta categoría (y en las que cuelguen de ella) va a ser obligatorio elegir a qué vehículo corresponde (ver Configuración → Vehículos). Pensado para Transporte.
+            </p>
+            <Field label="¿Registra combustible?">
+              {() => (
+                <Segment
+                  value={trackFuel ? "si" : "no"}
+                  onChange={(v) => setTrackFuel(v === "si")}
+                  options={[{ value: "no", label: "No" }, { value: "si", label: "Sí" }]}
+                />
+              )}
+            </Field>
+            <p className="text-xs -mt-2 mb-3" style={{ color: C.textFaint }}>
+              Si está en "Sí", además de exigir vehículo, se van a poder cargar litros, km parciales y km totales (los tres opcionales). Pensado para Combustible.
             </p>
           </>
         )

@@ -103,6 +103,29 @@ export interface Transaction {
   orderType?: "pedido" | "sena" | "saldo";
   /** Número de pedido asignado a mano por el usuario (texto libre: puede tener formato "P-123"). Ver `orderType`. */
   orderNumber?: string;
+  /**
+   * Vehículo (ver `Vehicle`, Configuración → Vehículos) al que corresponde
+   * este gasto, obligatorio cuando la categoría elegida tiene
+   * `Category.requiresVehicle` (o `trackFuel`) activo.
+   */
+  vehicleId?: string;
+  /** Litros cargados, solo en una categoría con `Category.trackFuel` activo (ej. Combustible). Opcional. */
+  fuelLiters?: number;
+  /** Kilómetros recorridos desde la carga anterior. Opcional. */
+  fuelKmPartial?: number;
+  /** Kilómetros totales del odómetro al momento de la carga. Opcional. */
+  fuelKmTotal?: number;
+}
+
+/**
+ * Vehículo (ej. "Auto Martín", "Moto") al que se le puede asignar un gasto en
+ * las categorías que lo requieran (ver `Category.requiresVehicle`/
+ * `trackFuel` y `Transaction.vehicleId`). Se administra en Configuración →
+ * Vehículos.
+ */
+export interface Vehicle {
+  id: string;
+  name: string;
 }
 
 export interface Bank {
@@ -394,6 +417,21 @@ export interface Category {
    * MINUCHI > Ventas.
    */
   trackOrders?: boolean;
+  /**
+   * Si está activo, al cargar un Gasto en esta categoría puntual (se hereda a
+   * las que cuelguen de ella, igual que `trackOrders`) es obligatorio elegir
+   * un vehículo (ver `Vehicle` y `Transaction.vehicleId`). Pensado para
+   * Transporte. `trackFuel` implica esto mismo, aunque no esté tildado acá.
+   */
+  requiresVehicle?: boolean;
+  /**
+   * Si está activo, al cargar un Gasto en esta categoría puntual (se hereda
+   * igual que `requiresVehicle`) se piden además litros, km parciales y km
+   * totales (todos opcionales, ver `Transaction.fuelLiters`/`fuelKmPartial`/
+   * `fuelKmTotal`), y se exige elegir vehículo igual que con
+   * `requiresVehicle`. Pensado para Combustible.
+   */
+  trackFuel?: boolean;
 }
 
 /**
@@ -999,12 +1037,14 @@ export interface FinanceData {
   usageSessions: UsageSession[];
   /** Tiempo de cargar/editar cada movimiento puntual, ver `MovementTimingEntry`. Se muestra en Configuración → Estadísticas. */
   movementTimings: MovementTimingEntry[];
+  /** Vehículos administrables en Configuración → Vehículos, ver `Vehicle`. */
+  vehicles: Vehicle[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 16;
+export const CURRENT_SCHEMA_VERSION = 17;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -1061,6 +1101,7 @@ export function emptyFinanceData(): FinanceData {
     auditLog: [],
     usageSessions: [],
     movementTimings: [],
+    vehicles: [],
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };

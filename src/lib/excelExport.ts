@@ -3,7 +3,7 @@ import { fromMinor } from "./money";
 import { accountBalance, accountLabel, ledgerEntryLabel, type AccountLedgerEntry } from "./accounts";
 import { categoryFullPath } from "./categories";
 import { cardLabel, cardExtensionLabel } from "./cards";
-import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry, Category, Installment, Card, Contact, FamilyMember, AppUser, Budget, RecurringRule, AuditEntry } from "../types";
+import type { Bank, Account, Transaction, Transfer, CardPayment, ContactEntry, Category, Installment, Card, Contact, FamilyMember, Vehicle, AppUser, Budget, RecurringRule, AuditEntry } from "../types";
 import { RECURRENCE_PERIOD_LABELS } from "../types";
 import type { ExchangeRateRow } from "./exchangeRates";
 import type { ReconciliationResult } from "./reconciliation";
@@ -197,6 +197,7 @@ export function exportMovementsToExcel(
   cards: Card[],
   contacts: Contact[],
   familyMembers: FamilyMember[],
+  vehicles: Vehicle[],
   users: AppUser[]
 ): void {
   const wb = XLSX.utils.book_new();
@@ -218,6 +219,10 @@ export function exportMovementsToExcel(
       "Integrante(s) de familia": familyDetail(familyMembers, t.familyMemberIds, t.familyMemberAmounts),
       "Tipo de pedido": t.orderType === "sena" ? "Seña pedido" : t.orderType === "saldo" ? "Saldo pedido" : t.orderType === "pedido" ? "Pedido" : "",
       "N° de pedido": t.orderNumber ?? "",
+      Vehículo: t.vehicleId ? vehicles.find((v) => v.id === t.vehicleId)?.name ?? "" : "",
+      Litros: t.fuelLiters ?? "",
+      "Km parciales": t.fuelKmPartial ?? "",
+      "Km totales": t.fuelKmTotal ?? "",
       Comprobantes: t.receiptPaths?.length ?? (t.receiptPath ? 1 : 0),
       "Cargado por": userName(users, t.createdByUserId),
       Alta: t.createdAt ? formatDateTimeDMY(t.createdAt) : "",

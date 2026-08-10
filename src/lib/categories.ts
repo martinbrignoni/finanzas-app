@@ -106,6 +106,36 @@ export function categoryTracksOrders(category: Category, categories: Category[])
 }
 
 /**
+ * Igual que `categoryAllowsFamilyMembers`, pero para `Category.requiresVehicle`
+ * (ej. Transporte): alcanza con activarlo en la madre o en una categoría
+ * intermedia para que ya quede activo en todo lo que cuelgue de ella. También
+ * es `true` si la categoría (o alguna madre) tiene `trackFuel` activo, porque
+ * no tiene sentido registrar combustible sin saber de qué vehículo.
+ */
+export function categoryRequiresVehicle(category: Category, categories: Category[]): boolean {
+  let current: Category | undefined = category;
+  while (current) {
+    if (current.requiresVehicle || current.trackFuel) return true;
+    current = current.parentId ? categories.find((c) => c.id === current!.parentId) : undefined;
+  }
+  return false;
+}
+
+/**
+ * Igual que `categoryAllowsFamilyMembers`, pero para `Category.trackFuel`
+ * (ej. Combustible): alcanza con activarlo en la madre o en una categoría
+ * intermedia para que ya quede activo en todo lo que cuelgue de ella.
+ */
+export function categoryTracksFuel(category: Category, categories: Category[]): boolean {
+  let current: Category | undefined = category;
+  while (current) {
+    if (current.trackFuel) return true;
+    current = current.parentId ? categories.find((c) => c.id === current!.parentId) : undefined;
+  }
+  return false;
+}
+
+/**
  * Nombre con el que se identifica el emprendimiento aparte "MINUCHI" (ver
  * Configuración → Categorías e Inicio): tiene su propia categoría madre de
  * ingreso y de gasto, para poder analizar sus números sin mezclarlos con las

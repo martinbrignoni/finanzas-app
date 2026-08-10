@@ -32,7 +32,7 @@ import {
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
-  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule, FamilyMember, MovementTimingKind,
+  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule, FamilyMember, Vehicle, MovementTimingKind,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -50,6 +50,7 @@ import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 import { RecurringRuleModal } from "./features/settings/Recurring";
 import { FamilyMemberModal } from "./features/settings/FamilyMembers";
+import { VehicleModal } from "./features/settings/Vehicles";
 
 type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "configuracion";
 
@@ -80,6 +81,7 @@ type ModalState =
   | { type: "mortgagePrepayment"; payload: { loanId: string; prepayment?: MortgagePrepayment } }
   | { type: "recurringRule"; payload?: RecurringRule }
   | { type: "familyMember"; payload?: FamilyMember }
+  | { type: "vehicle"; payload?: Vehicle }
   | null;
 
 const repo = getRepository();
@@ -550,6 +552,12 @@ export default function App() {
   const setCategoryTrackOrders = useCallback((id: string, track: boolean) => {
     setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, trackOrders: track || undefined } : c)) } : d));
   }, []);
+  const setCategoryRequiresVehicle = useCallback((id: string, require: boolean) => {
+    setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, requiresVehicle: require || undefined } : c)) } : d));
+  }, []);
+  const setCategoryTrackFuel = useCallback((id: string, track: boolean) => {
+    setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, trackFuel: track || undefined } : c)) } : d));
+  }, []);
   const reclassifyCategory = useCallback((fromName: string, toName: string) => {
     setData((d) =>
       d
@@ -833,6 +841,33 @@ export default function App() {
     [requestConfirm, deleteFamilyMember]
   );
 
+  // --- vehículos ---
+  const upsertVehicle = useCallback((v: Vehicle) => {
+    setData((d) => {
+      if (!d) return d;
+      const idx = d.vehicles.findIndex((x) => x.id === v.id);
+      const vehicles = idx >= 0 ? d.vehicles.map((x) => (x.id === v.id ? v : x)) : [...d.vehicles, v];
+      return { ...d, vehicles };
+    });
+    closeModal();
+  }, []);
+  const deleteVehicle = useCallback((id: string) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            vehicles: d.vehicles.filter((x) => x.id !== id),
+            // Saca el vehículo borrado de cualquier movimiento que ya lo tuviera asignado, para no dejar ids huérfanos.
+            transactions: d.transactions.map((t) => (t.vehicleId === id ? { ...t, vehicleId: undefined } : t)),
+          }
+        : d
+    );
+  }, []);
+  const confirmDeleteVehicle = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este vehículo? Se saca de los movimientos donde ya estaba asignado (esos movimientos no se borran).", () => deleteVehicle(id)),
+    [requestConfirm, deleteVehicle]
+  );
+
   // --- notes ---
   const upsertNote = useCallback((n: Note) => {
     const commit = () => {
@@ -1039,6 +1074,7 @@ export default function App() {
                 banks={data.banks}
                 categories={data.categories}
                 familyMembers={data.familyMembers}
+                vehicles={data.vehicles}
                 auditLog={data.auditLog}
                 users={data.users}
                 activeUser={activeUser}
@@ -1179,6 +1215,7 @@ export default function App() {
                 recurringRules={data.recurringRules}
                 auditLog={data.auditLog}
                 familyMembers={data.familyMembers}
+                vehicles={data.vehicles}
                 canEdit={has("configuracion", "edit")}
                 canSwitchUser={!lockedToNonAdmin}
                 onSetActiveUser={setActiveUser}
@@ -1191,10 +1228,15 @@ export default function App() {
                 onRenameCategory={renameCategory}
                 onSetCategoryAllowFamilyMembers={setCategoryAllowFamilyMembers}
                 onSetCategoryTrackOrders={setCategoryTrackOrders}
+                onSetCategoryRequiresVehicle={setCategoryRequiresVehicle}
+                onSetCategoryTrackFuel={setCategoryTrackFuel}
                 onReclassifyCategory={reclassifyCategory}
                 onAddFamilyMember={() => setModal({ type: "familyMember" })}
                 onEditFamilyMember={(m) => setModal({ type: "familyMember", payload: m })}
                 onDeleteFamilyMember={confirmDeleteFamilyMember}
+                onAddVehicle={() => setModal({ type: "vehicle" })}
+                onEditVehicle={(v) => setModal({ type: "vehicle", payload: v })}
+                onDeleteVehicle={confirmDeleteVehicle}
                 onUpdateUserLock={updateActiveUserLock}
                 onUpdateUserNotifications={updateActiveUserNotifications}
                 onAddBank={() => setModal({ type: "bank" })}
@@ -1262,6 +1304,7 @@ export default function App() {
           categories={data.categories}
           contacts={data.contacts}
           familyMembers={data.familyMembers}
+          vehicles={data.vehicles}
           canEditContacts={has("personas", "edit")}
           canEditCards={has("tarjetas", "edit")}
           onSaveTransaction={upsertTransaction}
@@ -1362,6 +1405,14 @@ export default function App() {
           initial={modal.payload}
           familyMembers={data.familyMembers}
           onSave={upsertFamilyMember}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "vehicle" && (
+        <VehicleModal
+          initial={modal.payload}
+          vehicles={data.vehicles}
+          onSave={upsertVehicle}
           onClose={closeModal}
         />
       )}

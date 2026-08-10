@@ -170,6 +170,14 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 16, movementTimings: [] };
   }
 
+  if (data.schemaVersion === 16) {
+    // v17: vehículos (Configuración → Vehículos), para requerir vehículo y
+    // registrar combustible en las categorías que lo pidan (ver
+    // `Category.requiresVehicle`/`trackFuel`). Arranca vacío: no hay nada que
+    // migrar de datos existentes.
+    data = { ...data, schemaVersion: 17, vehicles: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -213,6 +221,7 @@ function migrate(raw: any): FinanceData {
     auditLog: data.auditLog ?? [],
     usageSessions: data.usageSessions ?? [],
     movementTimings: data.movementTimings ?? [],
+    vehicles: data.vehicles ?? [],
     users: usersConHipoteca,
     activeUserId: data.activeUserId ?? null,
   };

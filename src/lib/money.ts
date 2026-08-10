@@ -38,6 +38,20 @@ export function parseAmountInput(raw: string): number | null {
   return toMinor(n);
 }
 
+/**
+ * Parsea un decimal simple (no es plata, no usa unidades mínimas), ej. litros
+ * cargados o kilómetros de odómetro. Devuelve `null` si `raw` no está vacío
+ * pero no es un número válido; `undefined` si `raw` está vacío (campo opcional
+ * sin cargar). Ver `MovementModal` (campos de combustible).
+ */
+export function parseDecimal(raw: string): number | null | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  const n = parseFloat(trimmed.replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 /** Tasa básica de IVA en Uruguay (22%), usada solo para sugerir un monto editable en "¿IVA Compras/Ventas?" (Nuevo Movimiento y Recurrentes). */
 export const IVA_TASA_BASICA = 0.22;
 

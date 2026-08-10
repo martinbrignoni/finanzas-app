@@ -5,11 +5,11 @@ import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, Icon
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
-import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope, findCategoryByPath, categoryAllowsFamilyMembers, categoryTracksOrders } from "../../lib/categories";
+import { categoryFullPath, categoryDisplayName, isMinuchiRootCategory, isMinuchiCategoryPath, filterCategoriesByScope, findCategoryByPath, categoryAllowsFamilyMembers, categoryTracksOrders, categoryRequiresVehicle, categoryTracksFuel } from "../../lib/categories";
 import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
-import { formatMoney, parseAmountInput, fromMinor, ivaIncluidoEn } from "../../lib/money";
+import { formatMoney, parseAmountInput, parseDecimal, fromMinor, ivaIncluidoEn } from "../../lib/money";
 import { monthKeyOf, todayISO, monthLabel, dayLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind, IVA_CONTACT_NAME, resolveIvaContact } from "../../lib/contacts";
@@ -19,7 +19,7 @@ import { fetchRateForDate } from "../../lib/exchangeRates";
 import { auditActionLabel } from "../../lib/audit";
 import { exportMovementsToExcel } from "../../lib/excelExport";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, AuditEntry, AuditEntityType, FamilyMember, MovementTimingKind } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, AuditEntry, AuditEntityType, FamilyMember, Vehicle, MovementTimingKind } from "../../types";
 
 /** Modal de solo lectura con el historial de alta/modificación/baja de un registro puntual (ver `AuditEntry`). */
 function AuditTrailModal({
@@ -216,6 +216,7 @@ export function Transactions({
   banks,
   categories,
   familyMembers,
+  vehicles,
   auditLog,
   users,
   activeUser,
@@ -245,6 +246,8 @@ export function Transactions({
   categories: Category[];
   /** Para mostrar a quién de la familia corresponde cada gasto/ingreso, si tiene asignado (ver `Transaction.familyMemberIds`). */
   familyMembers: FamilyMember[];
+  /** Para mostrar a qué vehículo corresponde cada gasto, si tiene asignado (ver `Transaction.vehicleId`). */
+  vehicles: Vehicle[];
   /** Historial de alta/modificación/baja de cada registro, ver botón "Auditoría" en cada fila. */
   auditLog: AuditEntry[];
   /** Para mostrar de quién es cada movimiento (solo tiene sentido mostrarlo si hay más de un perfil). */
@@ -351,7 +354,7 @@ export function Transactions({
         <div className="flex items-center gap-2">
           <IconBtn
             label="Exportar todos los movimientos a Excel"
-            onClick={() => exportMovementsToExcel(transactions, installments, transfers, cardPayments, contactEntries, accounts, banks, cards, contacts, familyMembers, users)}
+            onClick={() => exportMovementsToExcel(transactions, installments, transfers, cardPayments, contactEntries, accounts, banks, cards, contacts, familyMembers, vehicles, users)}
           >
             <Download size={15} />
           </IconBtn>
@@ -479,6 +482,8 @@ export function Transactions({
                         {t.cardId && ` · ${cardLabel(cards.find((c) => c.id === t.cardId), banks)}`}
                         {cardExtensionLabel(cards, t.cardId, t.cardExtensionId) && ` (${cardExtensionLabel(cards, t.cardId, t.cardExtensionId)})`}
                         {!t.accountId && !t.cardId && <span style={{ color: C.uyu }}> · Sin medio de pago</span>}
+                        {t.vehicleId && ` · ${vehicles.find((v) => v.id === t.vehicleId)?.name ?? "Vehículo eliminado"}`}
+                        {t.fuelLiters !== undefined && ` · ${t.fuelLiters} L`}
                       </span>
                       {familyMemberNames(t.familyMemberIds, t.familyMemberAmounts, t.currency) && (
                         <span className="flex items-center gap-0.5" style={{ color: C.usd }}>
@@ -759,6 +764,14 @@ interface FormState {
   orderType: "pedido" | "sena" | "saldo";
   /** Número de pedido asignado a mano, junto con `orderType`. */
   orderNumber: string;
+  /** Vehículo, obligatorio cuando la categoría elegida lo requiere (ver `Category.requiresVehicle`/`trackFuel`). "" = sin elegir. */
+  vehicleId: string;
+  /** Litros cargados (texto), solo cuando la categoría elegida registra combustible (ver `Category.trackFuel`). Opcional. */
+  fuelLiters: string;
+  /** Km recorridos desde la carga anterior (texto). Opcional. */
+  fuelKmPartial: string;
+  /** Km totales del odómetro (texto). Opcional. */
+  fuelKmTotal: string;
   accountId: string; // "" significa sin cuenta asignada
   paymentMethod: PaymentMethod;
   cardId: string; // "" significa sin tarjeta elegida
@@ -831,6 +844,7 @@ export function MovementModal({
   categories,
   contacts,
   familyMembers,
+  vehicles,
   canEditContacts,
   canEditCards,
   onSaveTransaction,
@@ -864,6 +878,8 @@ export function MovementModal({
   contacts: Contact[];
   /** Integrantes de familia asignables en las categorías que lo permitan (ver `Category.allowFamilyMembers`). */
   familyMembers: FamilyMember[];
+  /** Vehículos asignables en las categorías que lo requieran (ver `Category.requiresVehicle`/`trackFuel`). */
+  vehicles: Vehicle[];
   /** Permiso del módulo Personas: gobierna si se puede elegir "Persona" como medio de pago o como sub-tipo de transferencia. */
   canEditContacts: boolean;
   /** Permiso del módulo Tarjetas: gobierna si se puede registrar un pago de tarjeta desde acá (Transferencia > Tarjeta). */
@@ -941,6 +957,10 @@ export function MovementModal({
     ),
     orderType: initial?.orderType ?? "pedido",
     orderNumber: initial?.orderNumber ?? "",
+    vehicleId: initial?.vehicleId ?? "",
+    fuelLiters: initial?.fuelLiters !== undefined ? String(initial.fuelLiters) : "",
+    fuelKmPartial: initial?.fuelKmPartial !== undefined ? String(initial.fuelKmPartial) : "",
+    fuelKmTotal: initial?.fuelKmTotal !== undefined ? String(initial.fuelKmTotal) : "",
     accountId: initialContactEntry?.accountId ?? initial?.accountId ?? "",
     paymentMethod: initialContactEntry
       ? initialContactEntry.cardId
@@ -1038,6 +1058,12 @@ export function MovementModal({
   // Solo para Ingreso en una categoría con `trackOrders` (ej. MINUCHI > Ventas, ver Configuración → Categorías).
   const showOrderFields =
     form.kind === "ingreso" && !!selectedCategoryForFamily && categoryTracksOrders(selectedCategoryForFamily, categories);
+  // Solo para Gasto en una categoría con `requiresVehicle` o `trackFuel` (ej. Transporte, Combustible; ver Configuración → Categorías).
+  const showVehicleField =
+    form.kind === "gasto" && !!selectedCategoryForFamily && categoryRequiresVehicle(selectedCategoryForFamily, categories);
+  // Solo para Gasto en una categoría con `trackFuel` (ej. Combustible; ver Configuración → Categorías).
+  const showFuelFields =
+    form.kind === "gasto" && !!selectedCategoryForFamily && categoryTracksFuel(selectedCategoryForFamily, categories);
 
   const fromAcc = accounts.find((a) => a.id === form.fromAccountId);
   const toAcc = accounts.find((a) => a.id === form.toAccountId);
@@ -1208,6 +1234,21 @@ export function MovementModal({
     // categorizar después (ver el filtro de "pendientes" en Movimientos).
     if (form.kind === "gasto" && form.paymentMethod === "tarjeta" && !form.cardId) return setError("Elegí una tarjeta.");
     if (showOrderFields && !form.orderNumber.trim()) return setError("Ingresá el número de pedido.");
+    if (showVehicleField && !form.vehicleId) return setError("Elegí un vehículo.");
+    let fuelLiters: number | undefined;
+    let fuelKmPartial: number | undefined;
+    let fuelKmTotal: number | undefined;
+    if (showFuelFields) {
+      const parsedLiters = parseDecimal(form.fuelLiters);
+      if (parsedLiters === null) return setError("Litros inválido.");
+      fuelLiters = parsedLiters;
+      const parsedKmPartial = parseDecimal(form.fuelKmPartial);
+      if (parsedKmPartial === null) return setError("Km parciales inválido.");
+      fuelKmPartial = parsedKmPartial;
+      const parsedKmTotal = parseDecimal(form.fuelKmTotal);
+      if (parsedKmTotal === null) return setError("Km totales inválido.");
+      fuelKmTotal = parsedKmTotal;
+    }
 
     // "¿IVA Compras?" / "¿IVA Ventas?": el gasto o ingreso que queda
     // categorizado (y el que sale/entra por la cuenta/tarjeta vía este
@@ -1296,6 +1337,10 @@ export function MovementModal({
       familyMemberAmounts: familyMemberAmountsMinor,
       orderType: showOrderFields ? form.orderType : undefined,
       orderNumber: showOrderFields ? form.orderNumber.trim() || undefined : undefined,
+      vehicleId: showVehicleField ? form.vehicleId || undefined : undefined,
+      fuelLiters: showFuelFields ? fuelLiters : undefined,
+      fuelKmPartial: showFuelFields ? fuelKmPartial : undefined,
+      fuelKmTotal: showFuelFields ? fuelKmTotal : undefined,
       receiptPaths: form.receiptPaths,
       createdByUserId: initial?.createdByUserId,
     });
@@ -1825,6 +1870,60 @@ export function MovementModal({
                 )}
               </Field>
             </>
+          )}
+          {showVehicleField && (
+            <Field label="Vehículo">
+              {(id) =>
+                vehicles.length === 0 ? (
+                  <p className="text-xs" style={{ color: C.textFaint }}>No tenés vehículos cargados. Creá uno en Configuración → Vehículos.</p>
+                ) : (
+                  <Select id={id} value={form.vehicleId} onChange={(e) => setForm((f) => ({ ...f, vehicleId: e.target.value }))}>
+                    <option value="">Elegí un vehículo</option>
+                    {vehicles.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </Select>
+                )
+              }
+            </Field>
+          )}
+          {showFuelFields && (
+            <div className="grid grid-cols-3 gap-2">
+              <Field label="Litros (opc.)">
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    type="text"
+                    inputMode="decimal"
+                    value={form.fuelLiters}
+                    onChange={(e) => setForm((f) => ({ ...f, fuelLiters: e.target.value }))}
+                    placeholder="0"
+                  />
+                )}
+              </Field>
+              <Field label="Km parc. (opc.)">
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    type="text"
+                    inputMode="decimal"
+                    value={form.fuelKmPartial}
+                    onChange={(e) => setForm((f) => ({ ...f, fuelKmPartial: e.target.value }))}
+                    placeholder="0"
+                  />
+                )}
+              </Field>
+              <Field label="Km totales (opc.)">
+                {(id) => (
+                  <TextInput
+                    id={id}
+                    type="text"
+                    inputMode="decimal"
+                    value={form.fuelKmTotal}
+                    onChange={(e) => setForm((f) => ({ ...f, fuelKmTotal: e.target.value }))}
+                    placeholder="0"
+                  />
+                )}
+              </Field>
+            </div>
           )}
           <Field label="Fecha">
             {(id) => <DateStepper id={id} value={form.date} onChange={(v) => setForm((f) => ({ ...f, date: v }))} />}
