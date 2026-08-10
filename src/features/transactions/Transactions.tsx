@@ -1,7 +1,7 @@
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag, History, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill } from "../../components/ui";
+import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill, DateStepper } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
@@ -951,6 +951,37 @@ export function MovementModal({
   const [error, setError] = useState<string | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
+  // Al elegir un medio de pago aparecen campos nuevos debajo (Cuenta/Tarjeta/
+  // Persona), que en el celular suelen quedar fuera de la pantalla. Este ref
+  // marca el final de TODO el formulario (justo después del botón Guardar);
+  // el useEffect de más abajo lo desplaza a la vista apenas cambia
+  // `paymentMethod`, para que se vea de una el bloque nuevo Y el botón
+  // Guardar (pero no en el primer render, para no saltar al abrir el modal
+  // en edición).
+  const paymentMethodAnchorRef = useRef<HTMLDivElement>(null);
+  const skipNextPaymentScroll = useRef(true);
+  // Solo se activa cuando el usuario TOCA "Cuenta"/"Tarjeta" (ver los
+  // onChange del Segment de Medio de pago, más abajo), nunca al abrir el
+  // modal para editar un movimiento que ya tenía uno asignado. Así el campo
+  // Cuenta/Tarjeta arranca con la lista desplegada solo en el momento en
+  // que se elige, y en edición se ve como siempre (colapsado).
+  const [paymentFieldShouldAutoOpen, setPaymentFieldShouldAutoOpen] = useState(false);
+  useEffect(() => {
+    if (skipNextPaymentScroll.current) {
+      skipNextPaymentScroll.current = false;
+      return;
+    }
+    // Doble requestAnimationFrame: espera a que React termine de pintar los
+    // campos nuevos (Cuenta/Tarjeta/Persona) antes de medir dónde scrollear;
+    // si no, a veces mide la posición vieja y el scroll queda corto.
+    // block: "end" para que TODO el bloque nuevo quede visible arriba del
+    // ancla, no solo que "asome" un poco (eso pasaba con "nearest").
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        paymentMethodAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      });
+    });
+  }, [form.paymentMethod]);
   // Las cajas inactivas (Configuración → Bancos) no se ofrecen para movimientos nuevos, pero
   // si el movimiento ya tenía una asignada (edición), se mantiene disponible para no romperlo.
   const eligibleAccounts = accounts.filter((a) => a.currency === form.currency && (isAccountActive(a) || a.id === form.accountId));
@@ -1380,7 +1411,7 @@ export function MovementModal({
                   )}
                 </Field>
                 <Field label="Fecha">
-                  {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+                  {(id) => <DateStepper id={id} value={form.date} onChange={(v) => setForm((f) => ({ ...f, date: v }))} />}
                 </Field>
                 <Field label={`Monto que sale${fromAcc ? ` (${fromAcc.currency})` : ""}`}>
                   {(id) => (
@@ -1483,7 +1514,7 @@ export function MovementModal({
                   }
                 </Field>
                 <Field label="Fecha">
-                  {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+                  {(id) => <DateStepper id={id} value={form.date} onChange={(v) => setForm((f) => ({ ...f, date: v }))} />}
                 </Field>
                 <Field label="Nota (opcional)">
                   {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Pago mínimo, pago total..." />}
@@ -1549,14 +1580,17 @@ export function MovementModal({
                 {(id) => <TextInput id={id} value={form.contactDescription} onChange={(e) => setForm((f) => ({ ...f, contactDescription: e.target.value }))} placeholder="Cena, nafta, regalo..." />}
               </Field>
               <Field label="Fecha">
-                {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+                {(id) => <DateStepper id={id} value={form.date} onChange={(v) => setForm((f) => ({ ...f, date: v }))} />}
               </Field>
 
               <Field label="Medio de pago (opcional)">
                 {() => (
                   <Segment
                     value={form.paymentMethod}
-                    onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "", cardExtensionId: "" }))}
+                    onChange={(v) => {
+                      setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "", cardExtensionId: "" }));
+                      setPaymentFieldShouldAutoOpen(true);
+                    }}
                     options={transferPersonaPaymentOptions}
                   />
                 )}
@@ -1573,6 +1607,7 @@ export function MovementModal({
                         placeholder="Elegí una cuenta"
                         onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
                         options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                        defaultOpen={paymentFieldShouldAutoOpen}
                       />
                     )
                   }
@@ -1590,6 +1625,7 @@ export function MovementModal({
                         placeholder="Elegí una tarjeta"
                         onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
                         options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                        defaultOpen={paymentFieldShouldAutoOpen}
                       />
                     )
                   }
@@ -1745,7 +1781,7 @@ export function MovementModal({
             </>
           )}
           <Field label="Fecha">
-            {(id) => <TextInput id={id} type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} />}
+            {(id) => <DateStepper id={id} value={form.date} onChange={(v) => setForm((f) => ({ ...f, date: v }))} />}
           </Field>
           <Field label="Nota (opcional)">
             {(id) => <TextInput id={id} value={form.note} onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))} placeholder="Detalle..." />}
@@ -1802,7 +1838,10 @@ export function MovementModal({
             {() => (
               <Segment
                 value={form.paymentMethod}
-                onChange={(v) => setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "", cardExtensionId: "" }))}
+                onChange={(v) => {
+                  setForm((f) => ({ ...f, paymentMethod: v, accountId: "", cardId: "", cardExtensionId: "" }));
+                  setPaymentFieldShouldAutoOpen(true);
+                }}
                 options={paymentMethodOptions}
               />
             )}
@@ -1819,6 +1858,7 @@ export function MovementModal({
                     placeholder="Elegí una cuenta"
                     onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
                     options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
+                    defaultOpen={paymentFieldShouldAutoOpen}
                   />
                 )
               }
@@ -1836,6 +1876,7 @@ export function MovementModal({
                     placeholder="Elegí una tarjeta"
                     onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
                     options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                    defaultOpen={paymentFieldShouldAutoOpen}
                   />
                 )
               }
@@ -1941,6 +1982,7 @@ export function MovementModal({
 
       {error && <p className="text-xs mb-2" style={{ color: C.negative }}>{error}</p>}
       <PrimaryButton onClick={handleSave}>Guardar</PrimaryButton>
+      <div ref={paymentMethodAnchorRef} />
 
       {showCategoryModal && (
         <CategoryModal

@@ -1,7 +1,8 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { X, ChevronLeft, ChevronRight } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import type { Currency } from "../types";
+import { addDaysToDate, formatDateDMY } from "../lib/dates";
 
 /**
  * OJO: esto tiene que ser una función, no un objeto fijo. `theme` (importado
@@ -18,9 +19,12 @@ function getInputStyle(): React.CSSProperties {
     background: C.surface2,
     border: `1px solid ${C.border}`,
     borderRadius: "8px",
-    padding: "9px 10px",
+    padding: "8px 10px",
     color: C.text,
-    fontSize: "15px",
+    // OJO: 16px es el mínimo para que iOS Safari NO haga zoom automático al
+    // enfocar el campo (con menos de 16px, el navegador agranda la pantalla
+    // entera al tocar el input). No bajar de acá en inputs/selects.
+    fontSize: "16px",
     outline: "none",
   };
 }
@@ -60,10 +64,84 @@ export function Segment<T extends string>({
 export function Field({ label, children }: { label: string; children: (id: string) => React.ReactNode }) {
   const id = useId();
   return (
-    <label htmlFor={id} className="block mb-3">
+    <label htmlFor={id} className="block mb-2.5">
       <span className="block text-xs mb-1" style={{ color: C.textMuted }}>{label}</span>
       {children(id)}
     </label>
+  );
+}
+
+/**
+ * Selector de fecha compacto: en vez de un `<input type="date">` ancho (que
+ * en iPhone ocupa todo el renglón), muestra la fecha en formato DD/MM/AAAA
+ * con flechas a los costados para avanzar/retroceder un día. Tocando el
+ * texto de la fecha se abre igual el selector nativo del sistema, superpuesto
+ * de forma invisible sobre el texto (truco estándar, funciona en iOS/Android
+ * sin JS extra).
+ */
+export function DateStepper({ value, onChange, id }: { value: string; onChange: (v: string) => void; id?: string }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Abre el selector nativo del sistema. `showPicker()` es la forma "oficial"
+  // de hacerlo desde un botón propio (soportado en iOS Safari 16.4+ y en los
+  // navegadores de escritorio actuales); si no está disponible, hacemos foco
+  // + click sobre el input real como respaldo.
+  const openPicker = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === "function") {
+      try {
+        el.showPicker();
+        return;
+      } catch {
+        // sigue al respaldo de abajo
+      }
+    }
+    el.focus();
+    el.click();
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => onChange(addDaysToDate(value, -1))}
+        aria-label="Día anterior"
+        className="w-9 h-9 shrink-0 rounded-md flex items-center justify-center"
+        style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.textMuted }}
+      >
+        <ChevronLeft size={16} />
+      </button>
+      <button
+        type="button"
+        onClick={openPicker}
+        className="flex-1 text-center py-2 rounded-md text-sm font-medium"
+        style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+      >
+        {formatDateDMY(value)}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(addDaysToDate(value, 1))}
+        aria-label="Día siguiente"
+        className="w-9 h-9 shrink-0 rounded-md flex items-center justify-center"
+        style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.textMuted }}
+      >
+        <ChevronRight size={16} />
+      </button>
+      {/* Input real, oculto visualmente pero conectado al DOM (no `display:none`)
+          para que `showPicker()`/`focus()`/`click()` sigan funcionando. */}
+      <input
+        ref={inputRef}
+        id={id}
+        type="date"
+        value={value}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        aria-hidden="true"
+        tabIndex={-1}
+        style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0, fontSize: "16px" }}
+      />
+    </div>
   );
 }
 
@@ -115,6 +193,7 @@ export function Combobox({
   onChange,
   placeholder,
   emptyText = "Sin resultados",
+  defaultOpen = false,
 }: {
   id?: string;
   options: ComboboxOption[];
@@ -122,8 +201,15 @@ export function Combobox({
   onChange: (value: string) => void;
   placeholder?: string;
   emptyText?: string;
+  /**
+   * Arranca con la lista ya desplegada (sin foco ni teclado), para que el
+   * usuario vea las opciones de una apenas aparece el campo (ej. al elegir
+   * "Cuenta"/"Tarjeta" como medio de pago). Si igual toca el input, se
+   * comporta como siempre: se puede escribir para filtrar.
+   */
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.value === value);
@@ -236,13 +322,13 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[85vh] overflow-y-auto"
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 sm:p-5 max-h-[85vh] overflow-y-auto"
         style={{ background: C.surface, border: `1px solid ${C.border}` }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-3">
           <h3 id="modal-title" className="text-lg font-semibold font-display" style={{ color: C.text }}>{title}</h3>
           <button onClick={onClose} aria-label="Cerrar" style={{ color: C.textMuted }}><X size={20} /></button>
         </div>
