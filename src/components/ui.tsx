@@ -82,23 +82,19 @@ export function Field({ label, children }: { label: string; children: (id: strin
 export function DateStepper({ value, onChange, id }: { value: string; onChange: (v: string) => void; id?: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Abre el selector nativo del sistema. `showPicker()` es la forma "oficial"
-  // de hacerlo desde un botón propio (soportado en iOS Safari 16.4+ y en los
-  // navegadores de escritorio actuales); si no está disponible, hacemos foco
-  // + click sobre el input real como respaldo.
+  // `showPicker()` es la forma "oficial" de abrir el selector nativo desde
+  // JS (iOS Safari 16.4+ y navegadores de escritorio actuales). La sumamos
+  // como refuerzo del tap directo de abajo, por si algún dispositivo no lo
+  // dispara solo con el toque.
   const openPicker = () => {
     const el = inputRef.current;
-    if (!el) return;
-    if (typeof el.showPicker === "function") {
+    if (el && typeof el.showPicker === "function") {
       try {
         el.showPicker();
-        return;
       } catch {
-        // sigue al respaldo de abajo
+        // el toque directo sobre el input (ver más abajo) ya debería alcanzar.
       }
     }
-    el.focus();
-    el.click();
   };
 
   return (
@@ -112,14 +108,31 @@ export function DateStepper({ value, onChange, id }: { value: string; onChange: 
       >
         <ChevronLeft size={16} />
       </button>
-      <button
-        type="button"
-        onClick={openPicker}
-        className="flex-1 text-center py-2 rounded-md text-sm font-medium"
-        style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
-      >
-        {formatDateDMY(value)}
-      </button>
+      <div className="relative flex-1">
+        {/* Capa puramente visual: `pointer-events: none` para que el toque
+            SIEMPRE llegue al input real de abajo, nunca se quede acá. */}
+        <div
+          className="text-center py-2 rounded-md text-sm font-medium pointer-events-none"
+          style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+        >
+          {formatDateDMY(value)}
+        </div>
+        {/* Input real, del tamaño completo del campo pero invisible (opacity
+            0, no display:none): el toque del usuario cae directo sobre él,
+            que es la forma más confiable de que el navegador abra el
+            selector nativo (más que llamarlo por JS desde otro elemento). */}
+        <input
+          ref={inputRef}
+          id={id}
+          type="date"
+          value={value}
+          onChange={(e) => e.target.value && onChange(e.target.value)}
+          onClick={openPicker}
+          aria-label="Elegir fecha"
+          className="absolute inset-0 w-full h-full"
+          style={{ opacity: 0, fontSize: "16px", cursor: "pointer", zIndex: 1 }}
+        />
+      </div>
       <button
         type="button"
         onClick={() => onChange(addDaysToDate(value, 1))}
@@ -129,18 +142,6 @@ export function DateStepper({ value, onChange, id }: { value: string; onChange: 
       >
         <ChevronRight size={16} />
       </button>
-      {/* Input real, oculto visualmente pero conectado al DOM (no `display:none`)
-          para que `showPicker()`/`focus()`/`click()` sigan funcionando. */}
-      <input
-        ref={inputRef}
-        id={id}
-        type="date"
-        value={value}
-        onChange={(e) => e.target.value && onChange(e.target.value)}
-        aria-hidden="true"
-        tabIndex={-1}
-        style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0, fontSize: "16px" }}
-      />
     </div>
   );
 }
@@ -194,6 +195,7 @@ export function Combobox({
   placeholder,
   emptyText = "Sin resultados",
   defaultOpen = false,
+  inline = false,
 }: {
   id?: string;
   options: ComboboxOption[];
@@ -208,6 +210,15 @@ export function Combobox({
    * comporta como siempre: se puede escribir para filtrar.
    */
   defaultOpen?: boolean;
+  /**
+   * Si es true, la lista desplegada ocupa espacio real en el documento y
+   * empuja el contenido de abajo, en vez de flotar por encima como overlay.
+   * Pensado para formularios largos y scrolleables donde conviene que el
+   * resto se corra para abajo (ej. Cuenta/Tarjeta como medio de pago, para
+   * que el scroll automático llegue de verdad hasta el botón Guardar). El
+   * picker de categoría y otros usos siguen con el overlay de siempre.
+   */
+  inline?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
@@ -272,7 +283,11 @@ export function Combobox({
       />
       {open && (
         <div
-          className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg overflow-hidden max-h-56 overflow-y-auto"
+          className={
+            inline
+              ? "mt-1.5 rounded-lg overflow-hidden max-h-56 overflow-y-auto"
+              : "absolute left-0 right-0 top-[calc(100%+4px)] z-50 rounded-lg overflow-hidden max-h-56 overflow-y-auto"
+          }
           style={{ background: C.surface, border: `1px solid ${C.border}` }}
         >
           {filtered.length === 0 ? (

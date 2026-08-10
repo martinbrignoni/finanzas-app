@@ -1608,6 +1608,7 @@ export function MovementModal({
                         onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
                         options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
                         defaultOpen={paymentFieldShouldAutoOpen}
+                        inline
                       />
                     )
                   }
@@ -1626,6 +1627,7 @@ export function MovementModal({
                         onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
                         options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                         defaultOpen={paymentFieldShouldAutoOpen}
+                        inline
                       />
                     )
                   }
@@ -1859,6 +1861,7 @@ export function MovementModal({
                     onChange={(accountId) => setForm((f) => ({ ...f, accountId }))}
                     options={eligibleAccounts.map((a) => ({ value: a.id, label: accountSelectLabel(a, banks) }))}
                     defaultOpen={paymentFieldShouldAutoOpen}
+                    inline
                   />
                 )
               }
@@ -1877,6 +1880,7 @@ export function MovementModal({
                     onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
                     options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                     defaultOpen={paymentFieldShouldAutoOpen}
+                    inline
                   />
                 )
               }
