@@ -1,13 +1,13 @@
-import type { FinanceData, TransactionType } from "../types";
+import type { FinanceData, MovementTimingKind } from "../types";
 import { currentMonthKey, addMonths } from "./dates";
 
 /**
  * Tipo de movimiento a efectos de estadísticas: además de gasto/ingreso, se
  * cuentan por separado las transferencias, pagos de tarjeta, compras en
  * cuotas y movimientos con personas (cada uno vive en su propia tabla, ver
- * `FinanceData`).
+ * `FinanceData`). Mismo vocabulario que `MovementTimingEntry.kind`.
  */
-export type StatKind = TransactionType | "transferencia" | "pagoTarjeta" | "cuotas" | "personas";
+export type StatKind = MovementTimingKind;
 
 export const STAT_KIND_LABELS: Record<StatKind, string> = {
   gasto: "Gasto",
@@ -58,6 +58,18 @@ export interface StatisticsResult {
   byUserTimeSeconds: StatCount<string | undefined>[];
   /** Suma de `byUserTimeSeconds`, en segundos. */
   totalTimeSeconds: number;
+  /** Promedio de segundos entre abrir "Nuevo movimiento" y guardar (ver `MovementTimingEntry`), por perfil. `count` es el promedio en segundos. */
+  avgCreateSecondsByUser: StatCount<string | undefined>[];
+  /** Ídem, pero para ediciones (abrir "Editar" hasta guardar). */
+  avgEditSecondsByUser: StatCount<string | undefined>[];
+  /** Promedio general de `avgCreateSecondsByUser`, en segundos. */
+  avgCreateSeconds: number;
+  /** Promedio general de `avgEditSecondsByUser`, en segundos. */
+  avgEditSeconds: number;
+  /** Cantidad de movimientos nuevos con tiempo registrado en el período (el tamaño de muestra detrás de `avgCreateSeconds`). */
+  createTimingCount: number;
+  /** Cantidad de ediciones con tiempo registrado en el período. */
+  editTimingCount: number;
 }
 
 /** "2 h 15 min", "45 min" o "0 min" — formato compacto para mostrar segundos acumulados. */
@@ -77,6 +89,13 @@ function bump<K>(map: Map<K, number>, key: K) {
 function toSortedArray<K extends string | undefined>(map: Map<K, number>): StatCount<K>[] {
   return [...map.entries()]
     .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => b.count - a.count || String(a.key ?? "").localeCompare(String(b.key ?? "")));
+}
+
+/** Promedio (redondeado) por clave a partir de sumas y cantidades acumuladas, ordenado de mayor a menor. */
+function toAveragedArray<K extends string | undefined>(sums: Map<K, number>, counts: Map<K, number>): StatCount<K>[] {
+  return [...sums.entries()]
+    .map(([key, sum]) => ({ key, count: Math.round(sum / (counts.get(key) ?? 1)) }))
     .sort((a, b) => b.count - a.count || String(a.key ?? "").localeCompare(String(b.key ?? "")));
 }
 
@@ -139,6 +158,30 @@ export function computeStatistics(data: FinanceData, period: StatPeriod): Statis
     totalTimeSeconds += s.durationSeconds;
   }
 
+  // Tiempo de cargar/editar cada movimiento puntual (ver `MovementTimingEntry`).
+  const createSum = new Map<string | undefined, number>();
+  const createN = new Map<string | undefined, number>();
+  const editSum = new Map<string | undefined, number>();
+  const editN = new Map<string | undefined, number>();
+  let createTotalSum = 0;
+  let createTimingCount = 0;
+  let editTotalSum = 0;
+  let editTimingCount = 0;
+  for (const timing of data.movementTimings) {
+    if (!inRange(timing.date)) continue;
+    const sumMap = timing.action === "create" ? createSum : editSum;
+    const nMap = timing.action === "create" ? createN : editN;
+    sumMap.set(timing.userId, (sumMap.get(timing.userId) ?? 0) + timing.seconds);
+    nMap.set(timing.userId, (nMap.get(timing.userId) ?? 0) + 1);
+    if (timing.action === "create") {
+      createTotalSum += timing.seconds;
+      createTimingCount++;
+    } else {
+      editTotalSum += timing.seconds;
+      editTimingCount++;
+    }
+  }
+
   return {
     totalCount,
     byUser: toSortedArray(byUser),
@@ -148,5 +191,11 @@ export function computeStatistics(data: FinanceData, period: StatPeriod): Statis
     byKind: toSortedArray(byKind),
     byUserTimeSeconds: toSortedArray(byUserTime),
     totalTimeSeconds,
+    avgCreateSecondsByUser: toAveragedArray(createSum, createN),
+    avgEditSecondsByUser: toAveragedArray(editSum, editN),
+    avgCreateSeconds: createTimingCount > 0 ? Math.round(createTotalSum / createTimingCount) : 0,
+    avgEditSeconds: editTimingCount > 0 ? Math.round(editTotalSum / editTimingCount) : 0,
+    createTimingCount,
+    editTimingCount,
   };
 }

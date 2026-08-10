@@ -32,7 +32,7 @@ import {
 import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
-  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule, FamilyMember,
+  Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule, FamilyMember, MovementTimingKind,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -334,6 +334,32 @@ export default function App() {
     (id: string) => requestConfirm("¿Eliminar esta compra en cuotas? No se puede deshacer.", () => deleteInstallment(id)),
     [requestConfirm, deleteInstallment]
   );
+  // Ver `MovementTimingEntry` y Configuración → Estadísticas: se llama al
+  // guardar con éxito un movimiento puntual (nunca al cancelar), con cuánto
+  // tardó desde que se abrió el modal. No pasa por `confirmSave`/auditoría:
+  // es solo un dato de estadísticas, no una entidad de negocio.
+  const recordMovementTiming = useCallback((entry: { action: "create" | "edit"; kind: MovementTimingKind; entityId: string; seconds: number }) => {
+    setData((d) => {
+      if (!d) return d;
+      const now = new Date();
+      return {
+        ...d,
+        movementTimings: [
+          ...d.movementTimings,
+          {
+            id: crypto.randomUUID(),
+            userId: d.activeUserId ?? undefined,
+            action: entry.action,
+            kind: entry.kind,
+            entityId: entry.entityId,
+            seconds: entry.seconds,
+            date: now.toISOString().slice(0, 10),
+            at: now.toISOString(),
+          },
+        ],
+      };
+    });
+  }, []);
   const upsertCardPayment = useCallback((p: CardPayment) => {
     const commit = () => {
       setData((d) => {
@@ -1245,6 +1271,7 @@ export default function App() {
           onSaveCardPayment={upsertCardPayment}
           onSaveContact={addContact}
           onSaveCategory={saveCategory}
+          onRecordTiming={recordMovementTiming}
           onClose={closeModal}
         />
       )}
@@ -1263,6 +1290,7 @@ export default function App() {
           banks={data.banks}
           installments={data.installments}
           onSave={upsertCardPayment}
+          onRecordTiming={recordMovementTiming}
           onClose={closeModal}
         />
       )}

@@ -115,6 +115,36 @@ export function StatisticsSettings({
         formatValue={formatDurationHM}
       />
 
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="rounded-xl p-4 text-center" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationHM(stats.avgCreateSeconds)}</div>
+          <div className="text-xs" style={{ color: C.textFaint }}>
+            promedio al cargar{stats.createTimingCount > 0 ? ` (${stats.createTimingCount})` : ""}
+          </div>
+        </div>
+        <div className="rounded-xl p-4 text-center" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationHM(stats.avgEditSeconds)}</div>
+          <div className="text-xs" style={{ color: C.textFaint }}>
+            promedio al editar{stats.editTimingCount > 0 ? ` (${stats.editTimingCount})` : ""}
+          </div>
+        </div>
+      </div>
+
+      <StatBarList
+        title="Tiempo promedio al cargar, por perfil"
+        items={stats.avgCreateSecondsByUser}
+        emptyText="Todavía no hay tiempo registrado en este período (empieza a contarse desde ahora)."
+        renderLabel={userLabel}
+        formatValue={formatDurationHM}
+      />
+      <StatBarList
+        title="Tiempo promedio al editar, por perfil"
+        items={stats.avgEditSecondsByUser}
+        emptyText="Todavía no hay ediciones con tiempo registrado en este período."
+        renderLabel={userLabel}
+        formatValue={formatDurationHM}
+      />
+
       {stats.totalCount === 0 ? (
         <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
           No hay movimientos cargados en este período.

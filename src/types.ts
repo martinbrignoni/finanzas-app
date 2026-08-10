@@ -925,8 +925,9 @@ export interface AuditEntry {
  * OJO: si el mismo perfil tiene la app abierta en dos dispositivos a la vez,
  * el tiempo de ambos se cuenta por separado (no hay forma simple de saber si
  * es la misma "presencia" sin instrumentar mucho más); para el uso
- * personal/familiar de esta app, alcanza como aproximación. Tampoco mide
- * "tiempo para cargar un movimiento" puntual — eso queda para más adelante.
+ * personal/familiar de esta app, alcanza como aproximación. Ver
+ * `MovementTimingEntry` para el tiempo puntual de cargar/editar un movimiento
+ * (algo más chico y específico que esto).
  */
 export interface UsageSession {
   id: string;
@@ -939,6 +940,36 @@ export interface UsageSession {
   lastActiveAt: string; // ISO datetime
   /** Duración de este bloque hasta `lastActiveAt`, en segundos. */
   durationSeconds: number;
+}
+
+/**
+ * Cuánto tardó cargar o editar un movimiento puntual (gasto/ingreso,
+ * transferencia, pago de tarjeta, cuota o movimiento con persona): desde que
+ * se abrió el modal (con "+" para uno nuevo, o "Editar" sobre uno existente)
+ * hasta que se tocó "Guardar" con éxito. Se guarda una entrada por cada vez
+ * que se guarda (no se pisa ni se acumula en el momento): si un mismo
+ * registro se edita varias veces, hay una entrada por cada edición, y el
+ * tiempo total dedicado a ese registro puntual es la suma de todas — ver
+ * Configuración → Estadísticas, que promedia estas entradas. No se registra
+ * nada si se cierra el modal sin guardar (cancelar no cuenta).
+ */
+/** Tipo de movimiento a efectos de tiempo/estadísticas (mismo vocabulario que `StatKind` en `lib/statistics.ts`). */
+export type MovementTimingKind = "gasto" | "ingreso" | "transferencia" | "pagoTarjeta" | "cuotas" | "personas";
+
+export interface MovementTimingEntry {
+  id: string;
+  /** Perfil (AppUser.id) que guardó. `undefined` si no había perfil activo. */
+  userId?: string;
+  /** "create" = el modal se abrió para cargar un movimiento nuevo. "edit" = se abrió con "Editar" sobre uno existente. */
+  action: "create" | "edit";
+  kind: MovementTimingKind;
+  /** Id del registro guardado (`Transaction`/`Transfer`/`CardPayment`/`Installment`/`ContactEntry`), para poder sumar el tiempo total dedicado a un registro puntual si se lo edita más de una vez. */
+  entityId: string;
+  /** Segundos entre abrir el modal y guardar. */
+  seconds: number;
+  /** Fecha (YYYY-MM-DD) en que se guardó, para agrupar por período igual que el resto de Estadísticas. */
+  date: string;
+  at: string; // ISO datetime completo
 }
 
 export interface FinanceData {
@@ -966,12 +997,14 @@ export interface FinanceData {
   auditLog: AuditEntry[];
   /** Bloques de tiempo con la app abierta por perfil, ver `UsageSession`. Se muestra en Configuración → Estadísticas. */
   usageSessions: UsageSession[];
+  /** Tiempo de cargar/editar cada movimiento puntual, ver `MovementTimingEntry`. Se muestra en Configuración → Estadísticas. */
+  movementTimings: MovementTimingEntry[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 15;
+export const CURRENT_SCHEMA_VERSION = 16;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -1027,6 +1060,7 @@ export function emptyFinanceData(): FinanceData {
     sortOrders: { banks: [], accountsByBank: [], accountsByCurrency: [] },
     auditLog: [],
     usageSessions: [],
+    movementTimings: [],
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };

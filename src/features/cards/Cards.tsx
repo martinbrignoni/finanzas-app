@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CreditCard, Pencil, Trash2, Plus, X, Landmark, ShoppingBag, AlertTriangle, ChevronRight, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
@@ -735,6 +735,7 @@ export function CardPaymentModal({
   banks,
   installments,
   onSave,
+  onRecordTiming,
   onClose,
 }: {
   cardId: string;
@@ -744,9 +745,14 @@ export function CardPaymentModal({
   banks: Bank[];
   installments: Installment[];
   onSave: (p: CardPayment) => void;
+  /** Ver `MovementTimingEntry` y Configuración → Estadísticas: cuánto tardó desde que se abrió este modal hasta guardar. */
+  onRecordTiming?: (entry: { action: "create" | "edit"; kind: "pagoTarjeta"; entityId: string; seconds: number }) => void;
   onClose: () => void;
 }) {
   const [movementId] = useState(() => initial?.id ?? crypto.randomUUID());
+  // Momento en que se abrió este modal (nuevo o "Editar"), para medir cuánto
+  // tardó hasta guardar (ver `onRecordTiming` y Configuración → Estadísticas).
+  const openedAtRef = useRef(Date.now());
   const [selectedCardId, setSelectedCardId] = useState(initial?.cardId ?? cardId);
   const [currency, setCurrency] = useState<Currency>(initial?.currency ?? "UYU");
   const [accountId, setAccountId] = useState(initial?.accountId ?? "");
@@ -777,6 +783,12 @@ export function CardPaymentModal({
       note: note.trim() || undefined,
       receiptPaths,
       createdByUserId: initial?.createdByUserId,
+    });
+    onRecordTiming?.({
+      action: initial ? "edit" : "create",
+      kind: "pagoTarjeta",
+      entityId: movementId,
+      seconds: Math.max(0, Math.round((Date.now() - openedAtRef.current) / 1000)),
     });
   };
 

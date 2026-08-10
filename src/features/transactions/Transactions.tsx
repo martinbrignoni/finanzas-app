@@ -19,7 +19,7 @@ import { fetchRateForDate } from "../../lib/exchangeRates";
 import { auditActionLabel } from "../../lib/audit";
 import { exportMovementsToExcel } from "../../lib/excelExport";
 import { UserBadge } from "../../components/UserBadge";
-import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, AuditEntry, AuditEntityType, FamilyMember } from "../../types";
+import type { Transaction, Currency, Account, Bank, Category, Transfer, CardPayment, Card, Installment, AppUser, Contact, ContactEntry, AuditEntry, AuditEntityType, FamilyMember, MovementTimingKind } from "../../types";
 
 /** Modal de solo lectura con el historial de alta/modificación/baja de un registro puntual (ver `AuditEntry`). */
 function AuditTrailModal({
@@ -824,6 +824,7 @@ export function MovementModal({
   onSaveCardPayment,
   onSaveContact,
   onSaveCategory,
+  onRecordTiming,
   onClose,
 }: {
   /** Editar un gasto/ingreso existente. */
@@ -860,6 +861,12 @@ export function MovementModal({
   onSaveCardPayment: (p: CardPayment) => void;
   /** Crear una persona o concepto nuevo (sin salir del modal de movimiento). */
   onSaveContact: (c: Contact) => void;
+  /**
+   * Se llama justo después de guardar con éxito (nunca si se cierra sin
+   * guardar), con cuánto tardó desde que se abrió este modal. Ver
+   * `MovementTimingEntry` y Configuración → Estadísticas.
+   */
+  onRecordTiming?: (entry: { action: "create" | "edit"; kind: MovementTimingKind; entityId: string; seconds: number }) => void;
   onClose: () => void;
 }) {
   const isEditingTransaction = !!initial;
@@ -869,6 +876,17 @@ export function MovementModal({
   // Estable durante toda la vida del modal, aunque el movimiento sea nuevo: sirve como prefijo
   // del archivo del comprobante en Storage y después se usa como id real al guardar.
   const [movementId] = useState(() => initial?.id ?? initialTransfer?.id ?? initialInstallment?.id ?? initialContactEntry?.id ?? crypto.randomUUID());
+  // Momento en que se abrió este modal (nuevo o "Editar"), para medir cuánto
+  // tardó hasta guardar (ver `onRecordTiming` y Configuración → Estadísticas).
+  const openedAtRef = useRef(Date.now());
+  const recordTiming = (kind: MovementTimingKind, isEditingThis: boolean) => {
+    onRecordTiming?.({
+      action: isEditingThis ? "edit" : "create",
+      kind,
+      entityId: movementId,
+      seconds: Math.max(0, Math.round((Date.now() - openedAtRef.current) / 1000)),
+    });
+  };
 
   const [form, setForm] = useState<FormState>(() => {
     // Nueva: arranca sin categoría a propósito, para poder cargar rápido y
@@ -1113,6 +1131,7 @@ export function MovementModal({
         receiptPaths: form.receiptPaths,
         createdByUserId: initialTransfer?.createdByUserId,
       });
+      recordTiming("transferencia", isEditingTransfer);
       return;
     }
 
@@ -1133,6 +1152,7 @@ export function MovementModal({
         note: form.note.trim() || undefined,
         receiptPaths: form.receiptPaths,
       });
+      recordTiming("pagoTarjeta", false);
       return;
     }
 
@@ -1157,6 +1177,7 @@ export function MovementModal({
         receiptPaths: form.receiptPaths,
         createdByUserId: initialContactEntry?.createdByUserId,
       });
+      recordTiming("personas", isEditingContactEntry);
       return;
     }
 
@@ -1238,6 +1259,7 @@ export function MovementModal({
           familyMemberAmounts: familyMemberAmountsMinor,
         });
         maybeCreateIvaCredit(ivaAmountMinor, numCuotas);
+        recordTiming("cuotas", isEditingInstallment);
         return;
       }
     }
@@ -1262,6 +1284,7 @@ export function MovementModal({
       createdByUserId: initial?.createdByUserId,
     });
     maybeCreateIvaCredit(ivaAmountMinor);
+    recordTiming(movementType, isEditingTransaction);
 
     // Medio de pago "persona": además del gasto/ingreso de arriba (con su
     // categoría de siempre), registra por separado en Personas cuánto falta

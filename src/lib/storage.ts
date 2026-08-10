@@ -164,6 +164,12 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 15, usageSessions: [] };
   }
 
+  if (data.schemaVersion === 15) {
+    // v16: tiempo de cargar/editar cada movimiento puntual (Configuración →
+    // Estadísticas). Arranca vacío, igual que usageSessions en la v15.
+    data = { ...data, schemaVersion: 16, movementTimings: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -206,6 +212,7 @@ function migrate(raw: any): FinanceData {
     sortOrders: data.sortOrders ?? { banks: [], accountsByBank: [], accountsByCurrency: [] },
     auditLog: data.auditLog ?? [],
     usageSessions: data.usageSessions ?? [],
+    movementTimings: data.movementTimings ?? [],
     users: usersConHipoteca,
     activeUserId: data.activeUserId ?? null,
   };
