@@ -11,6 +11,7 @@ import { AuditSettings } from "./Audit";
 import { CardsSettings } from "./CardsSettings";
 import { FamilyMembersSettings } from "./FamilyMembers";
 import { BackupSettings } from "./Backup";
+import { StatisticsSettings } from "./Statistics";
 import type { AppUser, Category, Transaction, Transfer, CardPayment, ContactEntry, Installment, Budget, AppLock, Bank, Account, Card, Contact, NotificationPrefs, RecurringRule, AuditEntry, FamilyMember, FinanceData } from "../../types";
 
 export function Settings({
@@ -125,7 +126,7 @@ export function Settings({
   onDeleteRecurringRule: (id: string) => void;
   onSignOut: () => void;
 }) {
-  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "bancos" | "tarjetas" | "recurrentes" | "auditoria" | "respaldo" | "seguridad" | "notificaciones">("usuarios");
+  const [section, setSection] = useState<"usuarios" | "categorias" | "familia" | "bancos" | "tarjetas" | "recurrentes" | "estadisticas" | "auditoria" | "respaldo" | "seguridad" | "notificaciones">("usuarios");
 
   return (
     <div className="pb-24">
@@ -150,6 +151,7 @@ export function Settings({
             ["bancos", "Bancos"],
             ["tarjetas", "Tarjetas"],
             ["recurrentes", "Recurrentes"],
+            ["estadisticas", "Estadísticas"],
             ["auditoria", "Auditoría"],
             ["respaldo", "Respaldo"],
             ["seguridad", "Seguridad"],
@@ -251,6 +253,9 @@ export function Settings({
           onToggleActive={onToggleRecurringActive}
           onDelete={onDeleteRecurringRule}
         />
+      )}
+      {section === "estadisticas" && (
+        <StatisticsSettings data={financeData} users={users} accounts={accounts} banks={banks} cards={cards} categories={categories} />
       )}
       {section === "auditoria" && <AuditSettings auditLog={auditLog} users={users} />}
       {section === "respaldo" && <BackupSettings data={financeData} />}
