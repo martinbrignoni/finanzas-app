@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { theme as C } from "../../styles/theme";
 import { Segment } from "../../components/ui";
 import { UserBadge } from "../../components/UserBadge";
-import { computeStatistics, formatDurationHM, STAT_KIND_LABELS, STAT_PERIOD_LABELS, type StatPeriod, type StatCount } from "../../lib/statistics";
+import { computeStatistics, formatDurationHM, formatDurationSeconds, STAT_KIND_LABELS, STAT_PERIOD_LABELS, type StatPeriod, type StatCount } from "../../lib/statistics";
 import { accountLabel } from "../../lib/accounts";
 import { cardLabel } from "../../lib/cards";
 import { categoryDisplayName } from "../../lib/categories";
@@ -117,13 +117,13 @@ export function StatisticsSettings({
 
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div className="rounded-xl p-4 text-center" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationHM(stats.avgCreateSeconds)}</div>
+          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationSeconds(stats.avgCreateSeconds)}</div>
           <div className="text-xs" style={{ color: C.textFaint }}>
             promedio al cargar{stats.createTimingCount > 0 ? ` (${stats.createTimingCount})` : ""}
           </div>
         </div>
         <div className="rounded-xl p-4 text-center" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationHM(stats.avgEditSeconds)}</div>
+          <div className="text-3xl font-display" style={{ color: C.text }}>{formatDurationSeconds(stats.avgEditSeconds)}</div>
           <div className="text-xs" style={{ color: C.textFaint }}>
             promedio al editar{stats.editTimingCount > 0 ? ` (${stats.editTimingCount})` : ""}
           </div>
@@ -135,14 +135,14 @@ export function StatisticsSettings({
         items={stats.avgCreateSecondsByUser}
         emptyText="Todavía no hay tiempo registrado en este período (empieza a contarse desde ahora)."
         renderLabel={userLabel}
-        formatValue={formatDurationHM}
+        formatValue={formatDurationSeconds}
       />
       <StatBarList
         title="Tiempo promedio al editar, por perfil"
         items={stats.avgEditSecondsByUser}
         emptyText="Todavía no hay ediciones con tiempo registrado en este período."
         renderLabel={userLabel}
-        formatValue={formatDurationHM}
+        formatValue={formatDurationSeconds}
       />
 
       {stats.totalCount === 0 ? (

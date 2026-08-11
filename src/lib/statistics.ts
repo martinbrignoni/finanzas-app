@@ -82,6 +82,20 @@ export function formatDurationHM(totalSeconds: number): string {
   return `${h} h ${m} min`;
 }
 
+/**
+ * "45 s" o "1 min 30 s" — a diferencia de `formatDurationHM`, no redondea a
+ * minutos enteros: pensado para el tiempo de cargar/editar un movimiento
+ * puntual (`avgCreateSeconds`/`avgEditSeconds`), que suele ser bastante menos
+ * de un minuto y donde perder la precisión de segundos lo hace inútil.
+ */
+export function formatDurationSeconds(totalSeconds: number): string {
+  const s = Math.round(totalSeconds);
+  const m = Math.floor(s / 60);
+  const remS = s % 60;
+  if (m === 0) return `${remS} s`;
+  return `${m} min ${remS} s`;
+}
+
 function bump<K>(map: Map<K, number>, key: K) {
   map.set(key, (map.get(key) ?? 0) + 1);
 }
