@@ -204,6 +204,193 @@ function itemSearchText(item: LedgerItem, accounts: Account[], banks: Bank[], ca
   ].filter((x): x is string => !!x).join(" ");
 }
 
+/** Una fila label/valor del detalle de un movimiento; se omite sola si no hay valor (ver `MovementDetailModal`). */
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  if (value === undefined || value === null || value === "") return null;
+  return (
+    <div className="flex items-start justify-between gap-3 py-1.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+      <span className="text-xs shrink-0 pt-0.5" style={{ color: C.textFaint }}>{label}</span>
+      <span className="text-sm text-right" style={{ color: C.text }}>{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Modal de solo lectura con todos los campos cargados de un movimiento
+ * puntual (cualquiera de los 5 tipos que conviven en Movimientos), sin
+ * resumir ni truncar nada. Se abre al tocar la fila (no un botón de acción)
+ * en la lista.
+ */
+function MovementDetailModal({
+  item,
+  categories,
+  accounts,
+  banks,
+  cards,
+  contacts,
+  familyMembers,
+  vehicles,
+  users,
+  onClose,
+}: {
+  item: LedgerItem;
+  categories: Category[];
+  accounts: Account[];
+  banks: Bank[];
+  cards: Card[];
+  contacts: Contact[];
+  familyMembers: FamilyMember[];
+  vehicles: Vehicle[];
+  users: AppUser[];
+  onClose: () => void;
+}) {
+  const userLabel = (id: string | undefined) => (id ? users.find((u) => u.id === id)?.name ?? "Perfil eliminado" : undefined);
+  const familyLabel = (ids: string[] | undefined, amounts: Record<string, number> | undefined, currency: Currency) => {
+    if (!ids || ids.length === 0) return undefined;
+    return ids
+      .map((id) => {
+        const name = familyMembers.find((m) => m.id === id)?.name;
+        if (!name) return null;
+        const amt = amounts?.[id];
+        return amt ? `${name} (${formatMoney(amt, currency)})` : name;
+      })
+      .filter(Boolean)
+      .join(", ") || undefined;
+  };
+  const receiptsRow = (paths: string[] | undefined) =>
+    paths && paths.length > 0 ? <ReceiptButton paths={paths} /> : undefined;
+
+  if (item.kind === "transaction") {
+    const t = item.data;
+    return (
+      <Modal title={t.type === "ingreso" ? "Detalle del ingreso" : "Detalle del gasto"} onClose={onClose}>
+        <div className="space-y-0">
+          <DetailRow label="Tipo" value={t.type === "ingreso" ? "Ingreso" : "Gasto"} />
+          <DetailRow label="Monto" value={`${t.type === "ingreso" ? "+" : "-"}${formatMoney(t.amountMinor, t.currency)}`} />
+          <DetailRow label="Fecha" value={formatDateDMY(t.date)} />
+          <DetailRow label="Categoría" value={t.category} />
+          <DetailRow label="Nota" value={t.note} />
+          <DetailRow label="Cuenta" value={t.accountId ? accountLabel(accounts.find((a) => a.id === t.accountId), banks) : undefined} />
+          <DetailRow label="Tarjeta" value={t.cardId ? cardLabel(cards.find((c) => c.id === t.cardId), banks) : undefined} />
+          <DetailRow label="Extensión de tarjeta" value={cardExtensionLabel(cards, t.cardId, t.cardExtensionId) ?? undefined} />
+          <DetailRow label="Vehículo" value={t.vehicleId ? vehicles.find((v) => v.id === t.vehicleId)?.name ?? "Vehículo eliminado" : undefined} />
+          <DetailRow label="Litros" value={t.fuelLiters !== undefined ? `${t.fuelLiters} L` : undefined} />
+          <DetailRow label="Km parciales" value={t.fuelKmPartial !== undefined ? `${t.fuelKmPartial} km` : undefined} />
+          <DetailRow label="Km totales" value={t.fuelKmTotal !== undefined ? `${t.fuelKmTotal} km` : undefined} />
+          <DetailRow label="Integrante(s) de familia" value={familyLabel(t.familyMemberIds, t.familyMemberAmounts, t.currency)} />
+          <DetailRow
+            label="Pedido"
+            value={t.orderNumber ? `${t.orderType === "sena" ? "Seña pedido" : t.orderType === "saldo" ? "Saldo pedido" : "Pedido"} #${t.orderNumber}` : undefined}
+          />
+          <DetailRow label="Cuota hipoteca" value={t.mortgageLoanId ? "Sí" : undefined} />
+          <DetailRow label="Recurrente" value={t.recurringRuleId ? "Sí" : undefined} />
+          <DetailRow label="Conciliado" value={t.reconciledAt ? formatDateTimeDMY(t.reconciledAt) : undefined} />
+          <DetailRow label="Comprobantes" value={receiptsRow(receiptPathsOf(t))} />
+          <DetailRow label="Cargado por" value={userLabel(t.createdByUserId)} />
+          <DetailRow label="Alta" value={t.createdAt ? formatDateTimeDMY(t.createdAt) : undefined} />
+          <DetailRow label="Última modificación" value={t.updatedAt ? formatDateTimeDMY(t.updatedAt) : undefined} />
+        </div>
+      </Modal>
+    );
+  }
+
+  if (item.kind === "transfer") {
+    const tr = item.data;
+    const fromAcc = accounts.find((a) => a.id === tr.fromAccountId);
+    const toAcc = accounts.find((a) => a.id === tr.toAccountId);
+    return (
+      <Modal title="Detalle de la transferencia" onClose={onClose}>
+        <div className="space-y-0">
+          <DetailRow label="Desde" value={accountLabel(fromAcc, banks)} />
+          <DetailRow label="Hacia" value={accountLabel(toAcc, banks)} />
+          <DetailRow label="Monto origen" value={fromAcc && formatMoney(tr.fromAmountMinor, fromAcc.currency)} />
+          <DetailRow label="Monto destino" value={toAcc && formatMoney(tr.toAmountMinor, toAcc.currency)} />
+          <DetailRow label="Cotización" value={tr.exchangeRate} />
+          <DetailRow label="Fecha" value={formatDateDMY(tr.date)} />
+          <DetailRow label="Nota" value={tr.note} />
+          <DetailRow label="Conciliado" value={tr.reconciledAt ? formatDateTimeDMY(tr.reconciledAt) : undefined} />
+          <DetailRow label="Comprobantes" value={receiptsRow(receiptPathsOf(tr))} />
+          <DetailRow label="Cargado por" value={userLabel(tr.createdByUserId)} />
+          <DetailRow label="Alta" value={tr.createdAt ? formatDateTimeDMY(tr.createdAt) : undefined} />
+          <DetailRow label="Última modificación" value={tr.updatedAt ? formatDateTimeDMY(tr.updatedAt) : undefined} />
+        </div>
+      </Modal>
+    );
+  }
+
+  if (item.kind === "installment") {
+    const inst = item.data;
+    const card = cards.find((c) => c.id === inst.cardId);
+    return (
+      <Modal title="Detalle de la compra en cuotas" onClose={onClose}>
+        <div className="space-y-0">
+          <DetailRow label="Descripción" value={inst.description} />
+          <DetailRow label="Categoría" value={inst.category ? categoryDisplayName(inst.category, categories) : undefined} />
+          <DetailRow label="Nota" value={inst.note} />
+          <DetailRow label="Monto total" value={`-${formatMoney(inst.totalAmountMinor, inst.currency)}`} />
+          <DetailRow label="Cuotas" value={inst.numInstallments} />
+          <DetailRow label="Monto por cuota" value={formatMoney(inst.installmentAmountMinor, inst.currency)} />
+          <DetailRow label="Mes de inicio" value={monthLabel(inst.startMonth)} />
+          <DetailRow label="Fecha de compra" value={inst.date ? formatDateDMY(inst.date) : undefined} />
+          <DetailRow label="Tarjeta" value={card ? cardLabel(card, banks) : undefined} />
+          <DetailRow label="Extensión de tarjeta" value={cardExtensionLabel(cards, inst.cardId, inst.cardExtensionId) ?? undefined} />
+          <DetailRow label="Integrante(s) de familia" value={familyLabel(inst.familyMemberIds, inst.familyMemberAmounts, inst.currency)} />
+          <DetailRow label="Comprobantes" value={receiptsRow(receiptPathsOf(inst))} />
+          <DetailRow label="Cargado por" value={userLabel(inst.createdByUserId)} />
+          <DetailRow label="Alta" value={inst.createdAt ? formatDateTimeDMY(inst.createdAt) : undefined} />
+          <DetailRow label="Última modificación" value={inst.updatedAt ? formatDateTimeDMY(inst.updatedAt) : undefined} />
+        </div>
+      </Modal>
+    );
+  }
+
+  if (item.kind === "contactEntry") {
+    const e = item.data;
+    const contact = contacts.find((c) => c.id === e.contactId);
+    const favorMio = e.amountMinor >= 0;
+    return (
+      <Modal title="Detalle del movimiento con persona" onClose={onClose}>
+        <div className="space-y-0">
+          <DetailRow label="Persona/concepto" value={contact?.name ?? "Persona eliminada"} />
+          <DetailRow label="Descripción" value={e.description} />
+          <DetailRow label="Monto" value={`${favorMio ? "+" : "-"}${formatMoney(Math.abs(e.amountMinor), e.currency)}`} />
+          <DetailRow label="A favor de" value={favorMio ? "Vos (te debe)" : "Él/ella (le debés)"} />
+          <DetailRow label="Fecha" value={formatDateDMY(e.date)} />
+          <DetailRow label="Cuenta" value={e.accountId ? accountLabel(accounts.find((a) => a.id === e.accountId), banks) : undefined} />
+          <DetailRow label="Tarjeta" value={e.cardId ? cardLabel(cards.find((c) => c.id === e.cardId), banks) : undefined} />
+          <DetailRow label="Extensión de tarjeta" value={cardExtensionLabel(cards, e.cardId, e.cardExtensionId) ?? undefined} />
+          <DetailRow label="Cuotas" value={e.numInstallments} />
+          <DetailRow label="Conciliado" value={e.reconciledAt ? formatDateTimeDMY(e.reconciledAt) : undefined} />
+          <DetailRow label="Comprobantes" value={receiptsRow(receiptPathsOf(e))} />
+          <DetailRow label="Cargado por" value={userLabel(e.createdByUserId)} />
+          <DetailRow label="Alta" value={e.createdAt ? formatDateTimeDMY(e.createdAt) : undefined} />
+          <DetailRow label="Última modificación" value={e.updatedAt ? formatDateTimeDMY(e.updatedAt) : undefined} />
+        </div>
+      </Modal>
+    );
+  }
+
+  const p = item.data;
+  const account = accounts.find((a) => a.id === p.accountId);
+  const card = cards.find((c) => c.id === p.cardId);
+  return (
+    <Modal title="Detalle del pago de tarjeta" onClose={onClose}>
+      <div className="space-y-0">
+        <DetailRow label="Tarjeta" value={card ? cardLabel(card, banks) : "Tarjeta eliminada"} />
+        <DetailRow label="Cuenta de origen" value={accountLabel(account, banks)} />
+        <DetailRow label="Monto" value={`-${formatMoney(p.amountMinor, p.currency)}`} />
+        <DetailRow label="Fecha" value={formatDateDMY(p.date)} />
+        <DetailRow label="Nota" value={p.note} />
+        <DetailRow label="Conciliado" value={p.reconciledAt ? formatDateTimeDMY(p.reconciledAt) : undefined} />
+        <DetailRow label="Comprobantes" value={receiptsRow(receiptPathsOf(p))} />
+        <DetailRow label="Cargado por" value={userLabel(p.createdByUserId)} />
+        <DetailRow label="Alta" value={p.createdAt ? formatDateTimeDMY(p.createdAt) : undefined} />
+        <DetailRow label="Última modificación" value={p.updatedAt ? formatDateTimeDMY(p.updatedAt) : undefined} />
+      </div>
+    </Modal>
+  );
+}
+
 export function Transactions({
   transactions,
   transfers,
@@ -300,6 +487,8 @@ export function Transactions({
     entityType: AuditEntityType,
     record: { id: string; createdAt?: string; createdByUserId?: string }
   ) => setAuditView({ title, entityType, entityId: record.id, fallbackCreatedAt: record.createdAt, fallbackCreatedByUserId: record.createdByUserId });
+  // Al tocar un movimiento (no un botón de acción puntual) se abre el detalle completo de solo lectura, ver `MovementDetailModal`.
+  const [detailItem, setDetailItem] = useState<LedgerItem | null>(null);
 
   const allItems: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
@@ -462,11 +651,11 @@ export function Transactions({
               <Fragment key={t.id}>
                 {separator}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: t.type === "ingreso" ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}>
+                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: t.type === "ingreso" ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}>
                     {t.type === "ingreso" ? <ArrowUpRight size={16} color={C.positive} /> : <ArrowDownRight size={16} color={C.negative} />}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm flex items-center gap-1" style={{ color: C.text }}>
                       {t.recurringRuleId && <Repeat size={11} color={C.textFaint} aria-label="Movimiento recurrente" />}
                       <span>
@@ -494,7 +683,7 @@ export function Transactions({
                       {showAuthor && <UserBadge users={users} userId={t.createdByUserId} />}
                     </div>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
                   <div className="text-right">
                     <div className="font-mono text-sm" style={{ color: t.type === "ingreso" ? C.positive : C.negative }}>
@@ -527,11 +716,11 @@ export function Transactions({
               <Fragment key={tr.id}>
                 {separator}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
+                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(79,168,160,0.15)" }}>
                     <ArrowRightLeft size={16} color={C.usd} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm" style={{ color: C.text }}>
                       {accountLabel(fromAcc, banks)} → {accountLabel(toAcc, banks)}
                       {tr.note ? ` · ${tr.note}` : ""}
@@ -541,7 +730,7 @@ export function Transactions({
                       {showAuthor && <UserBadge users={users} userId={tr.createdByUserId} />}
                     </div>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
                   <div className="text-right">
                     {sameCurrency ? (
@@ -577,11 +766,11 @@ export function Transactions({
               <Fragment key={inst.id}>
                 {separator}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
+                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(217,119,106,0.15)" }}>
                     <CreditCardIcon size={16} color={C.negative} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm" style={{ color: C.text }}>{title}{inst.note ? ` · ${inst.note}` : ""}</div>
                     <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
                       <span>
@@ -599,7 +788,7 @@ export function Transactions({
                       {showAuthor && <UserBadge users={users} userId={inst.createdByUserId} />}
                     </div>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
                   <div className="text-right">
                     <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(inst.totalAmountMinor, inst.currency)}</div>
@@ -632,11 +821,11 @@ export function Transactions({
               <Fragment key={e.id}>
                 {separator}
                 <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(79,168,160,0.15)" }}>
+                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(79,168,160,0.15)" }}>
                     {isConcepto ? <Tag size={16} color={C.usd} /> : <User size={16} color={C.usd} />}
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm" style={{ color: C.text }}>
                       {contact?.name ?? "Persona eliminada"} · {e.description}
                     </div>
@@ -649,7 +838,7 @@ export function Transactions({
                       {showAuthor && <UserBadge users={users} userId={e.createdByUserId} />}
                     </div>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
                   <div className="text-right">
                     <div className="font-mono text-sm" style={{ color: favorMio ? C.positive : C.negative }}>
@@ -680,11 +869,11 @@ export function Transactions({
             <Fragment key={p.id}>
               {separator}
               <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: "rgba(217,119,106,0.15)" }}>
+              <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(217,119,106,0.15)" }}>
                   <CreditCardIcon size={16} color={C.negative} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-sm" style={{ color: C.text }}>
                     Pago tarjeta {card ? cardLabel(card, banks) : "eliminada"} · {accountLabel(account, banks)}
                     {p.note ? ` · ${p.note}` : ""}
@@ -694,7 +883,7 @@ export function Transactions({
                   {showAuthor && <UserBadge users={users} userId={p.createdByUserId} />}
                 </div>
                 </div>
-              </div>
+              </button>
               <div className="flex items-center gap-2">
                 <div className="text-right">
                   <div className="font-mono text-sm" style={{ color: C.negative }}>-{formatMoney(p.amountMinor, p.currency)}</div>
@@ -725,6 +914,20 @@ export function Transactions({
           fallbackCreatedAt={auditView.fallbackCreatedAt}
           fallbackCreatedByUserId={auditView.fallbackCreatedByUserId}
           onClose={() => setAuditView(null)}
+        />
+      )}
+      {detailItem && (
+        <MovementDetailModal
+          item={detailItem}
+          categories={categories}
+          accounts={accounts}
+          banks={banks}
+          cards={cards}
+          contacts={contacts}
+          familyMembers={familyMembers}
+          vehicles={vehicles}
+          users={users}
+          onClose={() => setDetailItem(null)}
         />
       )}
     </div>
