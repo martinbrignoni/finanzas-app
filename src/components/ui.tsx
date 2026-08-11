@@ -496,12 +496,15 @@ export function SwipeableRow({
   actionsWidth = 132,
   open,
   onOpenChange,
+  accentColor,
 }: {
   children: React.ReactNode;
   actions: React.ReactNode;
   actionsWidth?: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Franja de color en el borde izquierdo (ej. para distinguir a simple vista los movimientos de MINUCHI en Movimientos). */
+  accentColor?: string;
 }) {
   const startXRef = useRef<number | null>(null);
   const baseDxRef = useRef(0);
@@ -548,7 +551,7 @@ export function SwipeableRow({
   return (
     <div
       className="relative rounded-xl overflow-hidden"
-      style={{ border: `1px solid ${C.border}` }}
+      style={{ border: `1px solid ${C.border}`, borderLeft: accentColor ? `3px solid ${accentColor}` : undefined }}
       onPointerEnter={handlePointerEnter}
       onPointerLeave={handlePointerLeave}
     >

@@ -659,12 +659,14 @@ export function Transactions({
 
           if (item.kind === "transaction") {
             const t = item.data;
+            const isMinuchi = isMinuchiCategoryPath(t.category, categories);
             return (
               <Fragment key={t.id}>
                 {separator}
                 <SwipeableRow
                   open={swipedId === t.id}
                   onOpenChange={(o) => setSwipedId(o ? t.id : null)}
+                  accentColor={isMinuchi ? C.usd : undefined}
                   actions={
                     <>
                       <IconBtn label="Auditoría del movimiento" onClick={() => { setSwipedId(null); openAudit(t.category ? categoryDisplayName(t.category, categories) : "Sin categorizar", "transaction", t); }}>
@@ -687,6 +689,11 @@ export function Transactions({
                   <div className="min-w-0">
                     <div className="text-sm flex items-center gap-1" style={{ color: C.text }}>
                       {t.recurringRuleId && <Repeat size={11} color={C.textFaint} aria-label="Movimiento recurrente" />}
+                      {isMinuchi && (
+                        <span className="text-[9px] font-bold px-1 py-0.5 rounded shrink-0" style={{ background: "rgba(79,168,160,0.15)", color: C.usd }}>
+                          MINUCHI
+                        </span>
+                      )}
                       <span>
                         {t.category ? categoryDisplayName(t.category, categories) : <span style={{ color: C.uyu }}>Sin categorizar</span>}
                         {t.note ? ` · ${t.note}` : ""}
@@ -792,12 +799,14 @@ export function Transactions({
             const card = cards.find((c) => c.id === inst.cardId);
             const instDate = inst.date ?? `${inst.startMonth}-01`;
             const title = inst.category ? `${categoryDisplayName(inst.category, categories)} · ${inst.description}` : inst.description;
+            const isMinuchi = isMinuchiCategoryPath(inst.category, categories);
             return (
               <Fragment key={inst.id}>
                 {separator}
                 <SwipeableRow
                   open={swipedId === inst.id}
                   onOpenChange={(o) => setSwipedId(o ? inst.id : null)}
+                  accentColor={isMinuchi ? C.usd : undefined}
                   actions={
                     <>
                       <IconBtn label="Auditoría de la compra en cuotas" onClick={() => { setSwipedId(null); openAudit(inst.description, "installment", inst); }}>
@@ -818,7 +827,14 @@ export function Transactions({
                     <CreditCardIcon size={16} color={C.negative} />
                   </div>
                   <div className="min-w-0">
-                    <div className="text-sm" style={{ color: C.text }}>{title}{inst.note ? ` · ${inst.note}` : ""}</div>
+                    <div className="text-sm flex items-center gap-1" style={{ color: C.text }}>
+                      {isMinuchi && (
+                        <span className="text-[9px] font-bold px-1 py-0.5 rounded shrink-0" style={{ background: "rgba(79,168,160,0.15)", color: C.usd }}>
+                          MINUCHI
+                        </span>
+                      )}
+                      <span>{title}{inst.note ? ` · ${inst.note}` : ""}</span>
+                    </div>
                     <div className="text-xs flex items-center gap-1.5" style={{ color: C.textFaint }}>
                       <span>
                         {formatDateDMY(instDate)}
