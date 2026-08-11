@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import { ArrowUpRight, ArrowDownRight, ArrowRightLeft, Pencil, Trash2, CreditCard as CreditCardIcon, Search, X, Repeat, User, Tag, History, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill, DateStepper } from "../../components/ui";
+import { Modal, Field, TextInput, Select, Combobox, Segment, PrimaryButton, IconBtn, CurrencyPill, DateStepper, SwipeableRow } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { receiptPathsOf } from "../../lib/receipts";
 import { CategoryPicker } from "../../components/CategoryPicker";
@@ -489,6 +489,18 @@ export function Transactions({
   ) => setAuditView({ title, entityType, entityId: record.id, fallbackCreatedAt: record.createdAt, fallbackCreatedByUserId: record.createdByUserId });
   // Al tocar un movimiento (no un botón de acción puntual) se abre el detalle completo de solo lectura, ver `MovementDetailModal`.
   const [detailItem, setDetailItem] = useState<LedgerItem | null>(null);
+  // Id del movimiento con la fila deslizada hacia la izquierda (Historial/Editar/Eliminar
+  // a la vista), o null si ninguna está abierta. Una sola fila abierta a la vez.
+  const [swipedId, setSwipedId] = useState<string | null>(null);
+  // Si hay una fila abierta (la propia u otra), tocar el contenido la cierra en vez de
+  // abrir el detalle; solo abre el detalle cuando no hay ninguna fila deslizada.
+  const handleRowTap = (openDetail: () => void) => {
+    if (swipedId !== null) {
+      setSwipedId(null);
+      return;
+    }
+    openDetail();
+  };
 
   const allItems: LedgerItem[] = [
     ...transactions.map((t): LedgerItem => ({ kind: "transaction", date: t.date, data: t })),
@@ -650,8 +662,25 @@ export function Transactions({
             return (
               <Fragment key={t.id}>
                 {separator}
-                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                <SwipeableRow
+                  open={swipedId === t.id}
+                  onOpenChange={(o) => setSwipedId(o ? t.id : null)}
+                  actions={
+                    <>
+                      <IconBtn label="Auditoría del movimiento" onClick={() => { setSwipedId(null); openAudit(t.category ? categoryDisplayName(t.category, categories) : "Sin categorizar", "transaction", t); }}>
+                        <History size={15} />
+                      </IconBtn>
+                      {canEdit && canEditOwnRecord(activeUser, t) && (
+                        <>
+                          <IconBtn label="Editar movimiento" onClick={() => { setSwipedId(null); onEdit(t); }}><Pencil size={15} /></IconBtn>
+                          <IconBtn label="Eliminar movimiento" danger onClick={() => { setSwipedId(null); onDelete(t.id); }}><Trash2 size={15} /></IconBtn>
+                        </>
+                      )}
+                    </>
+                  }
+                >
+                <div className="p-3 flex items-center justify-between">
+                <button type="button" onClick={() => handleRowTap(() => setDetailItem(item))} className="flex items-center gap-3 text-left min-w-0 flex-1">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: t.type === "ingreso" ? "rgba(111,191,139,0.15)" : "rgba(217,119,106,0.15)" }}>
                     {t.type === "ingreso" ? <ArrowUpRight size={16} color={C.positive} /> : <ArrowDownRight size={16} color={C.negative} />}
                   </div>
@@ -692,17 +721,9 @@ export function Transactions({
                     <CurrencyPill currency={t.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(t)} />
-                  <IconBtn label="Auditoría del movimiento" onClick={() => openAudit(t.category ? categoryDisplayName(t.category, categories) : "Sin categorizar", "transaction", t)}>
-                    <History size={15} />
-                  </IconBtn>
-                  {canEdit && canEditOwnRecord(activeUser, t) && (
-                    <>
-                      <IconBtn label="Editar movimiento" onClick={() => onEdit(t)}><Pencil size={15} /></IconBtn>
-                      <IconBtn label="Eliminar movimiento" danger onClick={() => onDelete(t.id)}><Trash2 size={15} /></IconBtn>
-                    </>
-                  )}
                 </div>
                 </div>
+                </SwipeableRow>
               </Fragment>
             );
           }
@@ -715,8 +736,25 @@ export function Transactions({
             return (
               <Fragment key={tr.id}>
                 {separator}
-                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                <SwipeableRow
+                  open={swipedId === tr.id}
+                  onOpenChange={(o) => setSwipedId(o ? tr.id : null)}
+                  actions={
+                    <>
+                      <IconBtn label="Auditoría de la transferencia" onClick={() => { setSwipedId(null); openAudit(`${accountLabel(fromAcc, banks)} → ${accountLabel(toAcc, banks)}`, "transfer", tr); }}>
+                        <History size={15} />
+                      </IconBtn>
+                      {canEdit && canEditOwnRecord(activeUser, tr) && (
+                        <>
+                          <IconBtn label="Editar transferencia" onClick={() => { setSwipedId(null); onEditTransfer(tr); }}><Pencil size={15} /></IconBtn>
+                          <IconBtn label="Eliminar transferencia" danger onClick={() => { setSwipedId(null); onDeleteTransfer(tr.id); }}><Trash2 size={15} /></IconBtn>
+                        </>
+                      )}
+                    </>
+                  }
+                >
+                <div className="p-3 flex items-center justify-between">
+                <button type="button" onClick={() => handleRowTap(() => setDetailItem(item))} className="flex items-center gap-3 text-left min-w-0 flex-1">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(79,168,160,0.15)" }}>
                     <ArrowRightLeft size={16} color={C.usd} />
                   </div>
@@ -742,17 +780,9 @@ export function Transactions({
                     )}
                   </div>
                   <ReceiptButton paths={receiptPathsOf(tr)} />
-                  <IconBtn label="Auditoría de la transferencia" onClick={() => openAudit(`${accountLabel(fromAcc, banks)} → ${accountLabel(toAcc, banks)}`, "transfer", tr)}>
-                    <History size={15} />
-                  </IconBtn>
-                  {canEdit && canEditOwnRecord(activeUser, tr) && (
-                    <>
-                      <IconBtn label="Editar transferencia" onClick={() => onEditTransfer(tr)}><Pencil size={15} /></IconBtn>
-                      <IconBtn label="Eliminar transferencia" danger onClick={() => onDeleteTransfer(tr.id)}><Trash2 size={15} /></IconBtn>
-                    </>
-                  )}
                 </div>
                 </div>
+                </SwipeableRow>
               </Fragment>
             );
           }
@@ -765,8 +795,25 @@ export function Transactions({
             return (
               <Fragment key={inst.id}>
                 {separator}
-                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                <SwipeableRow
+                  open={swipedId === inst.id}
+                  onOpenChange={(o) => setSwipedId(o ? inst.id : null)}
+                  actions={
+                    <>
+                      <IconBtn label="Auditoría de la compra en cuotas" onClick={() => { setSwipedId(null); openAudit(inst.description, "installment", inst); }}>
+                        <History size={15} />
+                      </IconBtn>
+                      {canEdit && canEditOwnRecord(activeUser, inst) && (
+                        <>
+                          <IconBtn label="Editar compra en cuotas" onClick={() => { setSwipedId(null); onEditInstallment(inst); }}><Pencil size={15} /></IconBtn>
+                          <IconBtn label="Eliminar compra en cuotas" danger onClick={() => { setSwipedId(null); onDeleteInstallment(inst.id); }}><Trash2 size={15} /></IconBtn>
+                        </>
+                      )}
+                    </>
+                  }
+                >
+                <div className="p-3 flex items-center justify-between">
+                <button type="button" onClick={() => handleRowTap(() => setDetailItem(item))} className="flex items-center gap-3 text-left min-w-0 flex-1">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(217,119,106,0.15)" }}>
                     <CreditCardIcon size={16} color={C.negative} />
                   </div>
@@ -795,17 +842,9 @@ export function Transactions({
                     <CurrencyPill currency={inst.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(inst)} />
-                  <IconBtn label="Auditoría de la compra en cuotas" onClick={() => openAudit(inst.description, "installment", inst)}>
-                    <History size={15} />
-                  </IconBtn>
-                  {canEdit && canEditOwnRecord(activeUser, inst) && (
-                    <>
-                      <IconBtn label="Editar compra en cuotas" onClick={() => onEditInstallment(inst)}><Pencil size={15} /></IconBtn>
-                      <IconBtn label="Eliminar compra en cuotas" danger onClick={() => onDeleteInstallment(inst.id)}><Trash2 size={15} /></IconBtn>
-                    </>
-                  )}
                 </div>
                 </div>
+                </SwipeableRow>
               </Fragment>
             );
           }
@@ -820,8 +859,25 @@ export function Transactions({
             return (
               <Fragment key={e.id}>
                 {separator}
-                <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-                <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+                <SwipeableRow
+                  open={swipedId === e.id}
+                  onOpenChange={(o) => setSwipedId(o ? e.id : null)}
+                  actions={
+                    <>
+                      <IconBtn label="Auditoría del movimiento con persona" onClick={() => { setSwipedId(null); openAudit(`${contact?.name ?? "Persona eliminada"} · ${e.description}`, "contactEntry", e); }}>
+                        <History size={15} />
+                      </IconBtn>
+                      {canEditContacts && canEditOwnRecord(activeUser, e) && (
+                        <>
+                          <IconBtn label="Editar movimiento con persona" onClick={() => { setSwipedId(null); onEditContactEntry(e); }}><Pencil size={15} /></IconBtn>
+                          <IconBtn label="Eliminar movimiento con persona" danger onClick={() => { setSwipedId(null); onDeleteContactEntry(e.id); }}><Trash2 size={15} /></IconBtn>
+                        </>
+                      )}
+                    </>
+                  }
+                >
+                <div className="p-3 flex items-center justify-between">
+                <button type="button" onClick={() => handleRowTap(() => setDetailItem(item))} className="flex items-center gap-3 text-left min-w-0 flex-1">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(79,168,160,0.15)" }}>
                     {isConcepto ? <Tag size={16} color={C.usd} /> : <User size={16} color={C.usd} />}
                   </div>
@@ -847,17 +903,9 @@ export function Transactions({
                     <CurrencyPill currency={e.currency} />
                   </div>
                   <ReceiptButton paths={receiptPathsOf(e)} />
-                  <IconBtn label="Auditoría del movimiento con persona" onClick={() => openAudit(`${contact?.name ?? "Persona eliminada"} · ${e.description}`, "contactEntry", e)}>
-                    <History size={15} />
-                  </IconBtn>
-                  {canEditContacts && canEditOwnRecord(activeUser, e) && (
-                    <>
-                      <IconBtn label="Editar movimiento con persona" onClick={() => onEditContactEntry(e)}><Pencil size={15} /></IconBtn>
-                      <IconBtn label="Eliminar movimiento con persona" danger onClick={() => onDeleteContactEntry(e.id)}><Trash2 size={15} /></IconBtn>
-                    </>
-                  )}
                 </div>
                 </div>
+                </SwipeableRow>
               </Fragment>
             );
           }
@@ -868,8 +916,25 @@ export function Transactions({
           return (
             <Fragment key={p.id}>
               {separator}
-              <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-              <button type="button" onClick={() => setDetailItem(item)} className="flex items-center gap-3 text-left min-w-0 flex-1">
+              <SwipeableRow
+                open={swipedId === p.id}
+                onOpenChange={(o) => setSwipedId(o ? p.id : null)}
+                actions={
+                  <>
+                    <IconBtn label="Auditoría del pago" onClick={() => { setSwipedId(null); openAudit(`Pago ${card ? cardLabel(card, banks) : "eliminada"}`, "cardPayment", p); }}>
+                      <History size={15} />
+                    </IconBtn>
+                    {canEdit && canEditOwnRecord(activeUser, p) && (
+                      <>
+                        <IconBtn label="Editar pago" onClick={() => { setSwipedId(null); onEditCardPayment(p); }}><Pencil size={15} /></IconBtn>
+                        <IconBtn label="Eliminar pago" danger onClick={() => { setSwipedId(null); onDeleteCardPayment(p.id); }}><Trash2 size={15} /></IconBtn>
+                      </>
+                    )}
+                  </>
+                }
+              >
+              <div className="p-3 flex items-center justify-between">
+              <button type="button" onClick={() => handleRowTap(() => setDetailItem(item))} className="flex items-center gap-3 text-left min-w-0 flex-1">
                 <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: "rgba(217,119,106,0.15)" }}>
                   <CreditCardIcon size={16} color={C.negative} />
                 </div>
@@ -890,17 +955,9 @@ export function Transactions({
                   <CurrencyPill currency={p.currency} />
                 </div>
                 <ReceiptButton paths={receiptPathsOf(p)} />
-                <IconBtn label="Auditoría del pago" onClick={() => openAudit(`Pago ${card ? cardLabel(card, banks) : "eliminada"}`, "cardPayment", p)}>
-                  <History size={15} />
-                </IconBtn>
-                {canEdit && canEditOwnRecord(activeUser, p) && (
-                  <>
-                    <IconBtn label="Editar pago" onClick={() => onEditCardPayment(p)}><Pencil size={15} /></IconBtn>
-                    <IconBtn label="Eliminar pago" danger onClick={() => onDeleteCardPayment(p.id)}><Trash2 size={15} /></IconBtn>
-                  </>
-                )}
               </div>
               </div>
+              </SwipeableRow>
             </Fragment>
           );
           });

@@ -464,3 +464,91 @@ export function CurrencyPill({ currency }: { currency: Currency }) {
     </span>
   );
 }
+
+/**
+ * Fila deslizable (ej. una fila de Movimientos): `children` se arrastra hacia
+ * la izquierda con el dedo para revelar `actions` (ej. Historial/Editar/
+ * Eliminar) escondidas detrás, en vez de mostrarlas siempre y competir por
+ * espacio con los datos del registro. `open`/`onOpenChange` quedan a cargo de
+ * quien la usa, para poder mantener una sola fila abierta a la vez y cerrarla
+ * al tocar en otro lado (ver `Transactions.tsx`).
+ *
+ * El gesto vertical (scroll normal de la lista) no se pisa: `touch-action:
+ * pan-y` le deja ese eje al navegador y esta lógica solo reacciona al
+ * arrastre horizontal. Si el arrastre fue real (más de unos pocos px), se
+ * frena el click sintético que dispara el navegador al soltar el dedo, para
+ * que no dispare la acción de `children` (ej. abrir el detalle) sin querer.
+ */
+export function SwipeableRow({
+  children,
+  actions,
+  actionsWidth = 132,
+  open,
+  onOpenChange,
+}: {
+  children: React.ReactNode;
+  actions: React.ReactNode;
+  actionsWidth?: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const startXRef = useRef<number | null>(null);
+  const baseDxRef = useRef(0);
+  const draggedRef = useRef(false);
+  const [dragDx, setDragDx] = useState<number | null>(null);
+
+  const clamp = (v: number) => Math.min(0, Math.max(-actionsWidth, v));
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    startXRef.current = e.touches[0].clientX;
+    baseDxRef.current = open ? -actionsWidth : 0;
+    draggedRef.current = false;
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (startXRef.current === null) return;
+    const dx = e.touches[0].clientX - startXRef.current;
+    if (Math.abs(dx) > 6) draggedRef.current = true;
+    setDragDx(clamp(baseDxRef.current + dx));
+  };
+  const handleTouchEnd = () => {
+    if (dragDx !== null) onOpenChange(dragDx < -actionsWidth / 2);
+    startXRef.current = null;
+    setDragDx(null);
+  };
+  // Frena el click sintético post-arrastre (ver comentario arriba), pero deja pasar un toque real (sin arrastre).
+  const handleContentClickCapture = (e: React.MouseEvent) => {
+    if (draggedRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      draggedRef.current = false;
+    }
+  };
+
+  const offset = dragDx !== null ? dragDx : open ? -actionsWidth : 0;
+
+  return (
+    <div className="relative rounded-xl overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
+      <div
+        className="absolute inset-y-0 right-0 flex items-center justify-end gap-1 pr-2"
+        style={{ width: actionsWidth, background: C.surface2 }}
+      >
+        {actions}
+      </div>
+      <div
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onClickCapture={handleContentClickCapture}
+        style={{
+          transform: `translateX(${offset}px)`,
+          transition: dragDx !== null ? "none" : "transform 200ms ease-out",
+          touchAction: "pan-y",
+          background: C.surface,
+          position: "relative",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
