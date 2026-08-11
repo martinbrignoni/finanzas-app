@@ -465,15 +465,6 @@ export function CurrencyPill({ currency }: { currency: Currency }) {
   );
 }
 
-// `true` en compus con mouse (hover real y puntero preciso), `false` en
-// celulares/tablets táctiles. Se calcula una sola vez: alcanza para elegir
-// entre gesto de arrastre (táctil) u hover (mouse) en `SwipeableRow`, sin
-// pagar el costo de `matchMedia` en cada fila ni en cada render.
-const SUPPORTS_HOVER =
-  typeof window !== "undefined" && typeof window.matchMedia === "function"
-    ? window.matchMedia("(hover: hover) and (pointer: fine)").matches
-    : false;
-
 /**
  * Fila deslizable (ej. una fila de Movimientos): `children` se arrastra hacia
  * la izquierda con el dedo para revelar `actions` (ej. Historial/Editar/
@@ -485,9 +476,13 @@ const SUPPORTS_HOVER =
  * En compu (mouse), no hay gesto de arrastre para simular: ahí `actions` se
  * revela solo con pasar el mouse por encima de la fila (como el hover de
  * Gmail), sin afectar el estado `open`/`onOpenChange` (que sigue siendo del
- * gesto táctil). Se activa según `SUPPORTS_HOVER`, para no dejar filas
- * "pegadas" abiertas en celular por el hover fantasma que a veces dispara
- * Safari después de un toque.
+ * gesto táctil). Se usan Pointer Events (`onPointerEnter`/`onPointerLeave`)
+ * en vez de `onMouseEnter`/`onMouseLeave` + `matchMedia`, mirando
+ * `e.pointerType` en cada evento real: es más confiable entre navegadores
+ * (una comprobación estática de `matchMedia("(hover: hover)")` puede quedar
+ * mal calculada según el dispositivo) y evita dejar filas "pegadas" abiertas
+ * en celular por el hover fantasma que a veces dispara Safari después de un
+ * toque (`pointerType` ahí es "touch", no "mouse", así que no activa el hover).
  *
  * El gesto vertical (scroll normal de la lista) no se pisa: `touch-action:
  * pan-y` le deja ese eje al navegador y esta lógica solo reacciona al
@@ -540,16 +535,22 @@ export function SwipeableRow({
       draggedRef.current = false;
     }
   };
+  const handlePointerEnter = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse") setHovered(true);
+  };
+  const handlePointerLeave = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse") setHovered(false);
+  };
 
-  const revealed = open || (SUPPORTS_HOVER && hovered);
+  const revealed = open || hovered;
   const offset = dragDx !== null ? dragDx : revealed ? -actionsWidth : 0;
 
   return (
     <div
       className="relative rounded-xl overflow-hidden"
       style={{ border: `1px solid ${C.border}` }}
-      onMouseEnter={SUPPORTS_HOVER ? () => setHovered(true) : undefined}
-      onMouseLeave={SUPPORTS_HOVER ? () => setHovered(false) : undefined}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
     >
       <div
         className="absolute inset-y-0 right-0 flex items-center justify-end gap-1 pr-2"
