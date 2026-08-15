@@ -12,7 +12,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import webpush from "npm:web-push@3";
 
-type NotifiableModuleKey = "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "notas" | "personas" | "hipoteca";
+type NotifiableModuleKey = "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "notas" | "personas" | "hipoteca" | "recordatorios";
 
 const LABELS: Record<NotifiableModuleKey, string> = {
   movimientos: "Movimientos",
@@ -22,6 +22,7 @@ const LABELS: Record<NotifiableModuleKey, string> = {
   notas: "Notas",
   personas: "Personas",
   hipoteca: "Hipoteca",
+  recordatorios: "Recordatorios",
 };
 
 interface NotificationPrefs {

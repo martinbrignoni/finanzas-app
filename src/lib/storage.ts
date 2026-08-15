@@ -178,6 +178,13 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 17, vehicles: [] };
   }
 
+  if (data.schemaVersion === 17) {
+    // v18: módulo Recordatorios (tareas/recordatorios personales o
+    // asignados, con recurrencia y notificación push). Arranca vacío: no hay
+    // nada que migrar de datos existentes.
+    data = { ...data, schemaVersion: 18, reminders: [], reminderRules: [] };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -195,6 +202,10 @@ function migrate(raw: any): FinanceData {
   // Ídem para el permiso "hipoteca".
   const usersConHipoteca: AppUser[] = usersConPersonas.map((u) =>
     u.permissions?.hipoteca ? u : { ...u, permissions: { ...u.permissions, hipoteca: { view: true, edit: true } } }
+  );
+  // Ídem para el permiso "recordatorios".
+  const usersConRecordatorios: AppUser[] = usersConHipoteca.map((u) =>
+    u.permissions?.recordatorios ? u : { ...u, permissions: { ...u.permissions, recordatorios: { view: true, edit: true } } }
   );
 
   return {
@@ -222,7 +233,9 @@ function migrate(raw: any): FinanceData {
     usageSessions: data.usageSessions ?? [],
     movementTimings: data.movementTimings ?? [],
     vehicles: data.vehicles ?? [],
-    users: usersConHipoteca,
+    reminders: data.reminders ?? [],
+    reminderRules: data.reminderRules ?? [],
+    users: usersConRecordatorios,
     activeUserId: data.activeUserId ?? null,
   };
 }

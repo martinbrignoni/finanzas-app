@@ -1,6 +1,6 @@
 import type {
   FinanceData, NotifiableModuleKey, Transaction, Transfer, Installment, CardPayment,
-  Note, ContactEntry, MortgageLoan, Budget, Bank, Account, Card, CardStatement, AccountStatement,
+  Note, ContactEntry, MortgageLoan, Budget, Bank, Account, Card, CardStatement, AccountStatement, Reminder,
 } from "../types";
 import { supabase } from "./supabaseClient";
 import { formatMoney } from "./money";
@@ -15,6 +15,7 @@ const FIELDS_BY_CATEGORY: Record<NotifiableModuleKey, (keyof FinanceData)[]> = {
   notas: ["notes"],
   personas: ["contacts", "contactEntries"],
   hipoteca: ["mortgageLoans"],
+  recordatorios: ["reminders", "reminderRules"],
 };
 
 /**
@@ -116,6 +117,9 @@ function describeContactEntry(e: ContactEntry, verb: string): string {
 function describeMortgageLoan(m: MortgageLoan, verb: string): string {
   return `${verb} el préstamo "${m.name}"`;
 }
+function describeReminder(r: Reminder, verb: string): string {
+  return `${verb} el recordatorio "${r.title}"${r.date ? ` (${formatDateDMY(r.date)}${r.time ? ` ${r.time}` : ""})` : ""}`;
+}
 function describeBudget(b: Budget, verb: string): string {
   const cat = lastSegment(b.category);
   return `${verb} un presupuesto${cat ? ` de ${cat}` : ""}: ${formatMoney(b.limitMinor, b.currency)}`;
@@ -147,6 +151,7 @@ export function describeChangesByCategory(prev: FinanceData, next: FinanceData):
     notas: [],
     personas: [],
     hipoteca: [],
+    recordatorios: [],
   };
 
   const pushDiff = <T extends { id: string }>(
@@ -183,6 +188,7 @@ export function describeChangesByCategory(prev: FinanceData, next: FinanceData):
   pushDiff("notas", prev.notes, next.notes, describeNote);
   pushDiff("personas", prev.contactEntries, next.contactEntries, describeContactEntry);
   pushDiff("hipoteca", prev.mortgageLoans, next.mortgageLoans, describeMortgageLoan);
+  pushDiff("recordatorios", prev.reminders, next.reminders, describeReminder);
 
   return result;
 }

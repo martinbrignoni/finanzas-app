@@ -717,6 +717,7 @@ export type PermissionKey =
   | "notas"
   | "personas"
   | "hipoteca"
+  | "recordatorios"
   | "configuracion";
 
 export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
@@ -730,6 +731,7 @@ export const PERMISSION_MODULES: { key: PermissionKey; label: string }[] = [
   { key: "notas", label: "Notas" },
   { key: "personas", label: "Personas" },
   { key: "hipoteca", label: "Hipoteca" },
+  { key: "recordatorios", label: "Recordatorios" },
   { key: "configuracion", label: "Configuración" },
 ];
 
@@ -792,12 +794,12 @@ export interface AppUser {
  */
 export type NotifiableModuleKey = Extract<
   PermissionKey,
-  "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "notas" | "personas" | "hipoteca"
+  "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "notas" | "personas" | "hipoteca" | "recordatorios"
 >;
 
 export const NOTIFIABLE_MODULES: { key: NotifiableModuleKey; label: string }[] = PERMISSION_MODULES.filter(
   (m): m is { key: NotifiableModuleKey; label: string } =>
-    (["movimientos", "cuentas", "tarjetas", "presupuestos", "notas", "personas", "hipoteca"] as PermissionKey[]).includes(m.key)
+    (["movimientos", "cuentas", "tarjetas", "presupuestos", "notas", "personas", "hipoteca", "recordatorios"] as PermissionKey[]).includes(m.key)
 );
 
 /**
@@ -863,6 +865,91 @@ export interface RecurringRule {
   personaAmountMinor?: number;
   period: RecurrencePeriod;
   /** Próxima fecha (YYYY-MM-DD) en que corresponde generar el movimiento. */
+  nextDueDate: string;
+  /** Si es `false`, no se generan más ocurrencias ("dar de baja"), pero se conserva el historial ya generado. */
+  active: boolean;
+  createdByUserId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type ReminderPriority = "baja" | "media" | "alta";
+
+export const REMINDER_PRIORITY_LABELS: Record<ReminderPriority, string> = {
+  baja: "Baja",
+  media: "Media",
+  alta: "Alta",
+};
+
+/** Un ítem de checklist dentro de un recordatorio/tarea (ver `Reminder.subtasks`). */
+export interface ReminderSubtask {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+/**
+ * Recordatorio o tarea puntual del módulo Recordatorios: personal (sin
+ * asignar a nadie, visible solo para quien lo creó) o compartido/asignado a
+ * uno o más perfiles del hogar (ver `AppUser`). Se puede ver como lista o
+ * como calendario.
+ *
+ * Si `notify` está activo y tiene `time` cargado, se manda una notificación
+ * push a los perfiles de `assignedUserIds` (o al creador si no hay nadie
+ * asignado) a esa fecha/hora exacta, aunque la app esté cerrada — lo hace la
+ * función programada `supabase/functions/send-reminders`, que corre cada
+ * pocos minutos (ver `notifiedAt`). Sin `time` (recordatorio "de todo el
+ * día") no se manda push puntual, aunque `notify` esté activo.
+ */
+export interface Reminder {
+  id: string;
+  title: string;
+  description?: string;
+  date: string; // YYYY-MM-DD
+  /** HH:MM (24hs). Sin definir = "todo el día". */
+  time?: string;
+  priority: ReminderPriority;
+  /** Perfiles (AppUser.id) a los que corresponde. Vacío = personal (ver comentario de la interfaz). */
+  assignedUserIds: string[];
+  /** Perfil (AppUser.id) que lo creó. `undefined` en registros muy viejos (no debería pasar en la práctica: el módulo nace después de este campo existir). */
+  createdByUserId?: string;
+  done: boolean;
+  doneAt?: string;
+  subtasks?: ReminderSubtask[];
+  /** Si esta ocurrencia se generó a partir de una `ReminderRule` recurrente, el id de esa regla. Editar/completar/borrar esta ocurrencia no afecta a la regla ni a otras ocurrencias. */
+  reminderRuleId?: string;
+  /** Si está activo, se manda push a los asignados en la fecha/hora (ver comentario de la interfaz). */
+  notify: boolean;
+  /** Fecha/hora ISO en que efectivamente se mandó el push de este recordatorio, para no reenviarlo. `undefined` = todavía no se mandó (o no corresponde: sin `time`, o ya pasó la fecha sin que corriera la función). */
+  notifiedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Regla de un recordatorio/tarea que se repite solo (ej. "sacar la basura
+ * todos los lunes", "pagar tal servicio el día 10 de cada mes"), sin tener
+ * que cargarlo a mano cada vez. Funciona igual que `RecurringRule` (ver
+ * `lib/recurring.ts`) pero para `Reminder`: tanto al abrir la app como en
+ * cada corrida de la función programada de notificaciones (ver
+ * `Reminder.notify`) se generan como `Reminder` normales todas las
+ * ocurrencias vencidas desde `nextDueDate`, y `nextDueDate` avanza un
+ * período. Cada ocurrencia generada queda totalmente independiente:
+ * completarla, editarla o borrarla no afecta a la regla ni a otras
+ * ocurrencias ya generadas.
+ */
+export interface ReminderRule {
+  id: string;
+  title: string;
+  description?: string;
+  time?: string;
+  priority: ReminderPriority;
+  assignedUserIds: string[];
+  /** Texto de las subtareas a copiar (con `done: false`) en cada ocurrencia nueva. */
+  subtasksTemplate?: string[];
+  notify: boolean;
+  period: RecurrencePeriod;
+  /** Próxima fecha (YYYY-MM-DD) en que corresponde generar el recordatorio. */
   nextDueDate: string;
   /** Si es `false`, no se generan más ocurrencias ("dar de baja"), pero se conserva el historial ya generado. */
   active: boolean;
@@ -1039,12 +1126,16 @@ export interface FinanceData {
   movementTimings: MovementTimingEntry[];
   /** Vehículos administrables en Configuración → Vehículos, ver `Vehicle`. */
   vehicles: Vehicle[];
+  /** Recordatorios/tareas puntuales del módulo Recordatorios, ver `Reminder`. */
+  reminders: Reminder[];
+  /** Reglas de recordatorios/tareas recurrentes, ver `ReminderRule`. */
+  reminderRules: ReminderRule[];
   users: AppUser[];
   /** Perfil actualmente activo en este navegador. */
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 17;
+export const CURRENT_SCHEMA_VERSION = 18;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
@@ -1102,6 +1193,8 @@ export function emptyFinanceData(): FinanceData {
     usageSessions: [],
     movementTimings: [],
     vehicles: [],
+    reminders: [],
+    reminderRules: [],
     users: [{ id: adminId, name: "Yo", permissions: fullPermissions(true) }],
     activeUserId: adminId,
   };

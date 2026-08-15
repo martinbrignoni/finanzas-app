@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users, Sun, Moon, Building2 } from "lucide-react";
+import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users, Sun, Moon, Building2, Bell } from "lucide-react";
 import { theme as C, useThemeMode, toggleThemeMode } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
@@ -10,6 +10,7 @@ import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChang
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
 import { generateDueRecurringTransactions } from "./lib/recurring";
 import { generateDueMortgagePayments } from "./lib/mortgage";
+import { generateDueReminders } from "./lib/reminders";
 import { maybeRunAutomaticBackup } from "./lib/backup";
 import { useUsageTracking } from "./lib/usage";
 import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
@@ -33,6 +34,7 @@ import type {
   FinanceData, Transaction, Card, Installment, Budget, Bank, Account,
   Category, AppUser, PermissionKey, Transfer, CardPayment, Note, AppLock, AccountStatement, CardStatement,
   Contact, ContactEntry, MortgageLoan, MortgagePrepayment, NotificationPrefs, RecurringRule, FamilyMember, Vehicle, MovementTimingKind,
+  Reminder, ReminderRule,
 } from "./types";
 import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
@@ -51,8 +53,9 @@ import { UserModal } from "./features/settings/Users";
 import { RecurringRuleModal } from "./features/settings/Recurring";
 import { FamilyMemberModal } from "./features/settings/FamilyMembers";
 import { VehicleModal } from "./features/settings/Vehicles";
+import { Reminders, ReminderModal } from "./features/reminders/Reminders";
 
-type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "configuracion";
+type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "recordatorios" | "configuracion";
 
 const TABS: { id: TabId; label: string; Icon: typeof Home }[] = [
   { id: "inicio", label: "Inicio", Icon: Home },
@@ -82,6 +85,8 @@ type ModalState =
   | { type: "recurringRule"; payload?: RecurringRule }
   | { type: "familyMember"; payload?: FamilyMember }
   | { type: "vehicle"; payload?: Vehicle }
+  | { type: "reminder"; payload?: Reminder }
+  | { type: "reminderRule"; payload?: ReminderRule }
   | null;
 
 const repo = getRepository();
@@ -132,10 +137,11 @@ export default function App() {
         // de UI de Cotizaciones para convertir la cuota).
         const withRecurring = generateDueRecurringTransactions(loaded);
         const withMortgage = await generateDueMortgagePayments(withRecurring);
-        setData(withMortgage);
+        const withReminders = generateDueReminders(withMortgage);
+        setData(withReminders);
         // Respaldo automático (ver lib/backup.ts): no bloquea la carga ni
         // hace falta esperarlo, corre en silencio y no rompe nada si falla.
-        maybeRunAutomaticBackup(withMortgage).catch(() => {});
+        maybeRunAutomaticBackup(withReminders).catch(() => {});
       })
       .finally(() => setRefreshing(false));
   }, []);
@@ -812,6 +818,95 @@ export default function App() {
     [requestConfirm, deleteRecurringRule]
   );
 
+  // --- recordatorios ---
+  const upsertReminder = useCallback((r: Reminder) => {
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.reminders.findIndex((x) => x.id === r.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...r, createdAt: d.reminders[idx].createdAt ?? now, updatedAt: now }
+          : { ...r, createdByUserId: r.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const reminders = idx >= 0 ? d.reminders.map((x) => (x.id === r.id ? withCreator : x)) : [...d.reminders, withCreator];
+        return { ...d, reminders };
+      });
+      closeModal();
+    };
+    const isEdit = data?.reminders.some((x) => x.id === r.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este recordatorio?", commit);
+  }, [activeUser, data, confirmSave]);
+  // Marcar completado/pendiente es una acción rápida, sin confirmación.
+  const toggleReminderDone = useCallback((r: Reminder) => {
+    setData((d) => {
+      if (!d) return d;
+      const now = new Date().toISOString();
+      return {
+        ...d,
+        reminders: d.reminders.map((x) => (x.id === r.id ? { ...x, done: !x.done, doneAt: !x.done ? now : undefined, updatedAt: now } : x)),
+      };
+    });
+  }, []);
+  const toggleReminderSubtask = useCallback((reminderId: string, subtaskId: string) => {
+    setData((d) => {
+      if (!d) return d;
+      const now = new Date().toISOString();
+      return {
+        ...d,
+        reminders: d.reminders.map((x) =>
+          x.id === reminderId
+            ? { ...x, subtasks: (x.subtasks ?? []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s)), updatedAt: now }
+            : x
+        ),
+      };
+    });
+  }, []);
+  const deleteReminder = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, reminders: d.reminders.filter((x) => x.id !== id) } : d));
+  }, []);
+  const confirmDeleteReminder = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este recordatorio?", () => deleteReminder(id)),
+    [requestConfirm, deleteReminder]
+  );
+
+  // --- recordatorios recurrentes ---
+  const upsertReminderRule = useCallback((r: ReminderRule) => {
+    const commit = () => {
+      setData((d) => {
+        if (!d) return d;
+        const idx = d.reminderRules.findIndex((x) => x.id === r.id);
+        const now = new Date().toISOString();
+        const withCreator = idx >= 0
+          ? { ...r, createdAt: d.reminderRules[idx].createdAt ?? now, updatedAt: now }
+          : { ...r, createdByUserId: r.createdByUserId ?? activeUser?.id, createdAt: now, updatedAt: now };
+        const reminderRules = idx >= 0 ? d.reminderRules.map((x) => (x.id === r.id ? withCreator : x)) : [...d.reminderRules, withCreator];
+        // Materializa de una la primera ocurrencia si ya venció (ver
+        // lib/reminders.ts), para no tener que esperar a recargar la app.
+        return generateDueReminders({ ...d, reminderRules });
+      });
+      closeModal();
+    };
+    const isEdit = data?.reminderRules.some((x) => x.id === r.id) ?? false;
+    confirmSave(isEdit, "¿Guardar los cambios en este recordatorio recurrente?", commit);
+  }, [activeUser, data, confirmSave]);
+  const toggleReminderRuleActive = useCallback((r: ReminderRule) => {
+    setData((d) => {
+      if (!d) return d;
+      const now = new Date().toISOString();
+      return {
+        ...d,
+        reminderRules: d.reminderRules.map((x) => (x.id === r.id ? { ...x, active: !x.active, updatedAt: now } : x)),
+      };
+    });
+  }, []);
+  const deleteReminderRule = useCallback((id: string) => {
+    setData((d) => (d ? { ...d, reminderRules: d.reminderRules.filter((x) => x.id !== id) } : d));
+  }, []);
+  const confirmDeleteReminderRule = useCallback(
+    (id: string) => requestConfirm("¿Eliminar este recordatorio recurrente? Los recordatorios ya generados no se borran.", () => deleteReminderRule(id)),
+    [requestConfirm, deleteReminderRule]
+  );
+
   // --- integrantes de familia ---
   const upsertFamilyMember = useCallback((m: FamilyMember) => {
     setData((d) => {
@@ -1040,6 +1135,11 @@ export default function App() {
                 <Building2 size={20} />
               </button>
             )}
+            {has("recordatorios", "view") && (
+              <button onClick={() => setTab("recordatorios")} aria-label="Recordatorios" style={{ color: tab === "recordatorios" ? C.usd : C.textFaint }}>
+                <Bell size={20} />
+              </button>
+            )}
             {has("configuracion", "view") && (
               <button onClick={() => setTab("configuracion")} aria-label="Configuración" style={{ color: tab === "configuracion" ? C.usd : C.textFaint }}>
                 <SettingsIcon size={20} />
@@ -1193,6 +1293,24 @@ export default function App() {
                 onDeleteLoan={confirmDeleteMortgageLoan}
                 onAddPrepayment={(loanId) => setModal({ type: "mortgagePrepayment", payload: { loanId } })}
                 onDeletePrepayment={confirmDeleteMortgagePrepayment}
+              />
+            )}
+            {tab === "recordatorios" && (
+              <Reminders
+                reminders={data.reminders}
+                reminderRules={data.reminderRules}
+                users={data.users}
+                activeUser={activeUser}
+                canEdit={has("recordatorios", "edit")}
+                onAdd={() => setModal({ type: "reminder" })}
+                onEdit={(r) => setModal({ type: "reminder", payload: r })}
+                onDelete={confirmDeleteReminder}
+                onToggleDone={toggleReminderDone}
+                onToggleSubtask={toggleReminderSubtask}
+                onAddRule={() => setModal({ type: "reminderRule" })}
+                onEditRule={(r) => setModal({ type: "reminderRule", payload: r })}
+                onToggleRuleActive={toggleReminderRuleActive}
+                onDeleteRule={confirmDeleteReminderRule}
               />
             )}
             {tab === "configuracion" && (
@@ -1413,6 +1531,26 @@ export default function App() {
           initial={modal.payload}
           vehicles={data.vehicles}
           onSave={upsertVehicle}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "reminder" && (
+        <ReminderModal
+          initial={modal.payload}
+          users={data.users}
+          activeUserId={data.activeUserId}
+          onSave={upsertReminder}
+          onSaveRule={upsertReminderRule}
+          onClose={closeModal}
+        />
+      )}
+      {modal?.type === "reminderRule" && (
+        <ReminderModal
+          initialRule={modal.payload}
+          users={data.users}
+          activeUserId={data.activeUserId}
+          onSave={upsertReminder}
+          onSaveRule={upsertReminderRule}
           onClose={closeModal}
         />
       )}
