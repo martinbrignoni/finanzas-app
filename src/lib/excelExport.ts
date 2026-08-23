@@ -575,6 +575,28 @@ export function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRat
 }
 
 /**
+ * Exporta a Excel el resultado puntual de UNA búsqueda en Cotizaciones (una
+ * sola moneda: últimas 30, una fecha específica, o un rango) — a diferencia
+ * de `exportExchangeRatesToExcel`, que exporta todo el histórico completo de
+ * todas las monedas. `fileLabel` ya viene armado por quien llama (moneda +
+ * fecha o rango) para nombrar el archivo.
+ */
+export function exportExchangeRateSearchToExcel(currency: string, filas: ExchangeRateRow[], fileLabel: string): void {
+  const wb = XLSX.utils.book_new();
+  const rows = filas.map((f) => ({
+    "Fecha aplicable": f.rate_date,
+    "Fecha publicación BCU": f.published_date,
+    Venta: f.sell,
+    "Arbitraje vs USD": f.arbitrage ?? "",
+  }));
+  const sheet = XLSX.utils.json_to_sheet(
+    rows.length ? rows : [{ "Fecha aplicable": "", "Fecha publicación BCU": "", Venta: "", "Arbitraje vs USD": "" }]
+  );
+  XLSX.utils.book_append_sheet(wb, sheet, sheetName(currency));
+  XLSX.writeFile(wb, `Cotizaciones_${fileLabel}.xlsx`);
+}
+
+/**
  * Exporta el resultado de una conciliación (`reconcileAccount`, ver
  * `lib/reconciliation.ts`) a un único Excel con todo junto: lo registrado en
  * la app, lo que trae el archivo del banco, y en qué categoría cayó cada

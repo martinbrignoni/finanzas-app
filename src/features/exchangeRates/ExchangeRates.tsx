@@ -7,7 +7,7 @@ import {
   fetchLatestRates, fetchRateHistory, fetchAllRatesAllCurrencies, fetchNearestRateForDate, fetchRatesInRange,
   type ExchangeRateCurrency, type ExchangeRateRow,
 } from "../../lib/exchangeRates";
-import { exportExchangeRatesToExcel } from "../../lib/excelExport";
+import { exportExchangeRatesToExcel, exportExchangeRateSearchToExcel } from "../../lib/excelExport";
 
 const MONEDAS: { id: ExchangeRateCurrency; label: string; decimals: number }[] = [
   { id: "USD", label: "Dólar (billete, venta)", decimals: 3 },
@@ -131,6 +131,21 @@ export function ExchangeRates() {
     } finally {
       setExporting(false);
     }
+  };
+
+  /** Exporta solo lo que se ve en pantalla ahora mismo (últimas 30 / fecha puntual / rango), a diferencia de `exportar` que trae todo el histórico de todas las monedas. */
+  const exportarBusqueda = () => {
+    if (!historia || historia.length === 0) return;
+    let fileLabel: string;
+    if (searchMode === "fecha") {
+      fileLabel = `${selected}_${searchDate}`;
+    } else if (searchMode === "rango") {
+      const [from, to] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
+      fileLabel = `${selected}_${from}_a_${to}`;
+    } else {
+      fileLabel = `${selected}_ultimas30_${todayISO()}`;
+    }
+    exportExchangeRateSearchToExcel(selected, historia, fileLabel);
   };
 
   useEffect(cargarTodo, []);
@@ -274,11 +289,18 @@ export function ExchangeRates() {
         </div>
       )}
 
-      <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>
-        {searchMode === "recientes" && `Histórico · ${MONEDAS.find((m) => m.id === selected)?.label}`}
-        {searchMode === "fecha" && `Cotización al ${formatDateDMY(searchDate)} · ${MONEDAS.find((m) => m.id === selected)?.label}`}
-        {searchMode === "rango" && `Del ${formatDateDMY(rangeFrom <= rangeTo ? rangeFrom : rangeTo)} al ${formatDateDMY(rangeFrom <= rangeTo ? rangeTo : rangeFrom)} · ${MONEDAS.find((m) => m.id === selected)?.label}`}
-      </h3>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <h3 className="text-sm font-semibold" style={{ color: C.text }}>
+          {searchMode === "recientes" && `Histórico · ${MONEDAS.find((m) => m.id === selected)?.label}`}
+          {searchMode === "fecha" && `Cotización al ${formatDateDMY(searchDate)} · ${MONEDAS.find((m) => m.id === selected)?.label}`}
+          {searchMode === "rango" && `Del ${formatDateDMY(rangeFrom <= rangeTo ? rangeFrom : rangeTo)} al ${formatDateDMY(rangeFrom <= rangeTo ? rangeTo : rangeFrom)} · ${MONEDAS.find((m) => m.id === selected)?.label}`}
+        </h3>
+        {historia && historia.length > 0 && (
+          <button onClick={exportarBusqueda} aria-label="Exportar esta consulta a Excel" style={{ color: C.textFaint }} className="shrink-0">
+            <FileSpreadsheet size={15} />
+          </button>
+        )}
+      </div>
       {searchMode === "fecha" && historia && historia.length > 0 && !exactMatch && (
         <p className="text-xs mb-2" style={{ color: C.uyu }}>
           No había cotización cargada ese día exacto — se muestra la más cercana ({formatDateDMY(historia[0].rate_date)}).
