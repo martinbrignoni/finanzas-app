@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
-import { RefreshCw, FileSpreadsheet, ArrowLeftRight } from "lucide-react";
+import { RefreshCw, FileSpreadsheet, ArrowLeftRight, Search } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { Segment, Modal, Field, TextInput } from "../../components/ui";
-import { formatDateDMY } from "../../lib/dates";
-import { fetchLatestRates, fetchRateHistory, fetchAllRatesAllCurrencies, type ExchangeRateCurrency, type ExchangeRateRow } from "../../lib/exchangeRates";
+import { Segment, Modal, Field, TextInput, DateStepper } from "../../components/ui";
+import { formatDateDMY, todayISO, addDaysToDate } from "../../lib/dates";
+import {
+  fetchLatestRates, fetchRateHistory, fetchAllRatesAllCurrencies, fetchNearestRateForDate, fetchRatesInRange,
+  type ExchangeRateCurrency, type ExchangeRateRow,
+} from "../../lib/exchangeRates";
 import { exportExchangeRatesToExcel } from "../../lib/excelExport";
 
 const MONEDAS: { id: ExchangeRateCurrency; label: string; decimals: number }[] = [
@@ -91,6 +94,8 @@ function ConverterModal({ latest, onClose }: { latest: Record<string, ExchangeRa
   );
 }
 
+type SearchMode = "recientes" | "fecha" | "rango";
+
 export function ExchangeRates() {
   const [latest, setLatest] = useState<Record<string, ExchangeRateRow | null> | null>(null);
   const [selected, setSelected] = useState<ExchangeRateCurrency>("USD");
@@ -98,6 +103,18 @@ export function ExchangeRates() {
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [converterOpen, setConverterOpen] = useState(false);
+
+  // Búsqueda por fecha puntual o rango (ver `fetchNearestRateForDate`/
+  // `fetchRatesInRange` en lib/exchangeRates.ts), además de las "últimas 30"
+  // que ya mostraba la pantalla.
+  const [searchMode, setSearchMode] = useState<SearchMode>("recientes");
+  const [searchDate, setSearchDate] = useState(todayISO());
+  const [rangeFrom, setRangeFrom] = useState(addDaysToDate(todayISO(), -30));
+  const [rangeTo, setRangeTo] = useState(todayISO());
+  // Si la búsqueda por fecha puntual encontró una cotización de ese día
+  // exacto o tuvo que usar la más cercana (fin de semana/feriado, o fecha sin
+  // cotización cargada todavía): se muestra el aviso correspondiente.
+  const [exactMatch, setExactMatch] = useState(true);
 
   const cargarTodo = () => {
     setLoading(true);
@@ -118,10 +135,30 @@ export function ExchangeRates() {
 
   useEffect(cargarTodo, []);
 
-  useEffect(() => {
+  const buscar = () => {
     setHistoria(null);
-    fetchRateHistory(selected, 30).then(setHistoria);
-  }, [selected]);
+    if (searchMode === "recientes") {
+      fetchRateHistory(selected, 30).then(setHistoria);
+    } else if (searchMode === "fecha") {
+      fetchNearestRateForDate(selected, searchDate).then((row) => {
+        setExactMatch(!row || row.rate_date === searchDate);
+        setHistoria(row ? [row] : []);
+      });
+    } else {
+      // Tolera que "Desde" haya quedado después de "Hasta" (ej. el usuario
+      // cambió el rango sin querer decir "de atrás para adelante"): se
+      // invierte solo para la consulta, sin tocar lo que ve en los campos.
+      const [from, to] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
+      fetchRatesInRange(selected, from, to).then(setHistoria);
+    }
+  };
+
+  // Al cambiar de moneda o de modo de búsqueda, se vuelve a buscar solo.
+  // Cambiar la fecha/rango en sí requiere tocar "Buscar" (si buscara en cada
+  // paso del DateStepper, dispararía una consulta por cada día que se
+  // avanza/retrocede).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(buscar, [selected, searchMode]);
 
   return (
     <div className="pb-24">
@@ -190,13 +227,73 @@ export function ExchangeRates() {
         />
       </div>
 
+      <div className="mb-3">
+        <Segment
+          value={searchMode}
+          onChange={setSearchMode}
+          options={[
+            { value: "recientes", label: "Últimas 30" },
+            { value: "fecha", label: "Fecha específica" },
+            { value: "rango", label: "Rango" },
+          ]}
+        />
+      </div>
+
+      {searchMode === "fecha" && (
+        <div className="flex items-end gap-2 mb-3">
+          <div className="flex-1">
+            <Field label="Fecha">{(id) => <DateStepper id={id} value={searchDate} onChange={setSearchDate} />}</Field>
+          </div>
+          <button
+            onClick={buscar}
+            aria-label="Buscar cotización"
+            className="w-9 h-9 mb-2.5 rounded-md flex items-center justify-center shrink-0"
+            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+          >
+            <Search size={16} />
+          </button>
+        </div>
+      )}
+
+      {searchMode === "rango" && (
+        <div className="flex items-end gap-2 mb-3">
+          <div className="flex-1">
+            <Field label="Desde">{(id) => <DateStepper id={id} value={rangeFrom} onChange={setRangeFrom} />}</Field>
+          </div>
+          <div className="flex-1">
+            <Field label="Hasta">{(id) => <DateStepper id={id} value={rangeTo} onChange={setRangeTo} />}</Field>
+          </div>
+          <button
+            onClick={buscar}
+            aria-label="Buscar cotizaciones"
+            className="w-9 h-9 mb-2.5 rounded-md flex items-center justify-center shrink-0"
+            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
+          >
+            <Search size={16} />
+          </button>
+        </div>
+      )}
+
       <h3 className="text-sm font-semibold mb-2" style={{ color: C.text }}>
-        Histórico · {MONEDAS.find((m) => m.id === selected)?.label}
+        {searchMode === "recientes" && `Histórico · ${MONEDAS.find((m) => m.id === selected)?.label}`}
+        {searchMode === "fecha" && `Cotización al ${formatDateDMY(searchDate)} · ${MONEDAS.find((m) => m.id === selected)?.label}`}
+        {searchMode === "rango" && `Del ${formatDateDMY(rangeFrom <= rangeTo ? rangeFrom : rangeTo)} al ${formatDateDMY(rangeFrom <= rangeTo ? rangeTo : rangeFrom)} · ${MONEDAS.find((m) => m.id === selected)?.label}`}
       </h3>
+      {searchMode === "fecha" && historia && historia.length > 0 && !exactMatch && (
+        <p className="text-xs mb-2" style={{ color: C.uyu }}>
+          No había cotización cargada ese día exacto — se muestra la más cercana ({formatDateDMY(historia[0].rate_date)}).
+        </p>
+      )}
       {historia === null ? (
         <p className="text-xs" style={{ color: C.textFaint }}>Cargando...</p>
       ) : historia.length === 0 ? (
-        <p className="text-xs" style={{ color: C.textFaint }}>Todavía no hay cotizaciones guardadas para esta moneda.</p>
+        <p className="text-xs" style={{ color: C.textFaint }}>
+          {searchMode === "fecha"
+            ? "No hay ninguna cotización cargada cerca de esa fecha."
+            : searchMode === "rango"
+            ? "No hay cotizaciones guardadas en ese rango."
+            : "Todavía no hay cotizaciones guardadas para esta moneda."}
+        </p>
       ) : (
         <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${C.border}` }}>
           {historia.map((row, i) => {

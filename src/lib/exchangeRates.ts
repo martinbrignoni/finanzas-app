@@ -101,6 +101,25 @@ export async function fetchAllRateHistory(currency: ExchangeRateCurrency): Promi
   return resultado;
 }
 
+/**
+ * Cotizaciones guardadas de una moneda dentro de un rango de fechas
+ * (inclusive), más reciente primero. Pensada para la búsqueda por rango en
+ * Cotizaciones; a diferencia de `fetchRateForDate`/`fetchNearestRateForDate`
+ * (que buscan LA cotización aplicable a una fecha puntual), esta devuelve
+ * todas las filas cargadas dentro del período, tal cual están.
+ */
+export async function fetchRatesInRange(currency: ExchangeRateCurrency, from: string, to: string): Promise<ExchangeRateRow[]> {
+  const { data, error } = await supabase
+    .from("exchange_rates")
+    .select("currency, rate_date, published_date, sell, arbitrage")
+    .eq("currency", currency)
+    .gte("rate_date", from)
+    .lte("rate_date", to)
+    .order("rate_date", { ascending: false });
+  if (error || !data) return [];
+  return data as ExchangeRateRow[];
+}
+
 /** Todo el histórico guardado, de todas las monedas. */
 export async function fetchAllRatesAllCurrencies(currencies: ExchangeRateCurrency[]): Promise<Record<string, ExchangeRateRow[]>> {
   const entries = await Promise.all(currencies.map(async (c) => [c, await fetchAllRateHistory(c)] as const));
