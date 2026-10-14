@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { RefreshCw, FileSpreadsheet, ArrowLeftRight, Search } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Segment, Modal, Field, TextInput, DateStepper } from "../../components/ui";
@@ -150,13 +150,28 @@ export function ExchangeRates() {
 
   useEffect(cargarTodo, []);
 
+  // Número de la última consulta disparada: si llegan respuestas fuera de
+  // orden (ej. avanzar varios días rápido, o cambiar de moneda mientras
+  // carga), solo se muestra la de la consulta más reciente.
+  const ultimaConsulta = useRef(0);
+  // Última fecha puntual efectivamente consultada, para no repetir la misma
+  // consulta cuando el efecto de búsqueda automática se dispara sin cambio real.
+  const ultimaFechaConsultada = useRef<string | null>(null);
+
   const buscar = () => {
+    const consulta = ++ultimaConsulta.current;
+    const vigente = () => consulta === ultimaConsulta.current;
     setHistoria(null);
     if (searchMode === "recientes") {
-      fetchRateHistory(selected, 30).then(setHistoria);
+      fetchRateHistory(selected, 30).then((rows) => {
+        if (vigente()) setHistoria(rows);
+      });
     } else if (searchMode === "fecha") {
-      fetchNearestRateForDate(selected, searchDate).then((row) => {
-        setExactMatch(!row || row.rate_date === searchDate);
+      const fecha = searchDate;
+      ultimaFechaConsultada.current = fecha;
+      fetchNearestRateForDate(selected, fecha).then((row) => {
+        if (!vigente()) return;
+        setExactMatch(!row || row.rate_date === fecha);
         setHistoria(row ? [row] : []);
       });
     } else {
@@ -164,16 +179,27 @@ export function ExchangeRates() {
       // cambió el rango sin querer decir "de atrás para adelante"): se
       // invierte solo para la consulta, sin tocar lo que ve en los campos.
       const [from, to] = rangeFrom <= rangeTo ? [rangeFrom, rangeTo] : [rangeTo, rangeFrom];
-      fetchRatesInRange(selected, from, to).then(setHistoria);
+      fetchRatesInRange(selected, from, to).then((rows) => {
+        if (vigente()) setHistoria(rows);
+      });
     }
   };
 
   // Al cambiar de moneda o de modo de búsqueda, se vuelve a buscar solo.
-  // Cambiar la fecha/rango en sí requiere tocar "Buscar" (si buscara en cada
-  // paso del DateStepper, dispararía una consulta por cada día que se
-  // avanza/retrocede).
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(buscar, [selected, searchMode]);
+
+  // Fecha específica: busca sola al cambiar la fecha, sin tocar la lupa.
+  // Espera una pausa corta después del último cambio para no disparar una
+  // consulta por cada día que se avanza/retrocede con las flechas.
+  // (El rango sigue con botón "Buscar": se editan dos fechas y buscar a
+  // mitad de camino daría resultados que el usuario no pidió.)
+  useEffect(() => {
+    if (searchMode !== "fecha" || searchDate === ultimaFechaConsultada.current) return;
+    const t = setTimeout(buscar, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDate]);
 
   return (
     <div className="pb-24">
@@ -259,14 +285,6 @@ export function ExchangeRates() {
           <div className="flex-1">
             <Field label="Fecha">{(id) => <DateStepper id={id} value={searchDate} onChange={setSearchDate} />}</Field>
           </div>
-          <button
-            onClick={buscar}
-            aria-label="Buscar cotización"
-            className="w-9 h-9 mb-2.5 rounded-md flex items-center justify-center shrink-0"
-            style={{ background: C.surface2, border: `1px solid ${C.border}`, color: C.text }}
-          >
-            <Search size={16} />
-          </button>
         </div>
       )}
 
