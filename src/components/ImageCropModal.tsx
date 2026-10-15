@@ -1,193 +1,61 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { RotateCw, X, Loader2 } from "lucide-react";
 import { theme as C } from "../styles/theme";
-import { Modal, PrimaryButton } from "./ui";
+import {
+  DEFAULT_QUAD, FULL_QUAD, detectDocumentQuad, isValidQuad, rotateQuadClockwise, warpQuad,
+  type Point, type Quad,
+} from "../lib/perspective";
 
-/** Rectángulo de recorte, en porcentaje (0-100) del tamaño mostrado de la imagen. */
-interface CropRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
+/** Lado más largo de la imagen de trabajo: suficiente para leer un ticket y liviano para procesar en el celular. */
+const WORK_MAX_DIM = 2000;
+/** Tamaño de la lupa y cuánto amplía. */
+const LOUPE_SIZE = 120;
+const LOUPE_ZOOM = 2.5;
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.9): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 }
 
-type DragMode = "move" | "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se" | null;
-
-const MIN_SIZE = 8; // % mínimo de ancho/alto del recorte, para no poder achicarlo a la nada
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v));
-}
-
-/** Aplica el arrastre de un handle de resize al rectángulo inicial, según qué lado(s) mueve cada uno. */
-function resizeRect(start: CropRect, handle: Exclude<DragMode, "move" | null>, dx: number, dy: number): CropRect {
-  let { x, y, w, h } = start;
-  const affectsN = handle === "n" || handle === "nw" || handle === "ne";
-  const affectsS = handle === "s" || handle === "sw" || handle === "se";
-  const affectsW = handle === "w" || handle === "nw" || handle === "sw";
-  const affectsE = handle === "e" || handle === "ne" || handle === "se";
-
-  if (affectsN) {
-    const newY = clamp(start.y + dy, 0, start.y + start.h - MIN_SIZE);
-    h = start.h - (newY - start.y);
-    y = newY;
-  }
-  if (affectsS) {
-    h = clamp(start.h + dy, MIN_SIZE, 100 - start.y);
-  }
-  if (affectsW) {
-    const newX = clamp(start.x + dx, 0, start.x + start.w - MIN_SIZE);
-    w = start.w - (newX - start.x);
-    x = newX;
-  }
-  if (affectsE) {
-    w = clamp(start.w + dx, MIN_SIZE, 100 - start.x);
-  }
-  return { x, y, w, h };
-}
-
-const DEFAULT_RECT: CropRect = { x: 5, y: 5, w: 90, h: 90 };
-
-/**
- * Heurística casera para sugerir el recorte solo: asume que el fondo de la
- * foto (mesa, mostrador, etc.) es más o menos parejo cerca de los bordes,
- * promedia su color ahí, y arma una grilla marcando qué celdas se alejan
- * bastante de ese color de fondo (= probablemente el comprobante). Devuelve
- * el rectángulo (en % de la imagen) que engloba esas celdas, con un margen
- * chico. No es un scanner de verdad (no corrige perspectiva ni detecta
- * bordes de papel con precisión) — es solo un punto de partida razonable
- * para no arrancar del 100% de la foto; si el fondo no es parejo, o la foto
- * ya está bastante encuadrada, devuelve `null` y se usa `DEFAULT_RECT`.
- */
-function detectDocumentRect(img: HTMLImageElement): CropRect | null {
-  const naturalW = img.naturalWidth;
-  const naturalH = img.naturalHeight;
-  if (!naturalW || !naturalH) return null;
-
-  const ANALYSIS_SIZE = 300;
-  const scale = ANALYSIS_SIZE / Math.max(naturalW, naturalH);
-  const cw = Math.max(1, Math.round(naturalW * scale));
-  const ch = Math.max(1, Math.round(naturalH * scale));
-
-  const canvas = document.createElement("canvas");
-  canvas.width = cw;
-  canvas.height = ch;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.drawImage(img, 0, 0, cw, ch);
-
-  let data: Uint8ClampedArray;
+/** Carga el archivo en un canvas de trabajo (achicado a WORK_MAX_DIM, respetando la orientación de la foto). */
+async function loadToCanvas(file: File): Promise<HTMLCanvasElement> {
+  const url = URL.createObjectURL(file);
   try {
-    data = ctx.getImageData(0, 0, cw, ch).data;
-  } catch {
-    return null; // no debería pasar con un blob: URL local, pero por las dudas
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error("No se pudo abrir la imagen."));
+      el.src = url;
+    });
+    const scale = Math.min(1, WORK_MAX_DIM / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(url);
   }
-  const idx = (x: number, y: number) => (y * cw + x) * 4;
-
-  // 1) Color de fondo: promedio de una franja fina pegada a los 4 bordes.
-  const margin = Math.max(2, Math.round(Math.min(cw, ch) * 0.04));
-  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0;
-  const sample = (x: number, y: number) => {
-    const i = idx(x, y);
-    bgR += data[i]; bgG += data[i + 1]; bgB += data[i + 2];
-    bgCount++;
-  };
-  for (let x = 0; x < cw; x += 2) {
-    for (let y = 0; y < margin; y++) sample(x, y);
-    for (let y = ch - margin; y < ch; y++) sample(x, y);
-  }
-  for (let y = margin; y < ch - margin; y += 2) {
-    for (let x = 0; x < margin; x++) sample(x, y);
-    for (let x = cw - margin; x < cw; x++) sample(x, y);
-  }
-  if (bgCount === 0) return null;
-  bgR /= bgCount; bgG /= bgCount; bgB /= bgCount;
-
-  // 2) Grilla: cada celda se marca "documento" si su color promedio se aleja
-  // bastante del color de fondo calculado arriba.
-  const cols = 40, rows = 40;
-  const cellW = cw / cols, cellH = ch / rows;
-  const THRESHOLD = 35; // distancia de color aprox. (0-441) para no ser "fondo"
-  const foreground: boolean[][] = [];
-  let fgCellCount = 0;
-
-  for (let r = 0; r < rows; r++) {
-    foreground[r] = [];
-    for (let c = 0; c < cols; c++) {
-      const x0 = Math.floor(c * cellW), x1 = Math.floor((c + 1) * cellW);
-      const y0 = Math.floor(r * cellH), y1 = Math.floor((r + 1) * cellH);
-      let sumR = 0, sumG = 0, sumB = 0, n = 0;
-      for (let y = y0; y < y1; y += 2) {
-        for (let x = x0; x < x1; x += 2) {
-          const i = idx(Math.min(x, cw - 1), Math.min(y, ch - 1));
-          sumR += data[i]; sumG += data[i + 1]; sumB += data[i + 2];
-          n++;
-        }
-      }
-      if (n === 0) { foreground[r][c] = false; continue; }
-      const dist = Math.sqrt((sumR / n - bgR) ** 2 + (sumG / n - bgG) ** 2 + (sumB / n - bgB) ** 2);
-      foreground[r][c] = dist > THRESHOLD;
-      if (foreground[r][c]) fgCellCount++;
-    }
-  }
-  if (fgCellCount === 0) return null; // no se distingue nada del fondo
-
-  // 3) Bounding box de las celdas "documento", ignorando celdas sueltas
-  // (menos de 2 vecinas marcadas) para no dejarse llevar por ruido puntual.
-  let minR = rows, maxR = -1, minC = cols, maxC = -1;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (!foreground[r][c]) continue;
-      let neighbors = 0;
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const rr = r + dr, cc = c + dc;
-          if (rr >= 0 && rr < rows && cc >= 0 && cc < cols && foreground[rr][cc]) neighbors++;
-        }
-      }
-      if (neighbors < 2) continue;
-      if (r < minR) minR = r;
-      if (r > maxR) maxR = r;
-      if (c < minC) minC = c;
-      if (c > maxC) maxC = c;
-    }
-  }
-  if (maxR < minR || maxC < minC) return null;
-
-  const x = (minC / cols) * 100;
-  const y = (minR / rows) * 100;
-  const wPct = ((maxC - minC + 1) / cols) * 100;
-  const hPct = ((maxR - minR + 1) / rows) * 100;
-
-  // 4) Si el área detectada es casi toda la foto o demasiado chica, no confiamos.
-  const area = (wPct / 100) * (hPct / 100);
-  if (area < 0.05 || area > 0.97) return null;
-
-  // 5) Margen chico alrededor, por si el recorte quedó justo.
-  const pad = 2;
-  const x0 = clamp(x - pad, 0, 100);
-  const y0 = clamp(y - pad, 0, 100);
-  const x1 = clamp(x + wPct + pad, 0, 100);
-  const y1 = clamp(y + hPct + pad, 0, 100);
-  return { x: x0, y: y0, w: Math.max(MIN_SIZE, x1 - x0), h: Math.max(MIN_SIZE, y1 - y0) };
 }
 
-const HANDLES: { id: Exclude<DragMode, "move" | null>; style: React.CSSProperties }[] = [
-  { id: "nw", style: { left: 0, top: 0, cursor: "nwse-resize" } },
-  { id: "n", style: { left: "50%", top: 0, cursor: "ns-resize" } },
-  { id: "ne", style: { left: "100%", top: 0, cursor: "nesw-resize" } },
-  { id: "e", style: { left: "100%", top: "50%", cursor: "ew-resize" } },
-  { id: "se", style: { left: "100%", top: "100%", cursor: "nwse-resize" } },
-  { id: "s", style: { left: "50%", top: "100%", cursor: "ns-resize" } },
-  { id: "sw", style: { left: 0, top: "100%", cursor: "nesw-resize" } },
-  { id: "w", style: { left: 0, top: "50%", cursor: "ew-resize" } },
-];
+function rotateCanvasClockwise(source: HTMLCanvasElement): HTMLCanvasElement {
+  const out = document.createElement("canvas");
+  out.width = source.height;
+  out.height = source.width;
+  const ctx = out.getContext("2d");
+  if (!ctx) return source;
+  ctx.translate(out.width, 0);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(source, 0, 0);
+  return out;
+}
 
 /**
- * Recorte de una foto de comprobante antes de subirla: arrastrando las
- * esquinas o los lados de un rectángulo sobre la imagen, para dejar afuera lo
- * que no es el comprobante. Todo el recorte pasa en el navegador (canvas),
- * nada se sube hasta confirmar. `file` tiene que ser una imagen.
+ * Editor a pantalla completa para "escanear" la foto de un comprobante antes
+ * de subirla: 4 esquinas que se arrastran por separado hasta las puntas del
+ * papel (con lupa mientras se arrastra), botón para rotar, y al confirmar se
+ * endereza la zona marcada (corrección de perspectiva). Todo pasa en el
+ * navegador; nada se sube hasta confirmar. `file` tiene que ser una imagen.
  */
 export function ImageCropModal({
   file,
@@ -196,184 +64,342 @@ export function ImageCropModal({
   onCancel,
 }: {
   file: File;
-  /** Usuario confirmó el recorte: se sube la versión recortada. */
-  onConfirm: (cropped: File) => void;
-  /** Usuario prefiere subir la foto entera, sin recortar. */
+  /** Se sube la versión enderezada/rotada. */
+  onConfirm: (result: File) => void;
+  /** Se sube la foto original tal cual (sin recortar ni rotar). */
   onSkip: () => void;
-  /** Usuario decide no adjuntar esta foto. */
+  /** No se adjunta esta foto. */
   onCancel: () => void;
 }) {
-  const [objectUrl] = useState(() => URL.createObjectURL(file));
-  useEffect(() => () => URL.revokeObjectURL(objectUrl), [objectUrl]);
-
-  const [rect, setRect] = useState<CropRect>(DEFAULT_RECT);
-  const [dragMode, setDragMode] = useState<DragMode>(null);
-  const [imgLoaded, setImgLoaded] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const workRef = useRef<HTMLCanvasElement | null>(null);
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+  const [quad, setQuad] = useState<Quad>(DEFAULT_QUAD);
+  const [suggested, setSuggested] = useState<Quad>(DEFAULT_QUAD);
   const [autoDetected, setAutoDetected] = useState(false);
+  const [rotations, setRotations] = useState(0);
+  const [loadError, setLoadError] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [imgBox, setImgBox] = useState<{ w: number; h: number } | null>(null);
 
-  const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const startRectRef = useRef<CropRect>(rect);
-  const startPosRef = useRef({ x: 0, y: 0 });
-  // Rectángulo sugerido automáticamente al cargar la foto (o el default, si
-  // no se pudo detectar nada), para poder volver a él con "Reiniciar".
-  const autoRectRef = useRef<CropRect>(DEFAULT_RECT);
 
-  const handleImageLoad = () => {
-    const img = imgRef.current;
-    const detected = img ? detectDocumentRect(img) : null;
-    const initial = detected ?? DEFAULT_RECT;
-    autoRectRef.current = initial;
-    setRect(initial);
-    setAutoDetected(!!detected);
-    setImgLoaded(true);
+  /** Muestra en pantalla el canvas de trabajo actual (como blob, más liviano que un data URL). */
+  const showCanvas = async (canvas: HTMLCanvasElement) => {
+    const blob = await canvasToBlob(canvas, 0.85);
+    if (!blob) return;
+    setDisplayUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(blob);
+    });
   };
 
-  const handlePointerDown = (e: React.PointerEvent, mode: DragMode) => {
-    e.stopPropagation();
+  useEffect(() => {
+    let cancelled = false;
+    loadToCanvas(file)
+      .then((canvas) => {
+        if (cancelled) return;
+        workRef.current = canvas;
+        const detected = detectDocumentQuad(canvas);
+        const initial = detected ?? DEFAULT_QUAD;
+        setQuad(initial);
+        setSuggested(initial);
+        setAutoDetected(!!detected);
+        return showCanvas(canvas);
+      })
+      .catch(() => !cancelled && setLoadError(true));
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file]);
+
+  useEffect(() => () => { if (displayUrl) URL.revokeObjectURL(displayUrl); }, [displayUrl]);
+
+  // Bloquea el scroll de la página de fondo mientras el editor está abierto.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const measure = () => {
+    const el = imgRef.current;
+    if (el) setImgBox({ w: el.clientWidth, h: el.clientHeight });
+  };
+  useEffect(() => {
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  const rotate = async () => {
+    const work = workRef.current;
+    if (!work || processing) return;
+    const rotated = rotateCanvasClockwise(work);
+    workRef.current = rotated;
+    setQuad((q) => rotateQuadClockwise(q));
+    setSuggested((q) => rotateQuadClockwise(q));
+    setRotations((r) => (r + 1) % 4);
+    setImgBox(null);
+    await showCanvas(rotated);
+  };
+
+  const pointFromEvent = (e: React.PointerEvent): Point | null => {
+    const el = imgRef.current;
+    if (!el) return null;
+    const b = el.getBoundingClientRect();
+    if (b.width === 0 || b.height === 0) return null;
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)),
+    };
+  };
+
+  const onHandleDown = (e: React.PointerEvent, i: number) => {
     e.preventDefault();
-    (e.target as Element).setPointerCapture(e.pointerId);
-    startRectRef.current = rect;
-    startPosRef.current = { x: e.clientX, y: e.clientY };
-    setDragMode(mode);
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(i);
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!dragMode || !containerRef.current) return;
-    const bounds = containerRef.current.getBoundingClientRect();
-    if (bounds.width === 0 || bounds.height === 0) return;
-    const dx = ((e.clientX - startPosRef.current.x) / bounds.width) * 100;
-    const dy = ((e.clientY - startPosRef.current.y) / bounds.height) * 100;
-    const start = startRectRef.current;
-    if (dragMode === "move") {
-      setRect({
-        ...start,
-        x: clamp(start.x + dx, 0, 100 - start.w),
-        y: clamp(start.y + dy, 0, 100 - start.h),
-      });
-    } else {
-      setRect(resizeRect(start, dragMode, dx, dy));
-    }
+  const onHandleMove = (e: React.PointerEvent) => {
+    if (dragging === null) return;
+    const p = pointFromEvent(e);
+    if (!p) return;
+    setQuad((q) => {
+      const next = [...q] as Quad;
+      next[dragging] = p;
+      return next;
+    });
   };
 
-  const endDrag = () => setDragMode(null);
+  const endDrag = () => setDragging(null);
 
-  const handleConfirm = async () => {
-    const img = imgRef.current;
-    if (!img) return;
-    setExporting(true);
+  const valid = isValidQuad(quad);
+
+  const confirm = async () => {
+    const work = workRef.current;
+    if (!work || !valid) return;
+    setProcessing(true);
+    // Deja que se pinte el "Procesando..." antes del cálculo, que bloquea un instante.
+    await new Promise((r) => setTimeout(r, 30));
     try {
-      const naturalW = img.naturalWidth;
-      const naturalH = img.naturalHeight;
-      const sx = (rect.x / 100) * naturalW;
-      const sy = (rect.y / 100) * naturalH;
-      const sw = (rect.w / 100) * naturalW;
-      const sh = (rect.h / 100) * naturalH;
-
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(sw));
-      canvas.height = Math.max(1, Math.round(sh));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        onSkip();
-        return;
-      }
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+      const result = warpQuad(work, quad);
+      const blob = await canvasToBlob(result);
       if (!blob) {
         onSkip();
         return;
       }
-      onConfirm(new File([blob], file.name, { type: "image/jpeg" }));
+      onConfirm(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
     } finally {
-      setExporting(false);
+      setProcessing(false);
     }
   };
 
-  return (
-    <Modal title="Ajustar comprobante" onClose={onCancel}>
-      <p className="text-xs mb-3" style={{ color: C.textMuted }}>
-        {imgLoaded && autoDetected
-          ? "Ajustamos el recorte solos a lo que parece el comprobante. Si no quedó bien, arrastrá las esquinas o los lados."
-          : "Arrastrá las esquinas o los lados para dejar afuera lo que no es el comprobante."}
+  /** "Sin recortar": si la giraste, se sube girada pero entera; si no, el archivo original. */
+  const useWhole = async () => {
+    const work = workRef.current;
+    if (rotations === 0 || !work) {
+      onSkip();
+      return;
+    }
+    setProcessing(true);
+    try {
+      const blob = await canvasToBlob(work);
+      if (blob) onConfirm(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+      else onSkip();
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const ready = !!displayUrl && !!imgBox;
+  const toPx = (p: Point) => ({ x: p.x * (imgBox?.w ?? 0), y: p.y * (imgBox?.h ?? 0) });
+  const pts = quad.map(toPx);
+  const polygon = pts.map((p) => `${p.x},${p.y}`).join(" ");
+
+  // Lupa: en la esquina superior opuesta al dedo, para que no la tape.
+  const dragPoint = dragging !== null ? quad[dragging] : null;
+  const loupeOnLeft = dragPoint ? dragPoint.x > 0.5 : true;
+
+  const btnStyle: React.CSSProperties = { background: "rgba(255,255,255,0.12)", color: "#fff" };
+
+  const content = (
+    <div
+      className="fixed inset-0 z-[80] flex flex-col select-none"
+      style={{
+        background: "#000",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Ajustar comprobante"
+    >
+      {/* Barra superior */}
+      <div className="flex items-center justify-between px-3 py-2 shrink-0">
+        <button type="button" onClick={onCancel} className="flex items-center gap-1 text-sm px-2 py-2" style={{ color: "#fff" }}>
+          <X size={18} /> Cancelar
+        </button>
+        <span className="text-sm font-semibold" style={{ color: "#fff" }}>Ajustar comprobante</span>
+        <button
+          type="button"
+          onClick={rotate}
+          disabled={!displayUrl || processing}
+          aria-label="Rotar 90 grados"
+          className="flex items-center gap-1 text-sm px-3 py-2 rounded-full"
+          style={btnStyle}
+        >
+          <RotateCw size={16} /> Rotar
+        </button>
+      </div>
+
+      <p className="text-xs text-center px-4 pb-2 shrink-0" style={{ color: "rgba(255,255,255,0.7)" }}>
+        {loadError
+          ? "No se pudo abrir la foto. Podés subirla igual sin recortar."
+          : autoDetected
+            ? "Marcamos solos el comprobante. Si no quedó justo, arrastrá cada esquina hasta la punta del papel."
+            : "Arrastrá cada esquina hasta la punta del papel. Se endereza solo al confirmar."}
       </p>
 
-      <div
-        ref={containerRef}
-        className="relative mx-auto mb-4 select-none"
-        style={{ width: "fit-content", maxWidth: "100%", touchAction: "none" }}
-      >
-        <img
-          ref={imgRef}
-          src={objectUrl}
-          alt="Comprobante"
-          draggable={false}
-          onLoad={handleImageLoad}
-          className="block max-w-full"
-          style={{ maxHeight: "50vh" }}
-        />
-        {imgLoaded && (
+      {/* Zona de la foto */}
+      <div className="flex-1 min-h-0 flex items-center justify-center px-6 py-4 relative">
+        {displayUrl && (
+          <div className="relative" style={{ touchAction: "none" }}>
+            <img
+              ref={imgRef}
+              src={displayUrl}
+              alt="Comprobante"
+              draggable={false}
+              onLoad={measure}
+              className="block"
+              style={{ maxWidth: "calc(100vw - 48px)", maxHeight: "calc(100dvh - 230px)" }}
+            />
+            {ready && (
+              <>
+                <svg
+                  className="absolute inset-0 pointer-events-none"
+                  width={imgBox.w}
+                  height={imgBox.h}
+                  style={{ overflow: "visible" }}
+                >
+                  <defs>
+                    <mask id="crop-mask">
+                      <rect x={0} y={0} width={imgBox.w} height={imgBox.h} fill="white" />
+                      <polygon points={polygon} fill="black" />
+                    </mask>
+                  </defs>
+                  <rect x={0} y={0} width={imgBox.w} height={imgBox.h} fill="rgba(0,0,0,0.55)" mask="url(#crop-mask)" />
+                  <polygon points={polygon} fill="none" stroke={valid ? "#fff" : C.negative} strokeWidth={2} />
+                </svg>
+                {pts.map((p, i) => (
+                  <div
+                    key={i}
+                    onPointerDown={(e) => onHandleDown(e, i)}
+                    onPointerMove={onHandleMove}
+                    onPointerUp={endDrag}
+                    onPointerCancel={endDrag}
+                    aria-label={`Esquina ${i + 1}`}
+                    className="absolute flex items-center justify-center"
+                    style={{
+                      left: p.x,
+                      top: p.y,
+                      width: 48,
+                      height: 48,
+                      transform: "translate(-50%, -50%)",
+                      touchAction: "none",
+                      cursor: "grab",
+                    }}
+                  >
+                    <div
+                      className="rounded-full"
+                      style={{
+                        width: dragging === i ? 14 : 24,
+                        height: dragging === i ? 14 : 24,
+                        background: dragging === i ? "transparent" : "rgba(255,255,255,0.9)",
+                        border: `3px solid ${C.usd}`,
+                      }}
+                    />
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+        {!displayUrl && !loadError && <Loader2 size={28} className="animate-spin" color="#fff" />}
+
+        {/* Lupa mientras se arrastra una esquina */}
+        {ready && dragPoint && displayUrl && (
           <div
-            onPointerDown={(e) => handlePointerDown(e, "move")}
-            onPointerMove={handlePointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}
-            className="absolute cursor-move"
+            className="absolute rounded-full overflow-hidden pointer-events-none"
             style={{
-              left: `${rect.x}%`,
-              top: `${rect.y}%`,
-              width: `${rect.w}%`,
-              height: `${rect.h}%`,
-              boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
-              border: "2px solid #fff",
-              touchAction: "none",
+              top: 8,
+              [loupeOnLeft ? "left" : "right"]: 12,
+              width: LOUPE_SIZE,
+              height: LOUPE_SIZE,
+              border: "3px solid #fff",
+              boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
+              backgroundImage: `url(${displayUrl})`,
+              backgroundRepeat: "no-repeat",
+              backgroundSize: `${imgBox.w * LOUPE_ZOOM}px ${imgBox.h * LOUPE_ZOOM}px`,
+              backgroundPosition: `${LOUPE_SIZE / 2 - dragPoint.x * imgBox.w * LOUPE_ZOOM}px ${LOUPE_SIZE / 2 - dragPoint.y * imgBox.h * LOUPE_ZOOM}px`,
+              backgroundColor: "#000",
             }}
           >
-            {HANDLES.map((handle) => (
-              <div
-                key={handle.id}
-                onPointerDown={(e) => handlePointerDown(e, handle.id)}
-                onPointerMove={handlePointerMove}
-                onPointerUp={endDrag}
-                onPointerCancel={endDrag}
-                className="absolute rounded-full"
-                style={{
-                  ...handle.style,
-                  width: 18,
-                  height: 18,
-                  transform: "translate(-50%, -50%)",
-                  background: "#fff",
-                  border: `2px solid ${C.usd}`,
-                  touchAction: "none",
-                }}
-              />
-            ))}
+            {/* Mira en el centro */}
+            <div className="absolute" style={{ left: "50%", top: "50%", width: 18, height: 2, background: C.usd, transform: "translate(-50%,-50%)" }} />
+            <div className="absolute" style={{ left: "50%", top: "50%", width: 2, height: 18, background: C.usd, transform: "translate(-50%,-50%)" }} />
           </div>
         )}
       </div>
 
-      {imgLoaded && (
+      {/* Acciones */}
+      <div className="px-4 pb-4 pt-2 shrink-0 space-y-2">
+        {!valid && ready && (
+          <p className="text-xs text-center" style={{ color: C.negative }}>
+            Las esquinas quedaron cruzadas. Acomodalas en orden alrededor del papel.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setQuad(suggested)}
+            disabled={!ready || processing}
+            className="flex-1 py-2.5 rounded-lg text-xs font-semibold"
+            style={btnStyle}
+          >
+            {autoDetected ? "Volver a la sugerencia" : "Restablecer"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setQuad(FULL_QUAD)}
+            disabled={!ready || processing}
+            className="flex-1 py-2.5 rounded-lg text-xs font-semibold"
+            style={btnStyle}
+          >
+            Toda la foto
+          </button>
+        </div>
         <button
           type="button"
-          onClick={() => setRect(autoRectRef.current)}
-          className="w-full text-center text-[11px] mb-3"
-          style={{ color: C.textFaint }}
+          onClick={confirm}
+          disabled={!ready || !valid || processing}
+          className="w-full py-3 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+          style={{ background: C.usd, color: "#fff", opacity: !ready || !valid || processing ? 0.5 : 1 }}
         >
-          Reiniciar recorte {autoDetected ? "sugerido" : "completo"}
+          {processing && <Loader2 size={16} className="animate-spin" />}
+          {processing ? "Procesando..." : "Usar comprobante"}
         </button>
-      )}
-
-      <PrimaryButton disabled={!imgLoaded || exporting} onClick={handleConfirm}>
-        {exporting ? "Procesando..." : "Usar foto recortada"}
-      </PrimaryButton>
-      <button type="button" onClick={onSkip} className="w-full py-2.5 text-xs font-semibold" style={{ color: C.textMuted }}>
-        Usar la foto entera, sin recortar
-      </button>
-      <button type="button" onClick={onCancel} className="w-full py-1.5 text-xs" style={{ color: C.negative }}>
-        No adjuntar esta foto
-      </button>
-    </Modal>
+        <button
+          type="button"
+          onClick={useWhole}
+          disabled={processing}
+          className="w-full py-1.5 text-xs"
+          style={{ color: "rgba(255,255,255,0.7)" }}
+        >
+          Subir la foto sin recortar
+        </button>
+      </div>
+    </div>
   );
+
+  return createPortal(content, document.body);
 }

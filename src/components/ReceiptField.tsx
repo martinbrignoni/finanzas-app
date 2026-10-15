@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Upload, X, Paperclip, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Upload, X, Paperclip, Loader2, FileText, FileSpreadsheet } from "lucide-react";
 import { theme as C } from "../styles/theme";
 import { ConfirmDialog } from "./ui";
 import { ImageCropModal } from "./ImageCropModal";
@@ -19,6 +19,77 @@ const RECEIPT_ACCEPT =
 function receiptLabel(path: string, index: number): string {
   const ext = path.split(".").pop()?.toUpperCase();
   return ext ? `Comprobante ${index + 1} ${ext}` : `Comprobante ${index + 1}`;
+}
+
+const IMAGE_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "heic"];
+
+function extOf(path: string): string {
+  return path.split(".").pop()?.toLowerCase() ?? "";
+}
+
+/**
+ * Miniatura de un comprobante ya subido. Las fotos se ven como imagen (con
+ * un link firmado temporal); PDF y Excel como un ícono con el tipo de
+ * archivo. Tocarla abre el comprobante completo.
+ */
+function ReceiptThumb({
+  path,
+  index,
+  onOpen,
+  onRemove,
+}: {
+  path: string;
+  index: number;
+  onOpen: () => void;
+  onRemove: () => void;
+}) {
+  const ext = extOf(path);
+  const isImage = IMAGE_EXTS.includes(ext);
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!isImage) return;
+    let cancelled = false;
+    getReceiptUrl(path)
+      .then((u) => !cancelled && setUrl(u))
+      .catch(() => !cancelled && setFailed(true));
+    return () => { cancelled = true; };
+  }, [path, isImage]);
+
+  const Icon = ext === "pdf" ? FileText : ext === "xls" || ext === "xlsx" ? FileSpreadsheet : Paperclip;
+
+  return (
+    <div className="relative" style={{ width: 72, height: 72 }}>
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Ver ${receiptLabel(path, index)}`}
+        className="w-full h-full rounded-lg overflow-hidden flex flex-col items-center justify-center gap-1"
+        style={{ background: C.surface2, border: `1px solid ${C.border}` }}
+      >
+        {isImage && url && !failed ? (
+          <img src={url} alt={receiptLabel(path, index)} className="w-full h-full object-cover" onError={() => setFailed(true)} />
+        ) : isImage && !failed ? (
+          <Loader2 size={16} className="animate-spin" color={C.textMuted} />
+        ) : (
+          <>
+            <Icon size={20} color={C.textMuted} />
+            <span className="text-[10px] font-semibold" style={{ color: C.textMuted }}>{ext.toUpperCase() || "ARCHIVO"}</span>
+          </>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Quitar comprobante ${index + 1}`}
+        className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
+        style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.negative }}
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -94,16 +165,15 @@ export function ReceiptField({
       <span className="block text-xs mb-1" style={{ color: C.textMuted }}>Comprobantes (opcional)</span>
 
       {paths.length > 0 && (
-        <div className="space-y-1.5 mb-2">
+        <div className="flex flex-wrap gap-2.5 mb-2 pt-1.5">
           {paths.map((path, i) => (
-            <div key={path} className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: C.surface2, border: `1px solid ${C.border}` }}>
-              <button type="button" onClick={() => handleView(path)} className="flex-1 flex items-center gap-2 text-xs text-left" style={{ color: C.text }}>
-                <Paperclip size={14} color={C.textMuted} /> {receiptLabel(path, i)}
-              </button>
-              <button type="button" onClick={() => setConfirmPath(path)} aria-label={`Quitar comprobante ${i + 1}`} className="shrink-0" style={{ color: C.negative }}>
-                <X size={14} />
-              </button>
-            </div>
+            <ReceiptThumb
+              key={path}
+              path={path}
+              index={i}
+              onOpen={() => handleView(path)}
+              onRemove={() => setConfirmPath(path)}
+            />
           ))}
         </div>
       )}
