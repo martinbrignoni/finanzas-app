@@ -196,18 +196,393 @@ export function warpQuad(source: HTMLCanvasElement, q: Quad): HTMLCanvasElement 
   return out;
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Mover un lado entero, en paralelo                                    */
+/* ------------------------------------------------------------------ */
+
+function cross(a: Point, b: Point): number {
+  return a.x * b.y - a.y * b.x;
+}
+
+/** Intersección de la recta p1→p2 con la recta p3→p4 (null si son paralelas). */
+function intersectLines(p1: Point, p2: Point, p3: Point, p4: Point): Point | null {
+  const r = { x: p2.x - p1.x, y: p2.y - p1.y };
+  const s = { x: p4.x - p3.x, y: p4.y - p3.y };
+  const denom = cross(r, s);
+  if (Math.abs(denom) < 1e-12) return null;
+  const t = cross({ x: p3.x - p1.x, y: p3.y - p1.y }, s) / denom;
+  return { x: p1.x + t * r.x, y: p1.y + t * r.y };
+}
+
 /**
- * Sugerencia automática de las 4 esquinas del comprobante. Heurística
- * casera (no es un scanner de verdad): asume que el fondo (mesa, mostrador)
- * es más o menos parejo cerca de los bordes de la foto, marca en una grilla
- * qué zonas se alejan de ese color, y toma como esquinas las celdas
- * marcadas más extremas en cada diagonal. A diferencia del recorte
- * rectangular anterior, así sigue a un ticket que quedó inclinado en la
- * foto. Si no se distingue nada claro, devuelve null.
+ * Desplaza el lado `edge` (el que va de la esquina `edge` a la `edge + 1`)
+ * en `delta`, manteniéndolo paralelo a sí mismo. Sus dos esquinas se
+ * deslizan sobre los lados vecinos (como en los escáneres de documentos),
+ * así el recorte sigue apoyado en los otros bordes del papel.
+ * Devuelve null si la geometría no tiene solución (lados vecinos paralelos al movido).
+ */
+export function moveEdge(start: Quad, edge: number, delta: Point): Quad | null {
+  const a = edge;
+  const b = (edge + 1) % 4;
+  const prev = (edge + 3) % 4;
+  const next = (edge + 2) % 4;
+  const m1 = { x: start[a].x + delta.x, y: start[a].y + delta.y };
+  const m2 = { x: start[b].x + delta.x, y: start[b].y + delta.y };
+  const na = intersectLines(m1, m2, start[prev], start[a]);
+  const nb = intersectLines(m1, m2, start[b], start[next]);
+  if (!na || !nb) return null;
+  const out = [...start] as Quad;
+  out[a] = na;
+  out[b] = nb;
+  return out;
+}
+
+function insideImage(q: Quad, tol = 1e-6): boolean {
+  return q.every((p) => p.x >= -tol && p.x <= 1 + tol && p.y >= -tol && p.y <= 1 + tol);
+}
+
+function clampQuad(q: Quad): Quad {
+  return q.map((p) => ({ x: Math.min(1, Math.max(0, p.x)), y: Math.min(1, Math.max(0, p.y)) })) as Quad;
+}
+
+/**
+ * Versión "segura" de moveEdge para el arrastre: si el movimiento completo
+ * sacaría una esquina de la foto o cruzaría el recuadro, avanza lo máximo
+ * posible en esa dirección (el lado queda "tope" contra el borde) en lugar
+ * de deformarlo. Devuelve null si no se puede mover nada.
+ */
+export function dragEdge(start: Quad, edge: number, delta: Point): Quad | null {
+  const attempt = (t: number): Quad | null => {
+    const q = moveEdge(start, edge, { x: delta.x * t, y: delta.y * t });
+    return q && insideImage(q) && isValidQuad(q) ? clampQuad(q) : null;
+  };
+  const full = attempt(1);
+  if (full) return full;
+  let lo = 0, hi = 1;
+  let best: Quad | null = null;
+  for (let k = 0; k < 14; k++) {
+    const mid = (lo + hi) / 2;
+    const q = attempt(mid);
+    if (q) { best = q; lo = mid; } else hi = mid;
+  }
+  return best;
+}
+
+/* ------------------------------------------------------------------ */
+/* Detección automática del comprobante                                */
+/* ------------------------------------------------------------------ */
+
+/** Lado más largo de la imagen chica sobre la que se analiza (rápido en el celular). */
+const ANALYSIS_SIZE = 320;
+
+/** Umbral de Otsu sobre valores 0..255: el corte que mejor separa "claro" de "oscuro". */
+function otsuThreshold(values: Float32Array): number {
+  const hist = new Float64Array(256);
+  for (let i = 0; i < values.length; i++) hist[Math.min(255, Math.max(0, Math.round(values[i])))]++;
+  const total = values.length;
+  let sumAll = 0;
+  for (let i = 0; i < 256; i++) sumAll += i * hist[i];
+  let wB = 0, sumB = 0, best = -1, threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sumAll - sumB) / wF;
+    const between = wB * wF * (mB - mF) ** 2;
+    if (between > best) { best = between; threshold = t; }
+  }
+  return threshold;
+}
+
+/** Desenfoque 3x3 (promedio), para que la veta de la madera o el texto no generen ruido. */
+function boxBlur(src: Float32Array, w: number, h: number): Float32Array {
+  const out = new Float32Array(src.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let s = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx < 0 || xx >= w) continue;
+          s += src[yy * w + xx];
+          n++;
+        }
+      }
+      out[y * w + x] = s / n;
+    }
+  }
+  return out;
+}
+
+/** Erosión o dilatación 3x3 de una máscara binaria. */
+function morph(mask: Uint8Array, w: number, h: number, erode: boolean): Uint8Array {
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let v = erode ? 1 : 0;
+      for (let dy = -1; dy <= 1 && v === (erode ? 1 : 0); dy++) {
+        const yy = Math.min(h - 1, Math.max(0, y + dy));
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = Math.min(w - 1, Math.max(0, x + dx));
+          const m = mask[yy * w + xx];
+          if (erode && !m) { v = 0; break; }
+          if (!erode && m) { v = 1; break; }
+        }
+      }
+      out[y * w + x] = v;
+    }
+  }
+  return out;
+}
+
+/** Envolvente convexa (monotone chain). Devuelve los vértices en orden. */
+function convexHull(points: Point[]): Point[] {
+  const pts = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length < 3) return pts;
+  const turn = (o: Point, a: Point, b: Point) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: Point[] = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper: Point[] = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  upper.pop();
+  lower.pop();
+  return lower.concat(upper);
+}
+
+function polygonArea(poly: Point[]): number {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+}
+
+/**
+ * Reduce un polígono convexo a 4 vértices quitando, de a uno, el vértice
+ * cuyo triángulo con sus vecinos es el más chico (el que menos aporta a la
+ * forma). En un papel, lo que sobrevive son sus 4 esquinas.
+ */
+function reduceToQuad(hull: Point[]): Point[] | null {
+  const poly = [...hull];
+  if (poly.length < 4) return null;
+  while (poly.length > 4) {
+    let minArea = Infinity, minIdx = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[(i + poly.length - 1) % poly.length];
+      const b = poly[i];
+      const c = poly[(i + 1) % poly.length];
+      const area = Math.abs((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x));
+      if (area < minArea) { minArea = area; minIdx = i; }
+    }
+    poly.splice(minIdx, 1);
+  }
+  return poly;
+}
+
+/** Ordena 4 puntos como arriba-izq, arriba-der, abajo-der, abajo-izq (sentido horario en pantalla). */
+function orderQuad(pts: Point[]): Quad {
+  let signed = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % 4];
+    signed += a.x * b.y - b.x * a.y;
+  }
+  const cw = signed > 0 ? [...pts] : [...pts].reverse();
+  let start = 0;
+  for (let i = 1; i < 4; i++) if (cw[i].x + cw[i].y < cw[start].x + cw[start].y) start = i;
+  return [0, 1, 2, 3].map((k) => cw[(start + k) % 4]) as Quad;
+}
+
+interface Candidate {
+  quad: Quad;
+  score: number;
+}
+
+/**
+ * Busca, dentro de una máscara (1 = "puede ser papel"), la mancha que más
+ * parece un comprobante: grande, compacta (casi un cuadrilátero), lo más
+ * centrada posible y, en lo posible, sin tocar el borde de la foto.
+ */
+function bestCandidate(mask: Uint8Array, w: number, h: number): Candidate | null {
+  const n = w * h;
+  const labels = new Int32Array(n);
+  const queue = new Int32Array(n);
+  let best: Candidate | null = null;
+  let label = 0;
+
+  for (let seed = 0; seed < n; seed++) {
+    if (!mask[seed] || labels[seed]) continue;
+    label++;
+    // Recorre la mancha (4-vecinos) registrando, por fila, el x mínimo y máximo.
+    const rowMin = new Int32Array(h).fill(w);
+    const rowMax = new Int32Array(h).fill(-1);
+    let head = 0, tail = 0, count = 0, border = 0, sumX = 0, sumY = 0;
+    queue[tail++] = seed;
+    labels[seed] = label;
+    while (head < tail) {
+      const p = queue[head++];
+      const x = p % w;
+      const y = (p - x) / w;
+      count++;
+      sumX += x;
+      sumY += y;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) border++;
+      if (x < rowMin[y]) rowMin[y] = x;
+      if (x > rowMax[y]) rowMax[y] = x;
+      const nb = [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1];
+      for (const q of nb) {
+        if (q >= 0 && mask[q] && !labels[q]) {
+          labels[q] = label;
+          queue[tail++] = q;
+        }
+      }
+    }
+
+    if (count < n * 0.02) continue;
+
+    // Área "rellena" fila por fila: así las letras del ticket (huecos) no restan.
+    const pts: Point[] = [];
+    let filled = 0;
+    for (let y = 0; y < h; y++) {
+      if (rowMax[y] < 0) continue;
+      filled += rowMax[y] - rowMin[y] + 1;
+      pts.push({ x: rowMin[y], y }, { x: rowMax[y] + 1, y }, { x: rowMin[y], y: y + 1 }, { x: rowMax[y] + 1, y: y + 1 });
+    }
+    const fillFrac = filled / n;
+    if (fillFrac > 0.92) continue;
+
+    const hull = convexHull(pts);
+    const hullArea = polygonArea(hull);
+    if (hullArea <= 0) continue;
+    const solidity = filled / hullArea;
+    if (solidity < 0.75) continue;
+
+    const corners = reduceToQuad(hull);
+    if (!corners) continue;
+    const quadPx = orderQuad(corners);
+    const fit = filled / Math.max(1, polygonArea(quadPx));
+    if (fit < 0.8 || fit > 1.25) continue;
+
+    const quad = quadPx.map((p) => ({ x: p.x / w, y: p.y / h })) as Quad;
+    if (!isValidQuad(quad)) continue;
+
+    const cx = sumX / count / w - 0.5;
+    const cy = sumY / count / h - 0.5;
+    const centrality = 1 - Math.min(1, Math.hypot(cx, cy) / 0.7) * 0.5;
+    // Si toca el borde de la foto suele ser otra cosa (mantel, ropa, el piso);
+    // salvo que sea lo único, preferimos lo que está entero dentro de la foto.
+    const touchPenalty = border > 0 ? Math.max(0.25, 1 - border / (2 * (w + h)) * 4) : 1;
+    const score = fillFrac * solidity ** 2 * Math.min(fit, 1 / fit) * centrality * touchPenalty;
+    if (!best || score > best.score) best = { quad, score };
+  }
+  return best;
+}
+
+/** k-medias simple sobre colores RGB (para describir un fondo con varias zonas). */
+function kMeansColors(samples: number[][], k: number, iterations = 8): number[][] {
+  const sorted = [...samples].sort((a, b) => a[0] + a[1] + a[2] - (b[0] + b[1] + b[2]));
+  let centers = Array.from({ length: k }, (_, i) => [...sorted[Math.floor(((i + 0.5) / k) * sorted.length)]]);
+  for (let it = 0; it < iterations; it++) {
+    const sums = centers.map(() => [0, 0, 0, 0]);
+    for (const s of samples) {
+      let bi = 0, bd = Infinity;
+      centers.forEach((c, i) => {
+        const d = (s[0] - c[0]) ** 2 + (s[1] - c[1]) ** 2 + (s[2] - c[2]) ** 2;
+        if (d < bd) { bd = d; bi = i; }
+      });
+      sums[bi][0] += s[0]; sums[bi][1] += s[1]; sums[bi][2] += s[2]; sums[bi][3]++;
+    }
+    centers = centers.map((c, i) => (sums[i][3] ? [sums[i][0] / sums[i][3], sums[i][1] / sums[i][3], sums[i][2] / sums[i][3]] : c));
+  }
+  return centers;
+}
+
+/**
+ * Detección sobre píxeles RGBA crudos (separada del canvas para poder
+ * probarla). Combina dos pistas y se queda con la mejor:
+ *  A) "Parece papel": claro y poco saturado (el típico ticket blanco sobre
+ *     una mesa, aunque alrededor haya otras cosas).
+ *  B) "No se parece a ningún fondo": los colores del borde de la foto se
+ *     agrupan en varias zonas (madera, mantel, sombra) y se marca lo que no
+ *     se parece a ninguna (sirve si el papel no es blanco).
+ * En cada pista se toma la mancha que más parece un comprobante y se ajusta
+ * un cuadrilátero a su contorno, así sigue a un ticket inclinado.
+ */
+export function detectQuadInPixels(data: ArrayLike<number>, w: number, h: number): Quad | null {
+  const n = w * h;
+  if (n < 100) return null;
+
+  // Pista A: "papel" = brillo menos saturación, con umbral automático.
+  const paperRaw = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    paperRaw[i] = Math.max(0, (r + g + b) / 3 - 0.8 * (mx - mn));
+  }
+  const paper = boxBlur(paperRaw, w, h);
+  const t = otsuThreshold(paper);
+  const maskA = new Uint8Array(n);
+  for (let i = 0; i < n; i++) maskA[i] = paper[i] > t ? 1 : 0;
+
+  // Pista B: distancia a los colores del borde de la foto.
+  const margin = Math.max(2, Math.round(Math.min(w, h) * 0.03));
+  const samples: number[][] = [];
+  for (let y = 0; y < h; y += 2) {
+    for (let x = 0; x < w; x += 2) {
+      if (x >= margin && x < w - margin && y >= margin && y < h - margin) continue;
+      const i = (y * w + x) * 4;
+      samples.push([data[i], data[i + 1], data[i + 2]]);
+    }
+  }
+  const candidates: (Candidate | null)[] = [bestCandidate(morph(morph(maskA, w, h, true), w, h, false), w, h)];
+  if (samples.length >= 8) {
+    const centers = kMeansColors(samples, 4);
+    let spread = 0;
+    for (const s of samples) {
+      spread += Math.min(...centers.map((c) => Math.hypot(s[0] - c[0], s[1] - c[1], s[2] - c[2])));
+    }
+    spread /= samples.length;
+    const threshold = Math.max(40, spread * 2.5);
+    const maskB = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+      let d = Infinity;
+      for (const c of centers) d = Math.min(d, Math.hypot(r - c[0], g - c[1], b - c[2]));
+      maskB[i] = d > threshold ? 1 : 0;
+    }
+    candidates.push(bestCandidate(morph(morph(maskB, w, h, true), w, h, false), w, h));
+  }
+
+  let best: Candidate | null = null;
+  for (const c of candidates) if (c && (!best || c.score > best.score)) best = c;
+  if (!best) return null;
+  const area = quadArea(best.quad);
+  if (area < 0.02 || area > 0.95) return null;
+  return best.quad;
+}
+
+/**
+ * Sugerencia automática de las 4 esquinas del comprobante a partir del canvas
+ * de trabajo. Es una heurística (no un escáner profesional): si no encuentra
+ * nada convincente devuelve null y el editor arranca con un recuadro genérico.
  */
 export function detectDocumentQuad(source: HTMLCanvasElement): Quad | null {
-  const ANALYSIS_SIZE = 300;
-  const scale = ANALYSIS_SIZE / Math.max(source.width, source.height);
+  const scale = Math.min(1, ANALYSIS_SIZE / Math.max(source.width, source.height));
   const cw = Math.max(1, Math.round(source.width * scale));
   const ch = Math.max(1, Math.round(source.height * scale));
   const canvas = document.createElement("canvas");
@@ -216,111 +591,9 @@ export function detectDocumentQuad(source: HTMLCanvasElement): Quad | null {
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(source, 0, 0, cw, ch);
-  let data: Uint8ClampedArray;
   try {
-    data = ctx.getImageData(0, 0, cw, ch).data;
+    return detectQuadInPixels(ctx.getImageData(0, 0, cw, ch).data, cw, ch);
   } catch {
     return null;
   }
-  const idx = (x: number, y: number) => (y * cw + x) * 4;
-
-  // 1) Color de fondo: promedio de una franja fina pegada a los 4 bordes.
-  const margin = Math.max(2, Math.round(Math.min(cw, ch) * 0.04));
-  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0;
-  const sample = (x: number, y: number) => {
-    const i = idx(x, y);
-    bgR += data[i]; bgG += data[i + 1]; bgB += data[i + 2];
-    bgCount++;
-  };
-  for (let x = 0; x < cw; x += 2) {
-    for (let y = 0; y < margin; y++) sample(x, y);
-    for (let y = ch - margin; y < ch; y++) sample(x, y);
-  }
-  for (let y = margin; y < ch - margin; y += 2) {
-    for (let x = 0; x < margin; x++) sample(x, y);
-    for (let x = cw - margin; x < cw; x++) sample(x, y);
-  }
-  if (bgCount === 0) return null;
-  bgR /= bgCount; bgG /= bgCount; bgB /= bgCount;
-
-  // 2) Grilla: cada celda es "documento" si su color se aleja del fondo.
-  const cols = 50, rows = 50;
-  const cellW = cw / cols, cellH = ch / rows;
-  const THRESHOLD = 35;
-  const fg: boolean[][] = [];
-  for (let r = 0; r < rows; r++) {
-    fg[r] = [];
-    for (let c = 0; c < cols; c++) {
-      const x0 = Math.floor(c * cellW), x1 = Math.max(x0 + 1, Math.floor((c + 1) * cellW));
-      const y0 = Math.floor(r * cellH), y1 = Math.max(y0 + 1, Math.floor((r + 1) * cellH));
-      let sr = 0, sg = 0, sb = 0, n = 0;
-      for (let y = y0; y < y1; y++) {
-        for (let x = x0; x < x1; x++) {
-          const i = idx(Math.min(x, cw - 1), Math.min(y, ch - 1));
-          sr += data[i]; sg += data[i + 1]; sb += data[i + 2];
-          n++;
-        }
-      }
-      const dd = Math.sqrt((sr / n - bgR) ** 2 + (sg / n - bgG) ** 2 + (sb / n - bgB) ** 2);
-      fg[r][c] = dd > THRESHOLD;
-    }
-  }
-
-  // 3) Celdas confiables: marcadas y con al menos 3 vecinas marcadas (así se
-  // ignora ruido suelto, como una mancha en la mesa).
-  const solid: boolean[][] = [];
-  for (let r = 0; r < rows; r++) {
-    solid[r] = [];
-    for (let c = 0; c < cols; c++) {
-      if (!fg[r][c]) { solid[r][c] = false; continue; }
-      let neighbors = 0;
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr === 0 && dc === 0) continue;
-          const rr = r + dr, cc = c + dc;
-          if (rr >= 0 && rr < rows && cc >= 0 && cc < cols && fg[rr][cc]) neighbors++;
-        }
-      }
-      solid[r][c] = neighbors >= 3;
-    }
-  }
-
-  // 4) Esquinas a nivel de píxel (no de celda, para que el recorte quede
-  // justo): entre los píxeles que se distinguen del fondo y caen en (o al
-  // lado de) una celda confiable, el más extremo en cada diagonal.
-  const nearSolid = (r: number, c: number) => {
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const rr = r + dr, cc = c + dc;
-        if (rr >= 0 && rr < rows && cc >= 0 && cc < cols && solid[rr][cc]) return true;
-      }
-    }
-    return false;
-  };
-  const PIXEL_THRESHOLD = THRESHOLD * 1.3;
-  let tl: Point | null = null, tr: Point | null = null, br: Point | null = null, bl: Point | null = null;
-  let minSum = Infinity, maxSum = -Infinity, maxDiff = -Infinity, minDiff = Infinity;
-  for (let y = 0; y < ch; y++) {
-    const r = Math.min(rows - 1, Math.floor(y / cellH));
-    for (let x = 0; x < cw; x++) {
-      const c = Math.min(cols - 1, Math.floor(x / cellW));
-      if (!nearSolid(r, c)) continue;
-      const i = idx(x, y);
-      const dd = Math.sqrt((data[i] - bgR) ** 2 + (data[i + 1] - bgG) ** 2 + (data[i + 2] - bgB) ** 2);
-      if (dd <= PIXEL_THRESHOLD) continue;
-      const nx = x / (cw - 1);
-      const ny = y / (ch - 1);
-      if (nx + ny < minSum) { minSum = nx + ny; tl = { x: nx, y: ny }; }
-      if (nx + ny > maxSum) { maxSum = nx + ny; br = { x: nx, y: ny }; }
-      if (nx - ny > maxDiff) { maxDiff = nx - ny; tr = { x: nx, y: ny }; }
-      if (nx - ny < minDiff) { minDiff = nx - ny; bl = { x: nx, y: ny }; }
-    }
-  }
-  if (!tl || !tr || !br || !bl) return null;
-  const q: Quad = [tl, tr, br, bl];
-
-  // 5) Si es casi toda la foto, muy chico o deforme, no confiamos.
-  const area = quadArea(q);
-  if (area < 0.05 || area > 0.95 || !isValidQuad(q)) return null;
-  return q;
 }
