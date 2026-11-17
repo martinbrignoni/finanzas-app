@@ -1,5 +1,17 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { LocalStorageRepository } from "./storage";
+import { CURRENT_SCHEMA_VERSION } from "../types";
+
+/** Colecciones agregadas por las migraciones v13 a v18: tienen que existir (vacías) después de migrar. */
+const expectNewCollectionsEmpty = (data: Awaited<ReturnType<LocalStorageRepository["load"]>>) => {
+  expect(data.auditLog).toEqual([]);
+  expect(data.familyMembers).toEqual([]);
+  expect(data.usageSessions).toEqual([]);
+  expect(data.movementTimings).toEqual([]);
+  expect(data.vehicles).toEqual([]);
+  expect(data.reminders).toEqual([]);
+  expect(data.reminderRules).toEqual([]);
+};
 
 describe("LocalStorageRepository migration", () => {
   beforeEach(() => {
@@ -23,7 +35,8 @@ describe("LocalStorageRepository migration", () => {
     const repo = new LocalStorageRepository();
     const migrated = await repo.load();
 
-    expect(migrated.schemaVersion).toBe(12);
+    // Siempre la versión actual: así el test no queda viejo cada vez que se agrega una migración.
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(migrated.transactions).toHaveLength(1);
     expect(migrated.categories.some((c) => c.name === "Mascotas")).toBe(true);
     expect(migrated.categories.some((c) => c.name === "Alimentación")).toBe(true);
@@ -32,15 +45,48 @@ describe("LocalStorageRepository migration", () => {
     expect(migrated.users[0].permissions.cuentas.edit).toBe(true);
     expect(migrated.transfers).toEqual([]);
     expect(migrated.cardPayments).toEqual([]);
+    expect(migrated.users[0].permissions.recordatorios.edit).toBe(true);
+    expectNewCollectionsEmpty(migrated);
   });
 
   it("no rompe con datos vacíos (primera vez que se abre la app)", async () => {
     const repo = new LocalStorageRepository();
     const data = await repo.load();
-    expect(data.schemaVersion).toBe(12);
+    expect(data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
     expect(data.users).toHaveLength(1);
     expect(data.categories.length).toBeGreaterThan(0);
     expect(data.transfers).toEqual([]);
     expect(data.cardPayments).toEqual([]);
+    expectNewCollectionsEmpty(data);
+  });
+
+  it("migra de la v17 a la actual sin perder movimientos ni usuarios existentes", async () => {
+    const v17Data = {
+      schemaVersion: 17,
+      transactions: [
+        { id: "t1", type: "gasto", amountMinor: 276000, currency: "UYU", category: "Supermercado", date: "2026-11-17" },
+        { id: "t2", type: "ingreso", amountMinor: 150000, currency: "USD", category: "Sueldo", date: "2026-11-01" },
+      ],
+      categories: [{ id: "c1", name: "Supermercado" }, { id: "c2", name: "Sueldo" }],
+      users: [{ id: "u1", name: "Martín", permissions: { cuentas: { view: true, edit: true } } }],
+      activeUserId: "u1",
+      vehicles: [{ id: "v1", name: "Auto" }],
+    };
+    window.localStorage.setItem("finanzas:data", JSON.stringify(v17Data));
+
+    const data = await new LocalStorageRepository().load();
+
+    expect(data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(data.transactions).toEqual(v17Data.transactions);
+    expect(data.categories).toEqual(v17Data.categories);
+    expect(data.vehicles).toEqual(v17Data.vehicles);
+    expect(data.users).toHaveLength(1);
+    expect(data.users[0].id).toBe("u1");
+    expect(data.users[0].permissions.cuentas.edit).toBe(true);
+    // Los permisos que se agregaron después se dan por defecto, para no bloquear a nadie.
+    expect(data.users[0].permissions.recordatorios).toEqual({ view: true, edit: true });
+    expect(data.activeUserId).toBe("u1");
+    expect(data.reminders).toEqual([]);
+    expect(data.reminderRules).toEqual([]);
   });
 });
