@@ -2,10 +2,12 @@ import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermis
 import { categoryFullPath } from "./categories";
 import { supabase } from "./supabaseClient";
 import { resolveOwnerId } from "./household";
+import { mergeFinanceData } from "./merge";
 
 export interface FinanceRepository {
   load(): Promise<FinanceData>;
-  save(data: FinanceData): Promise<void>;
+  /** Guarda y devuelve lo que quedó efectivamente guardado (puede incluir cambios fusionados de otro dispositivo). */
+  save(data: FinanceData): Promise<FinanceData>;
 }
 
 const STORAGE_KEY = "finanzas:data";
@@ -252,9 +254,10 @@ export class LocalStorageRepository implements FinanceRepository {
     }
   }
 
-  async save(data: FinanceData): Promise<void> {
+  async save(data: FinanceData): Promise<FinanceData> {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      return data;
     } catch (err) {
       console.error("Error guardando datos en localStorage.", err);
       throw err;
@@ -262,49 +265,133 @@ export class LocalStorageRepository implements FinanceRepository {
   }
 }
 
+/** Fila de `finance_data` tal como la necesita el repositorio. */
+export interface FinanceRow {
+  data: unknown;
+  /** `updated_at` de la fila, usado como número de versión. */
+  version: string;
+}
+
 /**
- * Repositorio que guarda todo el estado de la app como un único registro JSON
- * en la tabla `finance_data` de Supabase, asociado al usuario logueado. Así,
- * los mismos datos se ven desde cualquier dispositivo en el que inicies sesión.
- *
- * Nota: si dos dispositivos guardan casi al mismo tiempo sin haber recargado,
- * gana el último `save()` (no hay merge). Para uso personal, alcanza.
+ * Acceso mínimo a la tabla `finance_data`. Separado del repositorio para poder
+ * testear la lógica de versiones y fusión con una implementación en memoria.
  */
-export class SupabaseRepository implements FinanceRepository {
-  async load(): Promise<FinanceData> {
-    const { data: auth } = await supabase.auth.getUser();
+export interface FinanceRowStore {
+  /** Id del dueño de los datos (el propio usuario o el dueño del hogar). Lanza error si no se puede determinar. */
+  ownerId(): Promise<string>;
+  fetch(ownerId: string): Promise<FinanceRow | null>;
+  /** Actualiza solo si la versión sigue siendo `expectedVersion`. Devuelve la versión nueva, o `null` si no se actualizó nada. */
+  updateIfVersion(ownerId: string, data: FinanceData, expectedVersion: string): Promise<string | null>;
+  /** Crea la fila. Devuelve la versión nueva, o `null` si ya existía. */
+  insert(ownerId: string, data: FinanceData): Promise<string | null>;
+}
+
+export class ConcurrentSaveError extends Error {}
+
+const supabaseRowStore: FinanceRowStore = {
+  async ownerId() {
+    const { data: auth, error } = await supabase.auth.getUser();
+    if (error) throw error;
     const authUserId = auth.user?.id;
-    if (!authUserId) return emptyFinanceData();
-    const userId = await resolveOwnerId(authUserId);
-
-    const { data, error } = await supabase
+    if (!authUserId) throw new Error("No hay sesión activa.");
+    return resolveOwnerId(authUserId);
+  },
+  async fetch(ownerId) {
+    const { data, error } = await supabase.from("finance_data").select("data, updated_at").eq("user_id", ownerId).maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    // "" = fila sin `updated_at` (no debería pasar, pero se contempla).
+    return { data: data.data, version: data.updated_at ? String(data.updated_at) : "" };
+  },
+  async updateIfVersion(ownerId, data, expectedVersion) {
+    const base = supabase.from("finance_data").update({ data, updated_at: new Date().toISOString() }).eq("user_id", ownerId);
+    const filtered = expectedVersion === "" ? base.is("updated_at", null) : base.eq("updated_at", expectedVersion);
+    const { data: rows, error } = await filtered.select("updated_at");
+    if (error) throw error;
+    return rows && rows.length > 0 ? String(rows[0].updated_at) : null;
+  },
+  async insert(ownerId, data) {
+    const { data: rows, error } = await supabase
       .from("finance_data")
-      .select("data")
-      .eq("user_id", userId)
-      .maybeSingle();
-
+      .insert({ user_id: ownerId, data, updated_at: new Date().toISOString() })
+      .select("updated_at");
     if (error) {
-      console.error("Error leyendo datos de Supabase, se usan datos vacíos.", error);
-      return emptyFinanceData();
-    }
-    if (!data) return emptyFinanceData();
-    return migrate(data.data);
-  }
-
-  async save(data: FinanceData): Promise<void> {
-    const { data: auth } = await supabase.auth.getUser();
-    const authUserId = auth.user?.id;
-    if (!authUserId) throw new Error("No hay sesión activa, no se puede guardar.");
-    const userId = await resolveOwnerId(authUserId);
-
-    const { error } = await supabase
-      .from("finance_data")
-      .upsert({ user_id: userId, data, updated_at: new Date().toISOString() });
-
-    if (error) {
-      console.error("Error guardando datos en Supabase.", error);
+      if (error.code === "23505") return null; // ya existe la fila (la creó otro dispositivo)
       throw error;
     }
+    return rows && rows.length > 0 ? String(rows[0].updated_at) : null;
+  },
+};
+
+const MAX_SAVE_ATTEMPTS = 4;
+
+/**
+ * Repositorio que guarda todo el estado de la app como un único registro JSON
+ * en la tabla `finance_data` de Supabase (del usuario o del dueño del hogar).
+ *
+ * Protecciones contra pérdida de datos:
+ *  - `load()` lanza error si no puede leer: nunca devuelve datos vacíos por
+ *    un problema de red (antes eso terminaba guardando vacío en la nube).
+ *  - `save()` escribe solo si la fila sigue en la versión que leímos
+ *    (`updated_at`). Si otro dispositivo guardó en el medio, trae lo nuevo,
+ *    fusiona los dos lados (ver lib/merge.ts) y reintenta. Devuelve lo que
+ *    quedó efectivamente guardado, que puede incluir cambios del otro lado.
+ */
+export class SupabaseRepository implements FinanceRepository {
+  private ownerIdCache: string | null = null;
+  /** Lo último que sabemos que está en el servidor, y su versión. */
+  private base: FinanceData | null = null;
+  private version: string | null = null;
+
+  constructor(private readonly store: FinanceRowStore = supabaseRowStore) {}
+
+  private async owner(): Promise<string> {
+    if (!this.ownerIdCache) this.ownerIdCache = await this.store.ownerId();
+    return this.ownerIdCache;
+  }
+
+  async load(): Promise<FinanceData> {
+    const ownerId = await this.owner();
+    const row = await this.store.fetch(ownerId);
+    const loaded = row ? migrate(row.data) : emptyFinanceData();
+    this.base = loaded;
+    this.version = row?.version ?? null;
+    return loaded;
+  }
+
+  async save(data: FinanceData): Promise<FinanceData> {
+    if (!this.base) throw new Error("No se puede guardar antes de cargar los datos.");
+    const ownerId = await this.owner();
+    let toWrite = data;
+
+    for (let attempt = 0; attempt < MAX_SAVE_ATTEMPTS; attempt++) {
+      const newVersion =
+        this.version === null
+          ? await this.store.insert(ownerId, toWrite)
+          : await this.store.updateIfVersion(ownerId, toWrite, this.version);
+
+      if (newVersion !== null) {
+        this.base = toWrite;
+        this.version = newVersion;
+        return toWrite;
+      }
+
+      // No se escribió: alguien guardó en el medio (o la fila no existe / no hay permiso).
+      const remoteRow = await this.store.fetch(ownerId);
+      if (!remoteRow) {
+        if (this.version === null) throw new Error("No se pudo crear el registro de datos.");
+        throw new Error("El registro de datos ya no existe en el servidor.");
+      }
+      if (remoteRow.version === this.version) {
+        // Nadie cambió nada y aun así no se pudo escribir: es un problema de permisos, no un conflicto.
+        throw new Error("El servidor rechazó el guardado (sin permiso para modificar los datos).");
+      }
+      const remote = migrate(remoteRow.data);
+      toWrite = mergeFinanceData(this.base, toWrite, remote);
+      this.base = remote;
+      this.version = remoteRow.version;
+    }
+    throw new ConcurrentSaveError("Otros dispositivos están guardando a la vez. Probá de nuevo en unos segundos.");
   }
 }
 

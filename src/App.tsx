@@ -5,6 +5,8 @@ import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
 import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
+import { createSaveQueue } from "./lib/saveQueue";
+import { mergeFinanceData, deepEqual } from "./lib/merge";
 import { supabase } from "./lib/supabaseClient";
 import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
 import { canView as checkView, canEdit as checkEdit } from "./lib/permissions";
@@ -110,7 +112,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [unlocked, setUnlocked] = useState(false);
   const [sessionEmail, setSessionEmail] = useState<string | null>(null);
-  const pendingSaves = useRef(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Última versión de `data` que ya pasó por este efecto, para poder
   // comparar contra la nueva y detectar qué cambió (y avisarle a otros
   // dispositivos). `skipNotify` se prende justo antes de un `loadData()`
@@ -123,28 +125,103 @@ export default function App() {
     supabase.auth.getUser().then(({ data }) => setSessionEmail(data.user?.email ?? null));
   }, []);
 
-  const loadData = useCallback(() => {
+  // Estado que se adoptó desde el servidor (fusión con cambios de otro
+  // dispositivo) y que ya está guardado tal cual: el efecto de guardado no
+  // tiene que volver a subirlo ni avisar a nadie.
+  const adoptedRef = useRef<FinanceData | null>(null);
+
+  // Cola de guardado (ver lib/saveQueue.ts): un guardado a la vez, siempre con
+  // el último estado. Se crea una sola vez.
+  const saveQueueRef = useRef<ReturnType<typeof createSaveQueue<FinanceData>> | null>(null);
+  if (!saveQueueRef.current) {
+    saveQueueRef.current = createSaveQueue<FinanceData>((d) => repo.save(d), {
+      onBusyChange: setSaving,
+      onSaved: (submitted, written) => {
+        setSaveError(null);
+        if (written === submitted) return;
+        // Otro dispositivo había guardado en el medio: el repositorio fusionó
+        // los dos lados. Se adopta el resultado sin perder lo que se haya
+        // editado acá mientras tanto.
+        setData((cur) => {
+          if (!cur || cur === submitted) {
+            adoptedRef.current = written;
+            return written;
+          }
+          const next = mergeFinanceData(submitted, cur, written);
+          adoptedRef.current = null;
+          skipNotifyRef.current = true;
+          return next;
+        });
+      },
+      onError: (err) => {
+        console.error(err);
+        setSaveError("No se pudieron guardar los cambios. Revisá la conexión: se reintenta con el próximo cambio o al deslizar hacia abajo.");
+      },
+    });
+  }
+  const saveQueue = saveQueueRef.current;
+
+  /**
+   * Trae los datos del servidor. Si falla, NO reemplaza nada: en la primera
+   * carga muestra la pantalla de error con "Reintentar"; en una recarga
+   * (deslizar hacia abajo, volver a la app) deja los datos que había.
+   */
+  const loadData = useCallback(async (): Promise<void> => {
+    // No pisar cambios propios que todavía no llegaron al servidor.
+    await saveQueue.idle();
+    if (saveQueue.hasUnsavedChanges() && prevDataRef.current) {
+      // Un guardado anterior falló (ej. sin señal): se reintenta antes de traer nada.
+      saveQueue.enqueue(prevDataRef.current);
+      await saveQueue.idle();
+    }
+    if (saveQueue.hasUnsavedChanges()) {
+      setSaveError("Hay cambios sin guardar y no hay conexión con el servidor. No se recargó para no perderlos.");
+      return;
+    }
     setRefreshing(true);
-    return repo
-      .load()
-      .then(async (loaded) => {
-        skipNotifyRef.current = true;
-        // Genera acá los movimientos recurrentes y las cuotas hipotecarias
-        // vencidas (ver lib/recurring.ts y lib/mortgage.ts), como si fueran
-        // parte de los datos que se acaban de traer: no dispara aviso a
-        // otros dispositivos por esto (es "traer datos", no "editar"). La
-        // parte de hipoteca es async (puede necesitar traer una cotización
-        // de UI de Cotizaciones para convertir la cuota).
-        const withRecurring = generateDueRecurringTransactions(loaded);
-        const withMortgage = await generateDueMortgagePayments(withRecurring);
-        const withReminders = generateDueReminders(withMortgage);
-        setData(withReminders);
-        // Respaldo automático (ver lib/backup.ts): no bloquea la carga ni
-        // hace falta esperarlo, corre en silencio y no rompe nada si falla.
-        maybeRunAutomaticBackup(withReminders).catch(() => {});
-      })
-      .finally(() => setRefreshing(false));
-  }, []);
+    try {
+      const loaded = await repo.load();
+      skipNotifyRef.current = true;
+      // Genera acá los movimientos recurrentes y las cuotas hipotecarias
+      // vencidas (ver lib/recurring.ts y lib/mortgage.ts), como si fueran
+      // parte de los datos que se acaban de traer: no dispara aviso a
+      // otros dispositivos por esto (es "traer datos", no "editar"). La
+      // parte de hipoteca es async (puede necesitar traer una cotización
+      // de UI de Cotizaciones para convertir la cuota).
+      const withRecurring = generateDueRecurringTransactions(loaded);
+      const withMortgage = await generateDueMortgagePayments(withRecurring);
+      const withReminders = generateDueReminders(withMortgage);
+      setLoadError(null);
+      // Si no se generó nada nuevo, lo cargado ya está así en el servidor: no
+      // hace falta volver a guardarlo (antes cada apertura escribía la fila).
+      if (deepEqual(withReminders, loaded)) adoptedRef.current = withReminders;
+      setData(withReminders);
+      // Respaldo automático (ver lib/backup.ts): no bloquea la carga ni
+      // hace falta esperarlo, corre en silencio y no rompe nada si falla.
+      maybeRunAutomaticBackup(withReminders).catch(() => {});
+    } catch (err) {
+      console.error("No se pudieron cargar los datos.", err);
+      setLoadError("No se pudieron traer tus datos del servidor. Revisá la conexión y probá de nuevo.");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [saveQueue]);
+
+  // Al volver a la app después de un rato (ej. quedó abierta en el celular
+  // desde ayer), recarga para no trabajar sobre datos viejos.
+  useEffect(() => {
+    let hiddenAt: number | null = null;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAt = Date.now();
+      } else if (hiddenAt !== null && Date.now() - hiddenAt > 30_000) {
+        hiddenAt = null;
+        void loadData();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [loadData]);
 
   useEffect(() => {
     loadData();
@@ -155,7 +232,7 @@ export default function App() {
     if (!data) return;
 
     const prev = prevDataRef.current;
-    const skip = skipNotifyRef.current;
+    const skip = skipNotifyRef.current || adoptedRef.current === data;
     skipNotifyRef.current = false;
     if (prev && !skip) {
       const actor = data.users.find((u) => u.id === data.activeUserId);
@@ -166,16 +243,12 @@ export default function App() {
     }
     prevDataRef.current = data;
 
-    pendingSaves.current += 1;
-    setSaving(true);
-    repo
-      .save(data)
-      .catch(() => setSaveError("No se pudieron guardar los cambios. Revisá el espacio disponible del navegador."))
-      .finally(() => {
-        pendingSaves.current -= 1;
-        if (pendingSaves.current <= 0) setSaving(false);
-      });
-  }, [data]);
+    if (adoptedRef.current === data) {
+      adoptedRef.current = null;
+      return; // ya está guardado así en el servidor
+    }
+    saveQueue.enqueue(data);
+  }, [data, saveQueue]);
 
   // Avisa antes de cerrar/recargar la pestaña si todavía hay un guardado en
   // curso, para no perder el último cambio (ej. una nota recién escrita) si
@@ -1044,8 +1117,23 @@ export default function App() {
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg, color: C.textMuted }}>
-        Cargando...
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-6 text-center" style={{ background: C.bg, color: C.textMuted }}>
+        {loadError ? (
+          <>
+            <p className="text-sm">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              disabled={refreshing}
+              className="text-sm font-medium px-4 py-2 rounded-lg"
+              style={{ background: C.surface2, color: C.text }}
+            >
+              {refreshing ? "Reintentando..." : "Reintentar"}
+            </button>
+          </>
+        ) : (
+          "Cargando..."
+        )}
       </div>
     );
   }
@@ -1148,9 +1236,9 @@ export default function App() {
           </div>
         </div>
 
-        {saveError && (
+        {(saveError || loadError) && (
           <div className="rounded-lg p-3 mb-3 text-xs" style={{ background: "rgba(217,119,106,0.15)", color: C.negative }}>
-            {saveError}
+            {saveError ?? loadError}
           </div>
         )}
 
