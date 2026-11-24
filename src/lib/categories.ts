@@ -1,4 +1,4 @@
-import type { Category } from "../types";
+import type { Category, FinanceData } from "../types";
 
 /**
  * Identifica una categoría sin ambigüedad, aunque el mismo nombre se repita
@@ -187,3 +187,100 @@ export function filterCategoriesByScope(categories: Category[], scope: MovementS
     return scope === "minuchi" ? isMinuchi : !isMinuchi;
   });
 }
+
+/**
+ * Reescribe el `category` guardado en TODOS los registros que lo usan
+ * (movimientos, cuotas, presupuestos, recurrentes, hipotecas y contactos)
+ * cuando una categoría cambia de path, ya sea por renombrarla o por moverla
+ * a otra madre. Con `exact`, solo cambia coincidencias exactas (para
+ * reclasificar los movimientos de una categoría que se elimina).
+ *
+ * Antes cada acción actualizaba solo algunas colecciones, y mover una
+ * categoría no actualizaba ninguna: sus movimientos quedaban huérfanos.
+ */
+export function remapCategoryInData<D extends CategoryHolders>(d: D, oldPath: string, newPath: string, exact = false): D {
+  const remap = (v: string): string => (exact ? (v === oldPath ? newPath : v) : remapCategoryPath(v, oldPath, newPath));
+  const remapOpt = <T extends { category?: string }>(x: T): T => {
+    if (!x.category) return x;
+    const next = remap(x.category);
+    return next === x.category ? x : { ...x, category: next };
+  };
+  return {
+    ...d,
+    transactions: d.transactions.map(remapOpt),
+    installments: d.installments.map(remapOpt),
+    budgets: d.budgets.map((b) => {
+      const next = remap(b.category);
+      return next === b.category ? b : { ...b, category: next };
+    }),
+    recurringRules: d.recurringRules.map(remapOpt),
+    contacts: d.contacts.map(remapOpt),
+    mortgageLoans: d.mortgageLoans.map((m) => {
+      if (!m.paymentCategory) return m;
+      const next = remap(m.paymentCategory);
+      return next === m.paymentCategory ? m : { ...m, paymentCategory: next };
+    }),
+  };
+}
+
+/** Path completo que tendría `category` si se la moviera bajo `newParentId`. */
+export function categoryMovePaths(category: Category, categories: Category[], newParentId: string): { oldPath: string; newPath: string } {
+  const oldPath = categoryFullPath(category, categories);
+  const moved = categories.map((c) => (c.id === category.id ? { ...c, parentId: newParentId } : c));
+  const newPath = categoryFullPath({ ...category, parentId: newParentId }, moved);
+  return { oldPath, newPath };
+}
+
+/**
+ * Repara movimientos que quedaron con un path de categoría que ya no existe
+ * (por ejemplo, por mover una categoría antes de que existiera
+ * `remapCategoryInData`). Solo reasigna cuando el último tramo del path
+ * (el nombre de la categoría) coincide con UNA sola categoría existente;
+ * si el nombre se repite en más de una rama, no toca nada para no adivinar.
+ * Devuelve los datos reparados y cuántos registros se corrigieron.
+ */
+export function repairOrphanCategoryPaths<D extends CategoryHolders & { categories: Category[] }>(d: D): { data: D; repaired: number } {
+  const existing = new Set(d.categories.map((c) => categoryFullPath(c, d.categories)));
+  const byName = new Map<string, Category[]>();
+  for (const c of d.categories) byName.set(c.name, [...(byName.get(c.name) ?? []), c]);
+
+  const orphanPaths = new Set<string>();
+  const collect = (v: string | undefined) => {
+    if (v && !existing.has(v)) orphanPaths.add(v);
+  };
+  d.transactions.forEach((t) => collect(t.category));
+  d.installments.forEach((i) => collect(i.category));
+  d.budgets.forEach((b) => collect(b.category));
+  d.recurringRules.forEach((r) => collect(r.category));
+  d.contacts.forEach((c) => collect(c.category));
+  d.mortgageLoans.forEach((m) => collect(m.paymentCategory));
+
+  let data = d;
+  let repaired = 0;
+  for (const path of orphanPaths) {
+    const leaf = path.split(" > ").pop()!.trim();
+    const matches = byName.get(leaf) ?? [];
+    if (matches.length !== 1) continue;
+    const newPath = categoryFullPath(matches[0], d.categories);
+    const before = data;
+    data = remapCategoryInData(data, path, newPath, true);
+    repaired += countChanged(before, data);
+  }
+  return { data, repaired };
+}
+
+function countChanged(a: CategoryHolders, b: CategoryHolders): number {
+  const keys = ["transactions", "installments", "budgets", "recurringRules", "contacts", "mortgageLoans"] as const;
+  let n = 0;
+  for (const k of keys) {
+    const xa = a[k] as unknown[];
+    const xb = b[k] as unknown[];
+    for (let i = 0; i < xa.length; i++) if (xa[i] !== xb[i]) n++;
+  }
+  return n;
+}
+
+type CategoryHolders = Pick<
+  FinanceData,
+  "transactions" | "installments" | "budgets" | "recurringRules" | "contacts" | "mortgageLoans"
+>;

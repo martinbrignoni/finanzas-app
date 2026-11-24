@@ -6,11 +6,11 @@ import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
 import { StatementFileRow } from "../../components/StatementFileRow";
 import { receiptPathsOf, uploadReceipt, getReceiptUrl, deleteReceipt } from "../../lib/receipts";
 import { formatMoney, parseAmountInput, fromMinor } from "../../lib/money";
-import { currentMonthKey, monthsBetween, monthKeyOf, addMonths, monthLabel, capitalize, todayISO, formatDateDMY } from "../../lib/dates";
+import { currentMonthKey, monthsBetween, addMonths, monthLabel, capitalize, todayISO, formatDateDMY } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
 import { canEditOwnRecord } from "../../lib/permissions";
-import { cardLabel, dueForCardInMonth, cardConsumptionForMonth } from "../../lib/cards";
+import { cardLabel, dueForCardInMonth, cardConsumptionForMonth, statementMonthOf } from "../../lib/cards";
 import { exportCardToExcel } from "../../lib/excelExport";
 import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser, ContactEntry, Contact, FamilyMember } from "../../types";
 
@@ -76,7 +76,7 @@ function cardConsumptionByHolder(
     }
   });
   transactions
-    .filter((t) => t.type === "gasto" && t.cardId === card.id && monthKeyOf(t.date) === mk)
+    .filter((t) => t.type === "gasto" && t.cardId === card.id && statementMonthOf(card, t.date) === mk)
     .forEach((t) => {
       ensure(t.cardExtensionId ?? "")[t.currency] += t.amountMinor;
     });
@@ -206,7 +206,9 @@ function CardSummaryCard({
   onView: (id: string) => void;
 }) {
   const debt = cardDebt(card.id, data.installments, data.transactions, data.contactEntries, data.cardPayments, mk);
-  const consumption = cardConsumptionForMonth(card.id, data.installments, data.transactions, data.contactEntries, mk);
+  // Período abierto: después del día de cierre, las compras nuevas ya van al resumen del mes siguiente.
+  const openStatementMonth = statementMonthOf(card, todayISO());
+  const consumption = cardConsumptionForMonth(card, data.installments, data.transactions, data.contactEntries, openStatementMonth);
   const pendingMonths = pendingCardStatementMonths(card, data.cardStatements);
   const currentStatement = getCardStatement(data.cardStatements, card.id, mk);
 
@@ -228,7 +230,7 @@ function CardSummaryCard({
       </div>
 
       <div className="rounded-lg p-2.5 mb-2" style={{ background: C.surface2 }}>
-        <div className="text-[11px] font-semibold mb-1" style={{ color: C.textMuted }}>Consumo de este mes</div>
+        <div className="text-[11px] font-semibold mb-1" style={{ color: C.textMuted }}>Consumo del resumen de {monthLabel(openStatementMonth)}</div>
         <div className="flex gap-4 text-xs font-mono">
           {consumption.UYU === 0 && consumption.USD === 0 ? (
             <span style={{ color: C.textFaint }}>Sin consumo cargado todavía</span>
@@ -325,7 +327,7 @@ function CardDetailModal({
   const currentStatement = getCardStatement(cardStatements, card.id, statementMonth);
   const [dueDate, setDueDate] = useState(currentStatement?.dueDate ?? "");
   const statementMonthOptions = Array.from({ length: 25 }, (_, i) => addMonths(mk, -i));
-  const consumption = cardConsumptionForMonth(card.id, installments, expenses, contactEntries, statementMonth);
+  const consumption = cardConsumptionForMonth(card, installments, expenses, contactEntries, statementMonth);
   const byHolder = (card.extensions?.length ?? 0) > 0 ? cardConsumptionByHolder(card, installments, expenses, statementMonth) : [];
   const hasAnyFile = !!(currentStatement?.pdfPath || currentStatement?.excelPath);
 

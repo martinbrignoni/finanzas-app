@@ -1,5 +1,5 @@
 import { CURRENT_SCHEMA_VERSION, emptyFinanceData, defaultCategories, fullPermissions, type FinanceData, type Category, type AppUser } from "../types";
-import { categoryFullPath } from "./categories";
+import { categoryFullPath, repairOrphanCategoryPaths } from "./categories";
 import { supabase } from "./supabaseClient";
 import { resolveOwnerId } from "./household";
 import { mergeFinanceData } from "./merge";
@@ -20,6 +20,7 @@ const STORAGE_KEY = "finanzas:data";
 function migrate(raw: any): FinanceData {
   if (!raw || typeof raw !== "object") return emptyFinanceData();
   let data = raw as FinanceData;
+  let repairCategories = false;
 
   if (data.schemaVersion === undefined) {
     data = { ...data, schemaVersion: 1 };
@@ -187,6 +188,16 @@ function migrate(raw: any): FinanceData {
     data = { ...data, schemaVersion: 18, reminders: [], reminderRules: [] };
   }
 
+  if (data.schemaVersion === 18) {
+    // v19: repara movimientos (y cuotas, presupuestos, recurrentes, hipotecas,
+    // contactos) que quedaron con el path de una categoría que se movió de
+    // madre antes de que mover reescribiera los paths. Solo reasigna cuando el
+    // nombre de la categoría es único (ver repairOrphanCategoryPaths).
+    // Se aplica al final, sobre los datos ya normalizados (listas completas).
+    repairCategories = true;
+    data = { ...data, schemaVersion: 19 };
+  }
+
   // Agrega retroactivamente el permiso "cotizaciones" a usuarios ya
   // existentes que no lo tenían (se agregó después de que ya hubiera gente
   // usando la app), dándoles acceso por defecto para no bloquearlos.
@@ -210,7 +221,7 @@ function migrate(raw: any): FinanceData {
     u.permissions?.recordatorios ? u : { ...u, permissions: { ...u.permissions, recordatorios: { view: true, edit: true } } }
   );
 
-  return {
+  const normalized: FinanceData = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     transactions: data.transactions ?? [],
     cards: data.cards ?? [],
@@ -240,6 +251,7 @@ function migrate(raw: any): FinanceData {
     users: usersConRecordatorios,
     activeUserId: data.activeUserId ?? null,
   };
+  return repairCategories ? repairOrphanCategoryPaths(normalized).data : normalized;
 }
 
 export class LocalStorageRepository implements FinanceRepository {

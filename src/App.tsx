@@ -5,6 +5,7 @@ import { ConfirmDialog } from "./components/ui";
 import { CalculatorModal } from "./components/Calculator";
 import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
+import { accountReferences, bankReferences, cardReferences, describeReferences } from "./lib/references";
 import { createSaveQueue } from "./lib/saveQueue";
 import { mergeFinanceData, deepEqual } from "./lib/merge";
 import { supabase } from "./lib/supabaseClient";
@@ -15,7 +16,7 @@ import { generateDueMortgagePayments } from "./lib/mortgage";
 import { generateDueReminders } from "./lib/reminders";
 import { maybeRunAutomaticBackup } from "./lib/backup";
 import { useUsageTracking } from "./lib/usage";
-import { categoryRenamePaths, remapCategoryPath } from "./lib/categories";
+import { categoryRenamePaths, categoryMovePaths, remapCategoryInData } from "./lib/categories";
 import type { AccountLedgerEntry } from "./lib/accounts";
 import {
   makeCreateEntry,
@@ -265,7 +266,12 @@ export default function App() {
 
   const closeModal = () => setModal(null);
 
-  const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void; title?: string; confirmLabel?: string } | null>(null);
+  const [confirm, setConfirm] = useState<{ message: string; onConfirm: () => void; title?: string; confirmLabel?: string; hideCancel?: boolean } | null>(null);
+  /** Aviso informativo de un solo botón (ej. "no se puede eliminar porque..."). */
+  const showNotice = useCallback(
+    (title: string, message: string) => setConfirm({ title, message, confirmLabel: "Entendido", hideCancel: true, onConfirm: () => {} }),
+    []
+  );
   const requestConfirm = useCallback(
     (message: string, onConfirm: () => void, opts?: { title?: string; confirmLabel?: string }) =>
       setConfirm({ message, onConfirm, title: opts?.title, confirmLabel: opts?.confirmLabel }),
@@ -371,16 +377,24 @@ export default function App() {
         ? {
             ...d,
             cards: d.cards.filter((x) => x.id !== id),
-            installments: d.installments.filter((i) => i.cardId !== id),
-            cardPayments: d.cardPayments.filter((p) => p.cardId !== id),
-            transactions: d.transactions.map((t) => (t.cardId === id ? { ...t, cardId: undefined } : t)),
+            cardStatements: d.cardStatements.filter((x) => x.cardId !== id),
           }
         : d
     );
   }, []);
   const confirmDeleteCard = useCallback(
-    (id: string) => requestConfirm("¿Eliminar esta tarjeta? También se eliminan sus cuotas y pagos registrados. Los gastos quedan sin tarjeta asignada.", () => deleteCard(id)),
-    [requestConfirm, deleteCard]
+    (id: string) => {
+      const refs = data ? cardReferences(data, id) : [];
+      if (refs.length > 0) {
+        showNotice(
+          "No se puede eliminar",
+          `Esta tarjeta tiene ${describeReferences(refs)}. Eliminarla borraría ese historial y cambiaría el saldo de las cuentas con las que la pagaste. Si ya no la usás, podés dejarla: no suma nada mientras no tenga consumos nuevos.`
+        );
+        return;
+      }
+      requestConfirm("¿Eliminar esta tarjeta? No tiene movimientos asociados.", () => deleteCard(id));
+    },
+    [data, requestConfirm, deleteCard, showNotice]
   );
   const upsertInstallment = useCallback((inst: Installment) => {
     const commit = () => {
@@ -514,18 +528,29 @@ export default function App() {
   const deleteBank = useCallback((id: string) => {
     setData((d) => {
       if (!d) return d;
-      const accountIds = d.accounts.filter((a) => a.bankId === id).map((a) => a.id);
+      // Solo llega acá si ni el banco ni sus cajas tienen movimientos (ver confirmDeleteBank).
+      const accountIds = new Set(d.accounts.filter((a) => a.bankId === id).map((a) => a.id));
       return {
         ...d,
         banks: d.banks.filter((x) => x.id !== id),
         accounts: d.accounts.filter((a) => a.bankId !== id),
-        transactions: d.transactions.map((t) => (accountIds.includes(t.accountId ?? "") ? { ...t, accountId: undefined } : t)),
+        accountStatements: d.accountStatements.filter((s) => !accountIds.has(s.accountId)),
       };
     });
   }, []);
   const confirmDeleteBank = useCallback(
-    (id: string) => requestConfirm("¿Eliminar este banco? También se eliminan sus cajas.", () => deleteBank(id)),
-    [requestConfirm, deleteBank]
+    (id: string) => {
+      const refs = data ? bankReferences(data, id) : [];
+      if (refs.length > 0) {
+        showNotice(
+          "No se puede eliminar",
+          `Este banco tiene ${describeReferences(refs)} asociados. Eliminarlo borraría ese historial y cambiaría saldos. Si ya no lo usás, desactivá sus cajas desde Configuración → Bancos.`
+        );
+        return;
+      }
+      requestConfirm("¿Eliminar este banco y sus cajas? No tienen movimientos asociados.", () => deleteBank(id));
+    },
+    [data, requestConfirm, deleteBank, showNotice]
   );
   const upsertAccount = useCallback((a: Account) => {
     const commit = () => {
@@ -545,17 +570,26 @@ export default function App() {
       d
         ? {
             ...d,
+            // Solo llega acá si la caja no tiene movimientos (ver confirmDeleteAccount).
             accounts: d.accounts.filter((x) => x.id !== id),
-            transactions: d.transactions.map((t) => (t.accountId === id ? { ...t, accountId: undefined } : t)),
-            transfers: d.transfers.filter((tr) => tr.fromAccountId !== id && tr.toAccountId !== id),
-            cardPayments: d.cardPayments.filter((p) => p.accountId !== id),
+            accountStatements: d.accountStatements.filter((s) => s.accountId !== id),
           }
         : d
     );
   }, []);
   const confirmDeleteAccount = useCallback(
-    (id: string) => requestConfirm("¿Eliminar esta caja? Los movimientos asociados van a quedar sin cuenta.", () => deleteAccount(id)),
-    [requestConfirm, deleteAccount]
+    (id: string) => {
+      const refs = data ? accountReferences(data, id) : [];
+      if (refs.length > 0) {
+        showNotice(
+          "No se puede eliminar",
+          `Esta caja tiene ${describeReferences(refs)}. Eliminarla borraría ese historial y cambiaría el saldo de otras cuentas o tarjetas. Si ya no la usás, marcala como Inactiva: deja de aparecer en Cuentas y al cargar movimientos, pero conserva su historia.`
+        );
+        return;
+      }
+      requestConfirm("¿Eliminar esta caja? No tiene movimientos asociados.", () => deleteAccount(id));
+    },
+    [data, requestConfirm, deleteAccount, showNotice]
   );
   const upsertTransfer = useCallback((tr: Transfer) => {
     const commit = () => {
@@ -607,7 +641,19 @@ export default function App() {
     [requestConfirm, deleteCategory]
   );
   const moveCategory = useCallback((id: string, newParentId: string) => {
-    setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parentId: newParentId } : c)) } : d));
+    setData((d) => {
+      if (!d) return d;
+      const cat = d.categories.find((c) => c.id === id);
+      if (!cat || cat.parentId === newParentId) return d;
+      // Los movimientos guardan el path completo ("Madre > Categoría"): al
+      // mover hay que reescribirlo en todos lados o quedan huérfanos.
+      const { oldPath, newPath } = categoryMovePaths(cat, d.categories, newParentId);
+      return remapCategoryInData(
+        { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, parentId: newParentId } : c)) },
+        oldPath,
+        newPath
+      );
+    });
   }, []);
   const renameCategory = useCallback((id: string, newName: string) => {
     setData((d) => {
@@ -616,13 +662,7 @@ export default function App() {
       const trimmed = newName.trim();
       if (!cat || !trimmed || trimmed === cat.name) return d;
       const { oldPath, newPath } = categoryRenamePaths(cat, d.categories, trimmed);
-      return {
-        ...d,
-        categories: d.categories.map((c) => (c.id === id ? { ...c, name: trimmed } : c)),
-        transactions: d.transactions.map((t) => (t.category ? { ...t, category: remapCategoryPath(t.category, oldPath, newPath) } : t)),
-        installments: d.installments.map((i) => (i.category ? { ...i, category: remapCategoryPath(i.category, oldPath, newPath) } : i)),
-        budgets: d.budgets.map((b) => ({ ...b, category: remapCategoryPath(b.category, oldPath, newPath) })),
-      };
+      return remapCategoryInData({ ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, name: trimmed } : c)) }, oldPath, newPath);
     });
   }, []);
   const setCategoryAllowFamilyMembers = useCallback((id: string, allow: boolean) => {
@@ -638,15 +678,7 @@ export default function App() {
     setData((d) => (d ? { ...d, categories: d.categories.map((c) => (c.id === id ? { ...c, trackFuel: track || undefined } : c)) } : d));
   }, []);
   const reclassifyCategory = useCallback((fromName: string, toName: string) => {
-    setData((d) =>
-      d
-        ? {
-            ...d,
-            transactions: d.transactions.map((t) => (t.category === fromName ? { ...t, category: toName } : t)),
-            installments: d.installments.map((i) => (i.category === fromName ? { ...i, category: toName } : i)),
-          }
-        : d
-    );
+    setData((d) => (d ? remapCategoryInData(d, fromName, toName, true) : d));
   }, []);
   const saveAccountStatement = useCallback((s: AccountStatement) => {
     setData((d) =>
@@ -1650,6 +1682,7 @@ export default function App() {
           title={confirm.title}
           message={confirm.message}
           confirmLabel={confirm.confirmLabel}
+          hideCancel={confirm.hideCancel}
           onConfirm={() => { confirm.onConfirm(); setConfirm(null); }}
           onCancel={() => setConfirm(null)}
         />

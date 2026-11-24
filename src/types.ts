@@ -700,6 +700,12 @@ export interface MortgageLoan {
    * `paymentCategory`/`paymentAccountId`, pero se puede editar.
    */
   paymentAutomationStartDate?: string; // YYYY-MM-DD
+  /**
+   * Vencimientos (YYYY-MM-DD) cuya cuota ya se generó como movimiento alguna
+   * vez. Evita volver a generarla si después se elimina el movimiento o se le
+   * cambia la fecha a otro mes (antes se regeneraba y quedaba duplicada).
+   */
+  generatedPaymentDates?: string[];
 }
 
 /**
@@ -1135,7 +1141,7 @@ export interface FinanceData {
   activeUserId: string | null;
 }
 
-export const CURRENT_SCHEMA_VERSION = 18;
+export const CURRENT_SCHEMA_VERSION = 19;
 
 /** Solo se usan para poblar categorías por defecto en instalaciones nuevas o migraciones. */
 export const DEFAULT_EXPENSE_CATEGORY_NAMES = [
