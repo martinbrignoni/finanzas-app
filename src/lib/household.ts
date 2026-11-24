@@ -17,11 +17,12 @@ export async function resolveOwnerId(authUserId: string): Promise<string> {
     .maybeSingle();
 
   if (error) {
-    // Si la tabla todavía no existe (no se corrió la migración) o cualquier
-    // otro error, no bloqueamos al usuario: se comporta como hoy, cada login
-    // ve sus propios datos.
-    console.error("No se pudo resolver el hogar compartido, se usa el propio usuario.", error);
-    return authUserId;
+    // Antes, ante un error se seguía con el propio usuario. Para alguien que
+    // comparte hogar eso significaba leer (y después guardar en) una fila
+    // vacía propia en vez de la del hogar. Ahora el error corta la carga y la
+    // app muestra "Reintentar".
+    console.error("No se pudo resolver el hogar compartido.", error);
+    throw error;
   }
   return data?.owner_id ?? authUserId;
 }

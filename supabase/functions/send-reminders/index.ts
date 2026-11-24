@@ -170,7 +170,7 @@ Deno.serve(async (_req) => {
 
     const { date: today, time: nowTime } = nowInUruguay();
 
-    const { data: rows, error } = await admin.from("finance_data").select("user_id, data");
+    const { data: rows, error } = await admin.from("finance_data").select("user_id, data, updated_at");
     if (error) throw error;
 
     let totalSent = 0;
@@ -232,11 +232,43 @@ Deno.serve(async (_req) => {
       }
 
       if (materializedChanged || pushChanged) {
-        householdsUpdated++;
-        await admin
-          .from("finance_data")
-          .update({ data: { ...financeData, reminders, reminderRules: rules } })
-          .eq("user_id", ownerId);
+        // Escritura con control de versión (`updated_at`), igual que la app:
+        // si un dispositivo guardó entre la lectura y esta escritura, se
+        // vuelve a leer la fila, se re-aplica solo lo de recordatorios sobre
+        // los datos nuevos y se reintenta. Así el cron nunca pisa cambios
+        // hechos desde la app (antes los podía borrar).
+        const sentIdSet = new Set(reminders.filter((r) => r.notifiedAt && !rawReminders.find((x) => x.id === r.id)?.notifiedAt).map((r) => r.id));
+        let current = { data: financeData, version: (row as { updated_at: string | null }).updated_at };
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const curReminders = (current.data.reminders as ReminderLite[] | undefined) ?? [];
+          const curRules = (current.data.reminderRules as ReminderRuleLite[] | undefined) ?? [];
+          const materialized = attempt === 0 ? { reminders, rules } : materializeDueReminders(curReminders, curRules, today);
+          const now = new Date().toISOString();
+          const finalReminders = materialized.reminders.map((r) =>
+            sentIdSet.has(r.id) && !r.notifiedAt ? { ...r, notifiedAt: now } : r
+          );
+          let query = admin
+            .from("finance_data")
+            .update({ data: { ...current.data, reminders: finalReminders, reminderRules: materialized.rules }, updated_at: now })
+            .eq("user_id", ownerId);
+          query = current.version ? query.eq("updated_at", current.version) : query.is("updated_at", null);
+          const { data: updated, error: updateError } = await query.select("user_id");
+          if (updateError) {
+            console.error("Error guardando recordatorios de", ownerId, updateError);
+            break;
+          }
+          if (updated && updated.length > 0) {
+            householdsUpdated++;
+            break;
+          }
+          const { data: fresh, error: freshError } = await admin
+            .from("finance_data")
+            .select("data, updated_at")
+            .eq("user_id", ownerId)
+            .maybeSingle();
+          if (freshError || !fresh) break;
+          current = { data: (fresh.data ?? {}) as Record<string, unknown>, version: fresh.updated_at };
+        }
       }
     }
 
