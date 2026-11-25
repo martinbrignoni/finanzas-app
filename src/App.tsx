@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { Home, List, CreditCard, PieChart as PieIcon, TrendingUp, Plus, Landmark, Settings as SettingsIcon, ChevronDown, Calculator as CalculatorIcon, Coins, RefreshCw, StickyNote, Users, Sun, Moon, Building2, Bell } from "lucide-react";
 import { theme as C, useThemeMode, toggleThemeMode } from "./styles/theme";
 import { ConfirmDialog } from "./components/ui";
@@ -7,6 +7,9 @@ import { PullToRefresh } from "./components/PullToRefresh";
 import { getRepository } from "./lib/storage";
 import { accountReferences, bankReferences, cardReferences, describeReferences } from "./lib/references";
 import { createSaveQueue } from "./lib/saveQueue";
+import { importWithReload } from "./lib/lazyImport";
+import { pruneOldLogs } from "./lib/retention";
+import { todayISO } from "./lib/dates";
 import { mergeFinanceData, deepEqual } from "./lib/merge";
 import { supabase } from "./lib/supabaseClient";
 import { describeChangesByCategory, notifyOtherDevices } from "./lib/notifyChange";
@@ -43,20 +46,25 @@ import { Dashboard } from "./features/dashboard/Dashboard";
 import { Transactions, MovementModal } from "./features/transactions/Transactions";
 import { Cards, CardModal, CardPaymentModal } from "./features/cards/Cards";
 import { Budgets, BudgetModal } from "./features/budgets/Budgets";
-import { Projection } from "./features/projection/Projection";
 import { Accounts, BankModal, AccountModal } from "./features/accounts/Accounts";
-import { ExchangeRates } from "./features/exchangeRates/ExchangeRates";
 import { Notes, NoteModal } from "./features/notes/Notes";
 import { Contacts, ContactModal, ContactEntryModal, SplitExpenseModal, ConvertCurrencyModal, type SplitOwnExpense } from "./features/contacts/Contacts";
 import { Mortgage, LoanModal, PrepaymentModal } from "./features/mortgage/Mortgage";
 import { LockScreen } from "./features/security/LockScreen";
-import { Settings } from "./features/settings/Settings";
 import { CategoryModal } from "./features/settings/Categories";
 import { UserModal } from "./features/settings/Users";
 import { RecurringRuleModal } from "./features/settings/Recurring";
 import { FamilyMemberModal } from "./features/settings/FamilyMembers";
 import { VehicleModal } from "./features/settings/Vehicles";
 import { Reminders, ReminderModal } from "./features/reminders/Reminders";
+
+// Pantallas que se usan poco y arrastran librerías pesadas (gráficos de
+// Proyección, etc.): se descargan recién al abrirlas, así la app arranca más
+// rápido en el celular.
+const Projection = lazy(() => importWithReload(() => import("./features/projection/Projection")).then((m) => ({ default: m.Projection })));
+const ExchangeRates = lazy(() => importWithReload(() => import("./features/exchangeRates/ExchangeRates")).then((m) => ({ default: m.ExchangeRates })));
+const Settings = lazy(() => importWithReload(() => import("./features/settings/Settings")).then((m) => ({ default: m.Settings })));
+const lazyFallback = <div className="py-10 text-center text-sm" style={{ color: C.textMuted }}>Cargando...</div>;
 
 type TabId = "inicio" | "movimientos" | "cuentas" | "tarjetas" | "presupuestos" | "proyeccion" | "cotizaciones" | "notas" | "personas" | "hipoteca" | "recordatorios" | "configuracion";
 
@@ -191,7 +199,8 @@ export default function App() {
       // de UI de Cotizaciones para convertir la cuota).
       const withRecurring = generateDueRecurringTransactions(loaded);
       const withMortgage = await generateDueMortgagePayments(withRecurring);
-      const withReminders = generateDueReminders(withMortgage);
+      // Recorta auditoría y estadísticas de uso de más de 2 años (ver lib/retention.ts).
+      const withReminders = pruneOldLogs(generateDueReminders(withMortgage));
       setLoadError(null);
       // Si no se generó nada nuevo, lo cargado ya está así en el servidor: no
       // hace falta volver a guardarlo (antes cada apertura escribía la fila).
@@ -200,6 +209,8 @@ export default function App() {
       // Respaldo automático (ver lib/backup.ts): no bloquea la carga ni
       // hace falta esperarlo, corre en silencio y no rompe nada si falla.
       maybeRunAutomaticBackup(withReminders).catch(() => {});
+      // Precarga en segundo plano la librería de Excel, así "Exportar" responde al instante.
+      window.setTimeout(() => void import("xlsx").catch(() => {}), 4000);
     } catch (err) {
       console.error("No se pudieron cargar los datos.", err);
       setLoadError("No se pudieron traer tus datos del servidor. Revisá la conexión y probá de nuevo.");
@@ -388,7 +399,7 @@ export default function App() {
       if (refs.length > 0) {
         showNotice(
           "No se puede eliminar",
-          `Esta tarjeta tiene ${describeReferences(refs)}. Eliminarla borraría ese historial y cambiaría el saldo de las cuentas con las que la pagaste. Si ya no la usás, podés dejarla: no suma nada mientras no tenga consumos nuevos.`
+          `Esta tarjeta tiene ${describeReferences(refs)}. Eliminarla borraría ese historial y cambiaría el saldo de las cuentas con las que la pagaste. Si ya no la usás, marcala como Inactiva en Configuración → Tarjetas: deja de aparecer al cargar gastos, pero conserva su historia.`
         );
         return;
       }
@@ -448,7 +459,7 @@ export default function App() {
             kind: entry.kind,
             entityId: entry.entityId,
             seconds: entry.seconds,
-            date: now.toISOString().slice(0, 10),
+            date: todayISO(), // fecha local (antes UTC: después de las 21 h quedaba en el día siguiente)
             at: now.toISOString(),
           },
         ],
@@ -729,6 +740,9 @@ export default function App() {
   }, []);
   const updateBankFields = useCallback((id: string, partial: Partial<Bank>) => {
     setData((d) => (d ? { ...d, banks: d.banks.map((b) => (b.id === id ? { ...b, ...partial } : b)) } : d));
+  }, []);
+  const updateCardFields = useCallback((id: string, partial: Partial<Card>) => {
+    setData((d) => (d ? { ...d, cards: d.cards.map((c) => (c.id === id ? { ...c, ...partial } : c)) } : d));
   }, []);
   const updateAccountFields = useCallback((id: string, partial: Partial<Account>) => {
     setData((d) => (d ? { ...d, accounts: d.accounts.map((a) => (a.id === id ? { ...a, ...partial } : a)) } : d));
@@ -1371,8 +1385,8 @@ export default function App() {
                 onDelete={confirmDeleteBudget}
               />
             )}
-            {tab === "proyeccion" && <Projection data={data} />}
-            {tab === "cotizaciones" && <ExchangeRates />}
+            {tab === "proyeccion" && <Suspense fallback={lazyFallback}><Projection data={data} /></Suspense>}
+            {tab === "cotizaciones" && <Suspense fallback={lazyFallback}><ExchangeRates /></Suspense>}
             {tab === "notas" && (
               <Notes
                 notes={data.notes}
@@ -1434,6 +1448,7 @@ export default function App() {
               />
             )}
             {tab === "configuracion" && (
+              <Suspense fallback={lazyFallback}>
               <Settings
                 financeData={data}
                 users={data.users}
@@ -1488,12 +1503,14 @@ export default function App() {
                 onAddCard={() => setModal({ type: "card" })}
                 onEditCard={(c) => setModal({ type: "card", payload: c })}
                 onDeleteCard={confirmDeleteCard}
+                onUpdateCard={updateCardFields}
                 onAddRecurringRule={() => setModal({ type: "recurringRule" })}
                 onEditRecurringRule={(r) => setModal({ type: "recurringRule", payload: r })}
                 onToggleRecurringActive={toggleRecurringActive}
                 onDeleteRecurringRule={confirmDeleteRecurringRule}
                 onSignOut={handleSignOut}
               />
+              </Suspense>
             )}
           </>
         )}

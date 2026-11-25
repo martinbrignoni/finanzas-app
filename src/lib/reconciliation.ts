@@ -1,7 +1,15 @@
-import * as XLSX from "xlsx";
 import { toMinor } from "./money";
 import { daysBetween } from "./dates";
 import type { AccountLedgerEntry } from "./accounts";
+import type * as XLSXNS from "xlsx";
+import { importWithReload } from "./lazyImport";
+
+// La librería de Excel pesa ~400 KB: se carga recién cuando se exporta o se
+// lee un archivo, no al abrir la app.
+let XLSX: typeof XLSXNS;
+async function ensureXlsx(): Promise<void> {
+  if (!XLSX) XLSX = await importWithReload(() => import("xlsx"));
+}
 
 /**
  * Conciliación de cuentas contra un archivo externo (excel exportado de
@@ -217,6 +225,7 @@ function mergeIvaLawAdjustments(lines: StatementLine[]): StatementLine[] {
  * usable en las primeras filas de la hoja.
  */
 export async function parseReconciliationFile(file: File, sheetName: string): Promise<StatementLine[]> {
+  await ensureXlsx();
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
 

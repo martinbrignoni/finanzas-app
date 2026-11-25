@@ -69,6 +69,7 @@ export function Settings({
   onAddCard,
   onEditCard,
   onDeleteCard,
+  onUpdateCard,
   onAddRecurringRule,
   onEditRecurringRule,
   onToggleRecurringActive,
@@ -133,6 +134,7 @@ export function Settings({
   onEditAccount: (a: Account) => void;
   onDeleteAccount: (id: string) => void;
   onAddCard: () => void;
+  onUpdateCard: (id: string, partial: Partial<Card>) => void;
   onEditCard: (c: Card) => void;
   onDeleteCard: (id: string) => void;
   onAddRecurringRule: () => void;
@@ -264,6 +266,7 @@ export function Settings({
           onAdd={onAddCard}
           onEdit={onEditCard}
           onDelete={onDeleteCard}
+          onUpdate={onUpdateCard}
         />
       )}
       {section === "recurrentes" && (

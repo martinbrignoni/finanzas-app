@@ -17,6 +17,9 @@ const STORAGE_KEY = "finanzas:data";
  * Agregá un `case` acá cada vez que subas CURRENT_SCHEMA_VERSION en types.ts,
  * así los usuarios existentes no pierden su información.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any --
+   Las migraciones leen datos guardados con versiones viejas del esquema, cuya
+   forma ya no coincide con los tipos actuales: acá `any` es intencional. */
 function migrate(raw: any): FinanceData {
   if (!raw || typeof raw !== "object") return emptyFinanceData();
   let data = raw as FinanceData;
@@ -253,6 +256,7 @@ function migrate(raw: any): FinanceData {
   };
   return repairCategories ? repairOrphanCategoryPaths(normalized).data : normalized;
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 export class LocalStorageRepository implements FinanceRepository {
   async load(): Promise<FinanceData> {

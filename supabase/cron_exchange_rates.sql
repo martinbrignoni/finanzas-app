@@ -15,7 +15,9 @@ select cron.schedule(
     url := 'https://xcdlbnsvkqsetrtjhunk.supabase.co/functions/v1/exchange-rates',
     headers := jsonb_build_object(
       'Authorization', 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhjZGxibnN2a3FzZXRydGpodW5rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMzYzNDIsImV4cCI6MjA5OTkxMjM0Mn0.1TFKkgXsnylTGl4eLgwR3P69Fg9P_Kz05UuPyhCPEUs',
-      'Content-Type', 'application/json'
+      'Content-Type', 'application/json',
+      -- Secreto guardado en Supabase Vault (ver cron_secret_setup.sql); no se escribe acá porque el repo es público.
+      'x-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')
     ),
     body := '{}'::jsonb
   );

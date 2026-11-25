@@ -229,6 +229,19 @@ async function traerCotizacionesPorMoneda(
 
 Deno.serve(async (req) => {
   try {
+    // Solo el cron programado (que manda el header x-cron-secret) puede
+    // ejecutar esta función. La clave "anon" con la que se llama es pública
+    // (está en la app publicada), así que sin esto cualquiera podía
+    // dispararla. Si el secreto todavía no está configurado, se permite
+    // igual, para no cortar el cron durante la transición (ver
+    // supabase/cron_secret_setup.sql).
+    const cronSecret = Deno.env.get("CRON_SECRET");
+    if (cronSecret && req.headers.get("x-cron-secret") !== cronSecret) {
+      return new Response(JSON.stringify({ ok: false, error: "No autorizado." }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     const url = new URL(req.url);
     const dryRun = url.searchParams.get("dryRun") === "1";
     const lookbackDays = Number(url.searchParams.get("lookbackDays") ?? "10");

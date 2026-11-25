@@ -20,6 +20,7 @@ export function isCardStatementComplete(statements: CardStatement[], cardId: str
  * historial de antes de haberlo activado.
  */
 export function pendingCardStatementMonths(card: Card, statements: CardStatement[]): string[] {
+  if (card.active === false) return []; // tarjeta inactiva: ya no se piden estados de cuenta
   if (!card.statementReminders || !card.statementRemindersSince) return [];
   const thisMonth = currentMonthKey();
   const months: string[] = [];

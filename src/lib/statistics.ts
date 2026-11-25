@@ -24,7 +24,7 @@ export const STAT_PERIOD_LABELS: Record<StatPeriod, string> = {
   mes: "Este mes",
   "3meses": "Últimos 3 meses",
   anio: "Este año",
-  todo: "Todo",
+  todo: "Últimos 2 años",
 };
 
 /** Fecha (YYYY-MM-DD) desde la que contar según el período elegido, o `undefined` para "todo" (sin piso). */

@@ -1,8 +1,16 @@
-import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
 import { formatDateDMY, todayISO } from "./dates";
 import { monthlyRateOf, annualNominalRateOf, type AmortizationRow, type LoanSummary } from "./mortgage";
 import type { MortgageLoan } from "../types";
+import type * as XLSXNS from "xlsx";
+import { importWithReload } from "./lazyImport";
+
+// La librería de Excel pesa ~400 KB: se carga recién cuando se exporta o se
+// lee un archivo, no al abrir la app.
+let XLSX: typeof XLSXNS;
+async function ensureXlsx(): Promise<void> {
+  if (!XLSX) XLSX = await importWithReload(() => import("xlsx"));
+}
 
 /**
  * Exporta un préstamo hipotecario/personal completo a un Excel con:
@@ -19,7 +27,8 @@ import type { MortgageLoan } from "../types";
  * datos (fuente de verdad: el motor de cálculo de la app, `buildSchedule` +
  * `loanSummary`); la hoja Simulador es la única con fórmulas recalculables.
  */
-export function exportMortgageLoanToExcel(loan: MortgageLoan, schedule: AmortizationRow[], summary: LoanSummary): void {
+export async function exportMortgageLoanToExcel(loan: MortgageLoan, schedule: AmortizationRow[], summary: LoanSummary): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
 
   XLSX.utils.book_append_sheet(wb, buildParametrosSheet(loan), "Parametros");
@@ -37,7 +46,7 @@ export function exportMortgageLoanToExcel(loan: MortgageLoan, schedule: Amortiza
 
 const SYSTEM_LABELS: Record<string, string> = { frances: "Francés", aleman: "Alemán", americano: "Americano" };
 
-function buildParametrosSheet(loan: MortgageLoan): XLSX.WorkSheet {
+function buildParametrosSheet(loan: MortgageLoan): XLSXNS.WorkSheet {
   const rows = [
     { Parámetro: "Nombre", Valor: loan.name },
     { Parámetro: "Moneda", Valor: loan.currency },
@@ -56,7 +65,7 @@ function buildParametrosSheet(loan: MortgageLoan): XLSX.WorkSheet {
   return XLSX.utils.json_to_sheet(rows);
 }
 
-function buildResumenSheet(summary: LoanSummary): XLSX.WorkSheet {
+function buildResumenSheet(summary: LoanSummary): XLSXNS.WorkSheet {
   const rows = [
     { Concepto: "Cuota actual", Valor: fromMinor(summary.currentPaymentMinor) },
     { Concepto: "Saldo de capital (a hoy)", Valor: fromMinor(summary.balanceMinor) },
@@ -74,7 +83,7 @@ function buildResumenSheet(summary: LoanSummary): XLSX.WorkSheet {
   return ws;
 }
 
-function buildCronogramaSheet(schedule: AmortizationRow[]): XLSX.WorkSheet {
+function buildCronogramaSheet(schedule: AmortizationRow[]): XLSXNS.WorkSheet {
   const today = todayISO();
   const rows = schedule.map((r) => ({
     "N°": r.isPrepaymentSettlement ? "" : r.number,
@@ -92,7 +101,7 @@ function buildCronogramaSheet(schedule: AmortizationRow[]): XLSX.WorkSheet {
   return ws;
 }
 
-function buildAmortizacionesSheet(loan: MortgageLoan): XLSX.WorkSheet {
+function buildAmortizacionesSheet(loan: MortgageLoan): XLSXNS.WorkSheet {
   const sorted = [...loan.prepayments].sort((a, b) => a.date.localeCompare(b.date));
   const rows = sorted.map((p) => ({
     Fecha: formatDateDMY(p.date),
@@ -108,8 +117,8 @@ const MONEY_FMT = "#,##0.00";
 const PCT_FMT = "0.000000%";
 const DATE_FMT = "dd/mm/yyyy";
 
-function setCell(ws: XLSX.WorkSheet, addr: string, value: unknown, opts?: { f?: string; z?: string; t?: XLSX.ExcelDataType }) {
-  const cell: XLSX.CellObject = { v: value as string | number | boolean } as XLSX.CellObject;
+function setCell(ws: XLSXNS.WorkSheet, addr: string, value: unknown, opts?: { f?: string; z?: string; t?: XLSXNS.ExcelDataType }) {
+  const cell: XLSXNS.CellObject = { v: value as string | number | boolean } as XLSXNS.CellObject;
   if (opts?.t) cell.t = opts.t;
   else if (value instanceof Date) cell.t = "d";
   else if (typeof value === "number") cell.t = "n";
@@ -143,7 +152,7 @@ function setCell(ws: XLSX.WorkSheet, addr: string, value: unknown, opts?: { f?: 
  * días corridos es una aproximación (asume meses iguales para estimar el
  * plazo), igual que hace `monthsForPayment` en el código de la app.
  */
-function buildSimuladorSheet(loan: MortgageLoan, schedule: AmortizationRow[], summary: LoanSummary): XLSX.WorkSheet {
+function buildSimuladorSheet(loan: MortgageLoan, schedule: AmortizationRow[], summary: LoanSummary): XLSXNS.WorkSheet {
   const system = loan.system ?? "frances";
   const isActual365 = system === "frances" && (loan.dayCountConvention ?? "monthly") === "actual365";
   const i = monthlyRateOf(loan);

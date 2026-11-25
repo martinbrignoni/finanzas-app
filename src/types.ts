@@ -298,6 +298,14 @@ export interface Card {
   creditLimitMinor?: number;
   /** Moneda del límite de crédito. Solo se usa si `creditLimitMinor` está cargado. */
   creditLimitCurrency?: Currency;
+  /**
+   * `false` = tarjeta que ya no se usa: no aparece para elegir al cargar
+   * gastos nuevos ni en el listado principal de Tarjetas, y deja de pedir
+   * estados de cuenta, pero conserva toda su historia (gastos, cuotas,
+   * pagos). Si le queda deuda, sigue apareciendo en Vencimientos hasta
+   * pagarla. `undefined` se trata como activa, para no requerir migración.
+   */
+  active?: boolean;
 }
 
 /**

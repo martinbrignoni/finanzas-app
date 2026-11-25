@@ -1,6 +1,6 @@
 import { CreditCard, Landmark, Pencil, Trash2, Plus } from "lucide-react";
 import { theme as C } from "../../styles/theme";
-import { IconBtn } from "../../components/ui";
+import { IconBtn, Segment } from "../../components/ui";
 import { cardLabel } from "../../lib/cards";
 import { formatMoney } from "../../lib/money";
 import type { Bank, Card } from "../../types";
@@ -18,6 +18,7 @@ export function CardsSettings({
   onAdd,
   onEdit,
   onDelete,
+  onUpdate,
 }: {
   cards: Card[];
   banks: Bank[];
@@ -25,6 +26,7 @@ export function CardsSettings({
   onAdd: () => void;
   onEdit: (c: Card) => void;
   onDelete: (id: string) => void;
+  onUpdate: (id: string, partial: Partial<Card>) => void;
 }) {
   const unassignedCards = cards.filter((c) => !c.bankId || !banks.some((b) => b.id === c.bankId));
 
@@ -69,7 +71,7 @@ export function CardsSettings({
                 </div>
                 <div className="space-y-2">
                   {bankCards.map((card) => (
-                    <CardSettingsRow key={card.id} card={card} banks={banks} canEdit={canEdit} onEdit={onEdit} onDelete={onDelete} />
+                    <CardSettingsRow key={card.id} card={card} banks={banks} canEdit={canEdit} onEdit={onEdit} onDelete={onDelete} onUpdate={onUpdate} />
                   ))}
                 </div>
               </div>
@@ -84,7 +86,7 @@ export function CardsSettings({
               </div>
               <div className="space-y-2">
                 {unassignedCards.map((card) => (
-                  <CardSettingsRow key={card.id} card={card} banks={banks} canEdit={canEdit} onEdit={onEdit} onDelete={onDelete} />
+                  <CardSettingsRow key={card.id} card={card} banks={banks} canEdit={canEdit} onEdit={onEdit} onDelete={onDelete} onUpdate={onUpdate} />
                 ))}
               </div>
             </div>
@@ -101,15 +103,19 @@ function CardSettingsRow({
   canEdit,
   onEdit,
   onDelete,
+  onUpdate,
 }: {
   card: Card;
   banks: Bank[];
   canEdit: boolean;
   onEdit: (c: Card) => void;
   onDelete: (id: string) => void;
+  onUpdate: (id: string, partial: Partial<Card>) => void;
 }) {
+  const active = card.active !== false;
   return (
-    <div className="rounded-xl p-3 flex items-center justify-between" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+    <div className="rounded-xl p-3" style={{ background: C.surface, border: `1px solid ${C.border}`, opacity: active ? 1 : 0.75 }}>
+    <div className="flex items-center justify-between">
       <div className="flex items-center gap-2.5 min-w-0">
         <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.surface3 }}>
           <CreditCard size={15} color={C.usd} />
@@ -127,6 +133,21 @@ function CardSettingsRow({
         <div className="flex gap-1 shrink-0">
           <IconBtn label="Editar tarjeta" onClick={() => onEdit(card)}><Pencil size={15} /></IconBtn>
           <IconBtn label="Eliminar tarjeta" danger onClick={() => onDelete(card.id)}><Trash2 size={15} /></IconBtn>
+        </div>
+      )}
+    </div>
+      {canEdit && (
+        <div className="flex items-center justify-between gap-2 mt-2.5 pt-2.5" style={{ borderTop: `1px solid ${C.border}` }}>
+          <span className="text-[11px]" style={{ color: C.textFaint }}>
+            {active
+              ? "Aparece para elegir al cargar gastos."
+              : "No aparece para cargar gastos nuevos. Conserva su historia y, si tiene deuda, sigue en Vencimientos."}
+          </span>
+          <Segment
+            value={active ? "on" : "off"}
+            onChange={(v) => onUpdate(card.id, { active: v === "on" ? undefined : false })}
+            options={[{ value: "on", label: "Activa" }, { value: "off", label: "Inactiva" }]}
+          />
         </div>
       )}
     </div>
