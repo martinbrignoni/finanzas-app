@@ -480,6 +480,8 @@ function MoveCategoryModal({
   const handleSave = () => {
     if (!targetId) return setError("Elegí un destino.");
     if (targetId === category.parentId) return setError("Ya está ahí. Elegí un destino distinto.");
+    if (categories.some((c) => c.parentId === targetId && c.id !== category.id && c.name.trim().toLowerCase() === category.name.trim().toLowerCase()))
+      return setError(`Ya hay una categoría "${category.name}" en ese destino. Renombrá una de las dos antes de moverla.`);
     onMove(category.id, targetId);
   };
 

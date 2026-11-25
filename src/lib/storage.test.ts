@@ -89,4 +89,21 @@ describe("LocalStorageRepository migration", () => {
     expect(data.reminders).toEqual([]);
     expect(data.reminderRules).toEqual([]);
   });
+
+  it("v19 repara movimientos huérfanos de una categoría que se movió de madre", async () => {
+    const v18 = {
+      schemaVersion: 18,
+      transactions: [{ id: "t1", type: "gasto", amountMinor: 1000, currency: "UYU", category: "Hogar > Seguro", date: "2026-06-01" }],
+      categories: [
+        { id: "hogar", name: "Hogar", type: "gasto" },
+        { id: "auto", name: "Auto", type: "gasto" },
+        { id: "seguro", name: "Seguro", type: "gasto", parentId: "auto" },
+      ],
+      users: [],
+    };
+    window.localStorage.setItem("finanzas:data", JSON.stringify(v18));
+    const migrated = await new LocalStorageRepository().load();
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.transactions[0].category).toBe("Auto > Seguro");
+  });
 });

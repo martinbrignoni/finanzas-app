@@ -689,6 +689,8 @@ export function mortgageDueInMonth(loans: MortgageLoan[], transactions: Transact
   for (const loan of loans) {
     const alreadyRecorded = transactions.some((t) => t.mortgageLoanId === loan.id && monthKeyOf(t.date) === mk);
     if (alreadyRecorded) continue;
+    // Ya se generó (aunque después se haya borrado o movido el movimiento): está resuelta.
+    if ((loan.generatedPaymentDates ?? []).some((d) => monthKeyOf(d) === mk)) continue;
     const rows = buildSchedule(loan).filter(
       (r) =>
         !r.isPrepaymentSettlement &&
@@ -733,9 +735,15 @@ export async function generateDueMortgagePayments(d: FinanceData): Promise<Finan
   const today = todayISO();
   let transactions = d.transactions;
   let changed = false;
+  const loans: MortgageLoan[] = [];
 
   for (const loan of d.mortgageLoans) {
-    if (!loan.paymentCategory || !loan.paymentAccountId || !loan.paymentAutomationStartDate) continue;
+    if (!loan.paymentCategory || !loan.paymentAccountId || !loan.paymentAutomationStartDate) {
+      loans.push(loan);
+      continue;
+    }
+    const generated = new Set(loan.generatedPaymentDates ?? []);
+    const sizeBefore = generated.size;
 
     const rows = buildSchedule(loan).filter(
       (r) =>
@@ -745,9 +753,16 @@ export async function generateDueMortgagePayments(d: FinanceData): Promise<Finan
     );
 
     for (const row of rows) {
+      // Ya generada antes: no se vuelve a generar aunque el movimiento se
+      // haya eliminado o cambiado de mes.
+      if (generated.has(row.dueDate)) continue;
       const mk = monthKeyOf(row.dueDate);
       const alreadyRecorded = transactions.some((t) => t.mortgageLoanId === loan.id && monthKeyOf(t.date) === mk);
-      if (alreadyRecorded) continue;
+      if (alreadyRecorded) {
+        // Cuotas generadas antes de existir `generatedPaymentDates`: se anotan ahora.
+        generated.add(row.dueDate);
+        continue;
+      }
 
       let amountMinor = row.paymentMinor;
       const currency: Currency = loan.currency === "UI" ? "UYU" : loan.currency;
@@ -777,12 +792,20 @@ export async function generateDueMortgagePayments(d: FinanceData): Promise<Finan
           updatedAt: now,
         },
       ];
+      generated.add(row.dueDate);
       changed = true;
+    }
+
+    if (generated.size !== sizeBefore) {
+      loans.push({ ...loan, generatedPaymentDates: Array.from(generated).sort() });
+      changed = true;
+    } else {
+      loans.push(loan);
     }
   }
 
   if (!changed) return d;
-  return { ...d, transactions };
+  return { ...d, transactions, mortgageLoans: loans };
 }
 
 /** Formatea un monto según la moneda del préstamo. UI no es una `Currency` de cuentas/movimientos, así que no puede pasar por `formatMoney`. */

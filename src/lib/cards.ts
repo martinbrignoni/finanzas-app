@@ -37,21 +37,38 @@ export function dueForCardInMonth(cardId: string, installments: Installment[], m
  * personas pagados con esta tarjeta (ver `ContactEntry.cardId`) fechados ese
  * mes. Es lo que debería figurar en el estado de cuenta de ese período.
  */
+/**
+ * Mes del resumen (YYYY-MM, el período que CIERRA ese mes) en el que cae una
+ * compra hecha con la tarjeta en `date`, según su día de cierre. Ej. con
+ * cierre el 20, una compra del 25/10 entra en el resumen que cierra en
+ * noviembre, no en el de octubre. Si el mes tiene menos días que el día de
+ * cierre (ej. cierre 31 en noviembre), cierra el último día del mes.
+ */
+export function statementMonthOf(card: Pick<Card, "closingDay">, date: string): string {
+  const mk = monthKeyOf(date);
+  const day = Number(date.slice(8, 10));
+  const [y, m] = mk.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const closing = Math.min(card.closingDay || lastDay, lastDay);
+  return day > closing ? addMonths(mk, 1) : mk;
+}
+
 export function cardConsumptionForMonth(
-  cardId: string,
+  card: Pick<Card, "id" | "closingDay">,
   installments: Installment[],
   transactions: Transaction[],
   contactEntries: ContactEntry[],
   mk: string
 ): Record<Currency, number> {
+  const cardId = card.id;
   const total = dueForCardInMonth(cardId, installments, mk);
   transactions
-    .filter((t) => t.type === "gasto" && t.cardId === cardId && monthKeyOf(t.date) === mk)
+    .filter((t) => t.type === "gasto" && t.cardId === cardId && statementMonthOf(card, t.date) === mk)
     .forEach((t) => {
       total[t.currency] += t.amountMinor;
     });
   contactEntries
-    .filter((e) => e.cardId === cardId && monthKeyOf(e.date) === mk)
+    .filter((e) => e.cardId === cardId && statementMonthOf(card, e.date) === mk)
     .forEach((e) => {
       total[e.currency] += Math.abs(e.amountMinor);
     });
@@ -120,14 +137,18 @@ export function cardsDueInMonth(
     for (const statementMonth of candidateStatementMonths) {
       const dueDate = effectiveCardDueDate(card, cardStatements, statementMonth);
       if (monthKeyOf(dueDate) !== dueMonth) continue;
-      const consumption = cardConsumptionForMonth(card.id, installments, transactions, contactEntries, statementMonth);
+      const consumption = cardConsumptionForMonth(card, installments, transactions, contactEntries, statementMonth);
       (["UYU", "USD"] as Currency[]).forEach((cur) => {
         if (consumption[cur] <= 0) return;
-        const alreadyPaid = cardPayments.some(
-          (p) => p.cardId === card.id && p.currency === cur && monthKeyOf(p.date) === dueMonth
-        );
-        if (alreadyPaid) return;
-        items.push({ cardId: card.id, currency: cur, amountMinor: consumption[cur], statementMonth, dueDate });
+        // Se descuenta lo ya pagado en el mes del vencimiento. Antes cualquier
+        // pago (aunque fuera parcial, ej. el mínimo) daba el resumen por
+        // pagado entero y el saldo restante desaparecía de Inicio.
+        const paid = cardPayments
+          .filter((p) => p.cardId === card.id && p.currency === cur && monthKeyOf(p.date) === dueMonth)
+          .reduce((sum, p) => sum + p.amountMinor, 0);
+        const remaining = consumption[cur] - paid;
+        if (remaining <= 0) return;
+        items.push({ cardId: card.id, currency: cur, amountMinor: remaining, statementMonth, dueDate });
       });
     }
   }

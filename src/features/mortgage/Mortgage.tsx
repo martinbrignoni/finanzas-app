@@ -544,6 +544,8 @@ export function LoanModal({
       paymentCategory: wantsAutoGenerate ? paymentCategory : undefined,
       paymentAccountId: wantsAutoGenerate ? paymentAccountId : undefined,
       paymentAutomationStartDate: wantsAutoGenerate ? paymentAutomationStartDate : undefined,
+      // Se conserva al editar: si se perdiera, volverían a generarse cuotas ya generadas y borradas.
+      generatedPaymentDates: initial?.generatedPaymentDates,
     });
   };
 

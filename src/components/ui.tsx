@@ -384,12 +384,15 @@ export function ConfirmDialog({
   confirmLabel = "Eliminar",
   onConfirm,
   onCancel,
+  hideCancel = false,
 }: {
   title?: string;
   message: string;
   confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Para avisos informativos (un solo botón). */
+  hideCancel?: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
@@ -415,6 +418,7 @@ export function ConfirmDialog({
         <h3 id="confirm-title" className="text-base font-semibold mb-2 font-display" style={{ color: C.text }}>{title}</h3>
         <p className="text-sm mb-5" style={{ color: C.textMuted }}>{message}</p>
         <div className="flex gap-2">
+          {!hideCancel && (
           <button
             onClick={onCancel}
             className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
@@ -422,6 +426,7 @@ export function ConfirmDialog({
           >
             Cancelar
           </button>
+          )}
           <button
             onClick={onConfirm}
             className="flex-1 py-2.5 rounded-lg text-sm font-semibold"
