@@ -10,11 +10,11 @@ import type { MovementScope } from "../../lib/categories";
 import { CategoryModal } from "../settings/Categories";
 import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, parseDecimal, fromMinor, ivaIncluidoEn } from "../../lib/money";
-import { monthKeyOf, todayISO, monthLabel, dayLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey } from "../../lib/dates";
+import { monthKeyOf, todayISO, monthLabel, dayLabel, capitalize, formatDateDMY, formatDateTimeDMY, currentMonthKey, daysBetween } from "../../lib/dates";
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { contactKind, IVA_CONTACT_NAME, resolveIvaContact } from "../../lib/contacts";
 import { canEditOwnRecord } from "../../lib/permissions";
-import { cardLabel, cardExtensionLabel, dueForCardInMonth } from "../../lib/cards";
+import { cardLabel, cardExtensionLabel, dueForCardInMonth, selectableCards } from "../../lib/cards";
 import { fetchRateForDate } from "../../lib/exchangeRates";
 import { auditActionLabel } from "../../lib/audit";
 import { exportMovementsToExcel } from "../../lib/excelExport";
@@ -1362,11 +1362,14 @@ export function MovementModal({
   // el usuario no la haya tocado a mano. Si edita el campo, dejamos de
   // pisarla aunque cambie la cuenta o la fecha.
   const [rateAutoSuggested, setRateAutoSuggested] = useState(() => !initialTransfer);
+  /** Fecha de la cotización sugerida (para avisar si es vieja, ej. si el cron de cotizaciones dejó de correr). */
+  const [suggestedRateDate, setSuggestedRateDate] = useState<string | null>(null);
   useEffect(() => {
     if (form.kind !== "transferencia" || form.transferKind !== "cuentas" || !needsRate || !rateAutoSuggested) return;
     let cancelado = false;
     fetchRateForDate("USD", form.date).then((row) => {
       if (cancelado || !row) return;
+      setSuggestedRateDate(row.rate_date);
       setForm((f) => ({ ...f, exchangeRate: String(row.sell), toAmount: applyRate(f.fromAmount, String(row.sell)) }));
     });
     return () => {
@@ -1812,6 +1815,16 @@ export function MovementModal({
                         />
                       )}
                     </Field>
+                    {rateAutoSuggested && suggestedRateDate && (
+                      <p
+                        className="text-[11px] -mt-2 mb-3"
+                        style={{ color: daysBetween(suggestedRateDate, form.date) > 7 ? C.negative : C.textFaint }}
+                      >
+                        Cotización BCU del {formatDateDMY(suggestedRateDate)}
+                        {daysBetween(suggestedRateDate, form.date) > 7 &&
+                          ` · es de hace ${daysBetween(suggestedRateDate, form.date)} días: revisá que esté bien antes de guardar`}
+                      </p>
+                    )}
                     <Field label={`Monto que entra${toAcc ? ` (${toAcc.currency})` : ""}`}>
                       {(id) => (
                         <TextInput
@@ -1847,7 +1860,8 @@ export function MovementModal({
                       value={form.cardId}
                       placeholder="Elegí una tarjeta"
                       onChange={(cardId) => setForm((f) => ({ ...f, cardId }))}
-                      options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                      // Pago de tarjeta: se ofrecen todas, incluso inactivas, para poder cancelar la deuda que les quede.
+                      options={cards.map((c) => ({ value: c.id, label: c.active === false ? `${cardLabel(c, banks)} (inactiva)` : cardLabel(c, banks) }))}
                     />
                   )}
                 </Field>
@@ -1990,7 +2004,7 @@ export function MovementModal({
                         value={form.cardId}
                         placeholder="Elegí una tarjeta"
                         onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
-                        options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                        options={selectableCards(cards, form.cardId).map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                         defaultOpen={paymentFieldShouldAutoOpen}
                         inline
                       />
@@ -2297,7 +2311,7 @@ export function MovementModal({
                     value={form.cardId}
                     placeholder="Elegí una tarjeta"
                     onChange={(cardId) => setForm((f) => ({ ...f, cardId, cardExtensionId: defaultCardExtensionId(cards.find((c) => c.id === cardId), activeUser) }))}
-                    options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                    options={selectableCards(cards, form.cardId).map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
                     defaultOpen={paymentFieldShouldAutoOpen}
                     inline
                   />

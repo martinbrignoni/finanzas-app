@@ -83,6 +83,10 @@ export function AuditSettings({ auditLog, users }: { auditLog: AuditEntry[]; use
         />
       </div>
 
+      <p className="text-[11px] mb-3 px-1" style={{ color: C.textFaint }}>
+        Se conservan los últimos 2 años. Si necesitás guardar más, exportalo a Excel.
+      </p>
+
       {filtered.length === 0 && (
         <div className="rounded-xl p-6 text-center text-sm" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textMuted }}>
           {auditLog.length === 0 ? "Todavía no hay eventos de auditoría registrados." : "Sin resultados para este filtro."}

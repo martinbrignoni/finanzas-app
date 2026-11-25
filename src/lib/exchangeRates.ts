@@ -86,7 +86,7 @@ export async function fetchAllRateHistory(currency: ExchangeRateCurrency): Promi
   const PAGINA = 1000;
   const resultado: ExchangeRateRow[] = [];
   let desde = 0;
-  while (true) {
+  for (;;) {
     const { data, error } = await supabase
       .from("exchange_rates")
       .select("currency, rate_date, published_date, sell, arbitrage")

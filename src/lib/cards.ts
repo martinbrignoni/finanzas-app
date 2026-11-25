@@ -154,3 +154,17 @@ export function cardsDueInMonth(
   }
   return items;
 }
+
+/** `undefined` cuenta como activa (tarjetas creadas antes de existir el campo). */
+export function isCardActive(card: Card): boolean {
+  return card.active !== false;
+}
+
+/**
+ * Tarjetas para elegir en un formulario: las activas, más la que ya tiene
+ * seleccionada el registro que se está editando (aunque esté inactiva, para
+ * no perderla al editar un gasto viejo).
+ */
+export function selectableCards(cards: Card[], selectedId?: string): Card[] {
+  return cards.filter((c) => isCardActive(c) || c.id === selectedId);
+}

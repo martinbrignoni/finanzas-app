@@ -143,3 +143,34 @@ describe("hipoteca", () => {
     expect(d2.mortgageLoans[0].generatedPaymentDates?.length).toBe(d1.transactions.length);
   });
 });
+
+describe("retención de auditoría y estadísticas", () => {
+  it("descarta lo de más de 2 años y no toca lo demás", async () => {
+    const { pruneOldLogs } = await import("./retention");
+    const d: FinanceData = {
+      ...emptyFinanceData(),
+      transactions: [tx("viejo", { date: "2020-01-01" })],
+      auditLog: [{ id: "a1", at: "2024-11-01T10:00:00Z" } as never, { id: "a2", at: "2025-12-01T10:00:00Z" } as never],
+      usageSessions: [{ id: "u1", date: "2023-01-01" } as never],
+      movementTimings: [{ id: "m1", date: "2026-11-01" } as never],
+    };
+    const out = pruneOldLogs(d, new Date(2026, 10, 25));
+    expect(out.auditLog.map((e) => e.id)).toEqual(["a2"]);
+    expect(out.usageSessions).toHaveLength(0);
+    expect(out.movementTimings).toHaveLength(1);
+    expect(out.transactions).toHaveLength(1); // los movimientos nunca se recortan
+    expect(pruneOldLogs(out, new Date(2026, 10, 25))).toBe(out); // sin cambios: mismo objeto
+  });
+});
+
+describe("tarjetas inactivas", () => {
+  it("no se ofrecen para cargar gastos, salvo la ya elegida", async () => {
+    const { selectableCards } = await import("./cards");
+    const { pendingCardStatementMonths } = await import("./cardStatements");
+    const activa = { id: "a", closingDay: 20, dueDay: 5 } as Card;
+    const vieja = { id: "v", closingDay: 20, dueDay: 5, active: false, statementReminders: true, statementRemindersSince: "2026-01" } as Card;
+    expect(selectableCards([activa, vieja]).map((c) => c.id)).toEqual(["a"]);
+    expect(selectableCards([activa, vieja], "v").map((c) => c.id)).toEqual(["a", "v"]);
+    expect(pendingCardStatementMonths(vieja, [])).toEqual([]);
+  });
+});

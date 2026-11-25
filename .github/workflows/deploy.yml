@@ -26,6 +26,7 @@ jobs:
       - run: npm ci
       # Si algún test falla, no se publica (frena errores antes de llegar a producción).
       - run: npx vitest run
+      - run: npm run lint
       - run: npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import { fromMinor } from "./money";
 import { accountBalance, accountLabel, ledgerEntryLabel, type AccountLedgerEntry } from "./accounts";
 import { categoryFullPath } from "./categories";
@@ -10,6 +9,15 @@ import type { ReconciliationResult } from "./reconciliation";
 import { contactEntryAccountImpact, contactKind, contactBalance, isContactSettled } from "./contacts";
 import { entityTypeLabel, auditActionLabel } from "./audit";
 import { todayISO, formatDateTimeDMY, currentMonthKey, monthKeyOf } from "./dates";
+import type * as XLSXNS from "xlsx";
+import { importWithReload } from "./lazyImport";
+
+// La librería de Excel pesa ~400 KB: se carga recién cuando se exporta o se
+// lee un archivo, no al abrir la app.
+let XLSX: typeof XLSXNS;
+async function ensureXlsx(): Promise<void> {
+  if (!XLSX) XLSX = await importWithReload(() => import("xlsx"));
+}
 
 /** Nombres de hoja de Excel: máx 31 caracteres, sin : \ / ? * [ ] */
 function sheetName(raw: string): string {
@@ -39,14 +47,15 @@ function familyDetail(familyMembers: FamilyMember[], ids: string[] | undefined, 
     .join(", ");
 }
 
-export function exportBankToExcel(
+export async function exportBankToExcel(
   bank: Bank,
   accounts: Account[],
   transactions: Transaction[],
   transfers: Transfer[] = [],
   cardPayments: CardPayment[] = [],
   contactEntries: ContactEntry[] = []
-): void {
+): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
 
   const summary = accounts.map((acc) => ({
@@ -138,12 +147,13 @@ export function exportBankToExcel(
  * Exporta todos los movimientos (gastos/ingresos y compras en cuotas) de una
  * categoría puntual a un Excel de una sola hoja, ordenados por fecha.
  */
-export function exportCategoryToExcel(
+export async function exportCategoryToExcel(
   category: Category,
   categories: Category[],
   transactions: Transaction[],
   installments: Installment[]
-): void {
+): Promise<void> {
+  await ensureXlsx();
   const fullPath = categoryFullPath(category, categories);
 
   const txRows = transactions
@@ -186,7 +196,7 @@ export function exportCategoryToExcel(
  * monto si está cargado), quién lo cargó, fecha de alta y última
  * modificación, cantidad de comprobantes, etc.
  */
-export function exportMovementsToExcel(
+export async function exportMovementsToExcel(
   transactions: Transaction[],
   installments: Installment[],
   transfers: Transfer[],
@@ -199,7 +209,8 @@ export function exportMovementsToExcel(
   familyMembers: FamilyMember[],
   vehicles: Vehicle[],
   users: AppUser[]
-): void {
+): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
 
   const txRows = [...transactions]
@@ -330,7 +341,7 @@ export function exportMovementsToExcel(
  * tarjeta), cada tipo en su propia hoja, con el mismo detalle que
  * `exportMovementsToExcel`.
  */
-export function exportCardToExcel(
+export async function exportCardToExcel(
   card: Card,
   banks: Bank[],
   installments: Installment[],
@@ -341,7 +352,8 @@ export function exportCardToExcel(
   contacts: Contact[],
   familyMembers: FamilyMember[],
   users: AppUser[]
-): void {
+): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
 
   const instRows = [...installments]
@@ -418,14 +430,15 @@ export function exportCardToExcel(
  * Exporta todas las personas/conceptos (con su saldo actual) y todos sus
  * movimientos, en dos hojas: "Resumen" y "Movimientos".
  */
-export function exportContactsToExcel(
+export async function exportContactsToExcel(
   contacts: Contact[],
   contactEntries: ContactEntry[],
   accounts: Account[],
   banks: Bank[],
   cards: Card[],
   users: AppUser[]
-): void {
+): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
 
   const summaryRows = [...contacts]
@@ -473,7 +486,8 @@ export function exportContactsToExcel(
 }
 
 /** Exporta todos los presupuestos con el límite mensual y lo gastado en el mes en curso. */
-export function exportBudgetsToExcel(budgets: Budget[], transactions: Transaction[]): void {
+export async function exportBudgetsToExcel(budgets: Budget[], transactions: Transaction[]): Promise<void> {
+  await ensureXlsx();
   const mk = currentMonthKey();
   const monthExpenses = transactions.filter((t) => monthKeyOf(t.date) === mk && t.type === "gasto");
 
@@ -496,14 +510,15 @@ export function exportBudgetsToExcel(budgets: Budget[], transactions: Transactio
 }
 
 /** Exporta todas las reglas de movimientos recurrentes, con su configuración completa (IVA, personas, periodicidad, medio de pago). */
-export function exportRecurringRulesToExcel(
+export async function exportRecurringRulesToExcel(
   rules: RecurringRule[],
   accounts: Account[],
   banks: Bank[],
   cards: Card[],
   contacts: Contact[],
   users: AppUser[]
-): void {
+): Promise<void> {
+  await ensureXlsx();
   const rows = [...rules]
     .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate))
     .map((r) => ({
@@ -534,7 +549,8 @@ export function exportRecurringRulesToExcel(
 }
 
 /** Exporta el historial completo de auditoría (alta/modificación/baja) a un Excel. */
-export function exportAuditLogToExcel(auditLog: AuditEntry[], users: AppUser[]): void {
+export async function exportAuditLogToExcel(auditLog: AuditEntry[], users: AppUser[]): Promise<void> {
+  await ensureXlsx();
   const rows = [...auditLog]
     .sort((a, b) => a.at.localeCompare(b.at))
     .map((e) => ({
@@ -554,7 +570,8 @@ export function exportAuditLogToExcel(auditLog: AuditEntry[], users: AppUser[]):
 }
 
 /** Exporta el histórico completo de cotizaciones (una hoja por moneda) a un Excel. */
-export function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRateRow[]>): void {
+export async function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRateRow[]>): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
 
   Object.entries(porMoneda).forEach(([moneda, filas]) => {
@@ -581,7 +598,8 @@ export function exportExchangeRatesToExcel(porMoneda: Record<string, ExchangeRat
  * todas las monedas. `fileLabel` ya viene armado por quien llama (moneda +
  * fecha o rango) para nombrar el archivo.
  */
-export function exportExchangeRateSearchToExcel(currency: string, filas: ExchangeRateRow[], fileLabel: string): void {
+export async function exportExchangeRateSearchToExcel(currency: string, filas: ExchangeRateRow[], fileLabel: string): Promise<void> {
+  await ensureXlsx();
   const wb = XLSX.utils.book_new();
   const rows = filas.map((f) => ({
     "Fecha aplicable": f.rate_date,
@@ -602,7 +620,8 @@ export function exportExchangeRateSearchToExcel(currency: string, filas: Exchang
  * la app, lo que trae el archivo del banco, y en qué categoría cayó cada
  * cosa (Concilia / Posible diferencia / cada lado sin contraparte).
  */
-export function exportReconciliationToExcel(account: Account, cards: Card[], contacts: Contact[], result: ReconciliationResult): void {
+export async function exportReconciliationToExcel(account: Account, cards: Card[], contacts: Contact[], result: ReconciliationResult): Promise<void> {
+  await ensureXlsx();
   const row = (
     categoria: string,
     opts: {

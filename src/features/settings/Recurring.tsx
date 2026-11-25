@@ -9,7 +9,7 @@ import { ContactModal } from "../contacts/Contacts";
 import { formatMoney, parseAmountInput, fromMinor, ivaIncluidoEn } from "../../lib/money";
 import { formatDateDMY, todayISO } from "../../lib/dates";
 import { accountSelectLabel } from "../../lib/accounts";
-import { cardLabel } from "../../lib/cards";
+import { cardLabel, selectableCards } from "../../lib/cards";
 import { contactKind, IVA_CONTACT_NAME } from "../../lib/contacts";
 import { exportRecurringRulesToExcel } from "../../lib/excelExport";
 import type { Account, AppUser, Bank, Card, Category, Contact, Currency, RecurrencePeriod, RecurringRule, TransactionType } from "../../types";
@@ -441,7 +441,7 @@ export function RecurringRuleModal({
                 value={form.cardId}
                 placeholder="Elegí una tarjeta"
                 onChange={(cardId) => setForm((f) => ({ ...f, cardId }))}
-                options={cards.map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
+                options={selectableCards(cards, form.cardId).map((c) => ({ value: c.id, label: cardLabel(c, banks) }))}
               />
             )
           }

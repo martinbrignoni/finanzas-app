@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { CreditCard, Pencil, Trash2, Plus, X, Landmark, ShoppingBag, AlertTriangle, ChevronRight, Download } from "lucide-react";
+import { CreditCard, Pencil, Trash2, Plus, X, Landmark, ShoppingBag, AlertTriangle, ChevronRight, ChevronDown, ChevronUp, Download } from "lucide-react";
 import { theme as C } from "../../styles/theme";
 import { Modal, Field, TextInput, Select, Segment, PrimaryButton, IconBtn } from "../../components/ui";
 import { ReceiptField, ReceiptButton } from "../../components/ReceiptField";
@@ -10,7 +10,7 @@ import { currentMonthKey, monthsBetween, addMonths, monthLabel, capitalize, toda
 import { accountLabel, accountSelectLabel, isAccountActive } from "../../lib/accounts";
 import { getCardStatement, pendingCardStatementMonths } from "../../lib/cardStatements";
 import { canEditOwnRecord } from "../../lib/permissions";
-import { cardLabel, dueForCardInMonth, cardConsumptionForMonth, statementMonthOf } from "../../lib/cards";
+import { cardLabel, dueForCardInMonth, cardConsumptionForMonth, statementMonthOf, isCardActive } from "../../lib/cards";
 import { exportCardToExcel } from "../../lib/excelExport";
 import type { Card, CardExtension, Installment, Currency, FinanceData, CardPayment, Account, Bank, Transaction, CardStatement, AppUser, ContactEntry, Contact, FamilyMember } from "../../types";
 
@@ -120,8 +120,13 @@ export function Cards({
   const viewCard = data.cards.find((c) => c.id === viewCardId) ?? null;
   const activeUser = data.users.find((u) => u.id === data.activeUserId) ?? null;
 
+  const [showInactive, setShowInactive] = useState(false);
+
   const cardSummaryProps = { data, mk, onView: setViewCardId };
-  const unassignedCards = data.cards.filter((c) => !c.bankId || !data.banks.some((b) => b.id === c.bankId));
+  // Las inactivas van aparte, plegadas al final (siguen consultables).
+  const activeCards = data.cards.filter(isCardActive);
+  const inactiveCards = data.cards.filter((c) => !isCardActive(c));
+  const unassignedCards = activeCards.filter((c) => !c.bankId || !data.banks.some((b) => b.id === c.bankId));
 
   return (
     <div className="pb-24">
@@ -135,7 +140,7 @@ export function Cards({
 
       <div className="space-y-4 mb-4">
         {data.banks.map((bank) => {
-          const bankCards = data.cards.filter((c) => c.bankId === bank.id);
+          const bankCards = activeCards.filter((c) => c.bankId === bank.id);
           if (bankCards.length === 0) return null;
           return (
             <div key={bank.id}>
@@ -159,6 +164,26 @@ export function Cards({
             <div className="space-y-3">
               {unassignedCards.map((card) => <CardSummaryCard key={card.id} card={card} {...cardSummaryProps} />)}
             </div>
+          </div>
+        )}
+
+        {inactiveCards.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowInactive((v) => !v)}
+              className="flex items-center gap-1.5 mb-2 px-1 text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.textFaint }}
+            >
+              <CreditCard size={13} color={C.textFaint} />
+              Tarjetas inactivas ({inactiveCards.length})
+              {showInactive ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+            {showInactive && (
+              <div className="space-y-3" style={{ opacity: 0.8 }}>
+                {inactiveCards.map((card) => <CardSummaryCard key={card.id} card={card} {...cardSummaryProps} />)}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -631,6 +656,8 @@ export function CardModal({ initial, banks, users, onSave, onClose }: { initial?
       extensions: hasExtensions ? extensions.map((e) => ({ ...e, name: e.name.trim() })) : [],
       creditLimitMinor,
       creditLimitCurrency: creditLimitMinor != null ? creditLimitCurrency : undefined,
+      // Se conserva al editar (se cambia desde Configuración → Tarjetas).
+      active: initial?.active,
     });
   };
 

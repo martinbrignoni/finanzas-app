@@ -37,7 +37,8 @@ export function useUsageTracking(data: FinanceData | null, setData: Dispatch<Set
       const session: UsageSession = {
         id: open.id,
         userId: open.userId,
-        date: open.startedAt.slice(0, 10),
+        // Fecha local del inicio (antes se tomaba la fecha UTC: después de las 21 h quedaba en el día siguiente).
+        date: localDateOf(open.startedAt),
         startedAt: open.startedAt,
         lastActiveAt: endAtIso,
         durationSeconds,
@@ -98,4 +99,10 @@ export function useUsageTracking(data: FinanceData | null, setData: Dispatch<Set
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+}
+
+/** Fecha local (YYYY-MM-DD) de un instante ISO. */
+function localDateOf(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
